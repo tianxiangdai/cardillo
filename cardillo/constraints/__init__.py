@@ -5,3 +5,4 @@ from .prismatic import Prismatic
 from .cylindrical import Cylindrical
 from .planarizer import Planarizer
 from .fixed_distance import FixedDistance
+from .gear_transmission import GearTransmission
