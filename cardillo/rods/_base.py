@@ -7,7 +7,8 @@ import warnings
 
 from cardillo.math.algebra import norm, cross3, ax2skew
 from cardillo.math.approx_fprime import approx_fprime
-from cardillo.math.rotations import Log_SO3_quat, T_SO3_inv_quat, T_SO3_inv_quat_P
+from cardillo.math.rotations import Log_SO3_quat, T_SO3_inv_quat, T_SO3_inv_quat_P, Quaternion
+from cardillo.math.constants import I3, I4
 from cardillo.utility.coo_matrix import CooMatrix
 from cardillo.utility.check_time_derivatives import check_time_derivatives
 
@@ -463,7 +464,7 @@ class CosseratRod(RodExportBase, ABC):
             nodalDOF_p_u = self.nodalDOF_p_u[node]
             p = q[nodalDOF_p]
             B_omega_IK = u[nodalDOF_p_u]
-            q_dot[nodalDOF_p] = T_SO3_inv_quat(p, normalize=False) @ B_omega_IK
+            q_dot[nodalDOF_p] = T_SO3_inv_quat(Quaternion(p), normalize=False) @ B_omega_IK
 
         return q_dot
 
@@ -694,7 +695,7 @@ class CosseratRod(RodExportBase, ABC):
             Ji = self.J_dyn[el, i]
 
             # delta_r A_rho0 r_ddot part
-            M_el_r_r = np.eye(3) * self.cross_section_inertias.A_rho0 * Ji * qwi
+            M_el_r_r = I3 * self.cross_section_inertias.A_rho0 * Ji * qwi
             for node_a in range(self.nnodes_element_r):
                 nodalDOF_a = self.nodalDOF_element_r[node_a]
                 for node_b in range(self.nnodes_element_r):
@@ -953,7 +954,7 @@ class CosseratRod(RodExportBase, ABC):
         for node in range(self.nnodes_p):
             nodalDOF = self.nodalDOF_p[node]
             nodalDOF_S = self.nodalDOF_la_S[node]
-            coo[nodalDOF, nodalDOF] = 2 * mu[node] * np.eye(4)
+            coo[nodalDOF, nodalDOF] = 2 * mu[node] * I4
         return coo
 
     ####################################################
@@ -1046,7 +1047,7 @@ class CosseratRod(RodExportBase, ABC):
         # interpolate centerline and axis angle contributions
         J_P = np.zeros((3, self.nu_element), dtype=qe.dtype)
         for node in range(self.nnodes_element_r):
-            J_P[:, self.nodalDOF_element_r[node]] += N[node] * np.eye(3)
+            J_P[:, self.nodalDOF_element_r[node]] += N[node] * I3
         for node in range(self.nnodes_element_p):
             J_P[:, self.nodalDOF_element_p_u[node]] -= N[node] * A_IB @ B_r_CP_tilde
 
@@ -1129,9 +1130,7 @@ class CosseratRod(RodExportBase, ABC):
         N_p, _ = self.basis_functions_p(xi)
         B_J_R = np.zeros((3, self.nu_element), dtype=float)
         for node in range(self.nnodes_element_p):
-            B_J_R[:, self.nodalDOF_element_p_u[node]] += N_p[node] * np.eye(
-                3, dtype=float
-            )
+            B_J_R[:, self.nodalDOF_element_p_u[node]] += N_p[node] * I3
         return B_J_R
 
     def B_J_R_q(self, t, qe, xi):
@@ -1584,7 +1583,7 @@ class CosseratRodMixed(CosseratRod):
                 for node_la_c in range(self.nnodes_element_la_c):
                     nodalDOF_la_c = self.nodalDOF_element_la_c[node_la_c]
                     W_c_el[nodalDOF_p[:, None], nodalDOF_la_c[self.nmixed_n :]] -= (
-                        (N_p_xi * np.eye(3) - N_p * ax2skew(B_Kappa_bar))[:, self.idx_m]
+                        (N_p_xi * I3 - N_p * ax2skew(B_Kappa_bar))[:, self.idx_m]
                         * self.N_la_c[el, i, node_la_c]
                         * qwi
                     )
@@ -1974,7 +1973,7 @@ def make_CosseratRodConstrained(mixed, constraints):
                             nodalDOF_p[:, None],
                             nodalDOF_la_g[self.nconstraints_gamma :],
                         ] -= (
-                            (N_p_xi * np.eye(3) - N_p * ax2skew(B_Kappa_bar))[
+                            (N_p_xi * I3 - N_p * ax2skew(B_Kappa_bar))[
                                 :, self.constraints_kappa
                             ]
                             * self.N_la_g[el, i, node_la_g]

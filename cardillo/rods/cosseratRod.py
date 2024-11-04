@@ -15,7 +15,9 @@ from cardillo.math import (
     T_SO3_quat_P,
     Exp_SO3_quat,
     Exp_SO3_quat_p,
+    Quaternion
 )
+from cardillo.math.constants import I3, I4
 
 
 from ._base import (
@@ -173,6 +175,7 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
                 p_xi += N_xi[node] * p_node
 
             # transformation matrix
+            p = Quaternion(p)
             A_IB = Exp_SO3_quat(p, normalize=True)
 
             # dilatation and shear strains
@@ -207,21 +210,22 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
                 r_OP_node = qe[nodalDOF_r]
 
                 r_OP += N[node] * r_OP_node
-                r_OP_qe[:, nodalDOF_r] += N[node] * np.eye(3, dtype=float)
+                r_OP_qe[:, nodalDOF_r] += N[node] * I3
 
                 r_OP_xi += N_xi[node] * r_OP_node
-                r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * np.eye(3, dtype=float)
+                r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * I3
 
                 nodalDOF_p = self.nodalDOF_element_p[node]
                 p_node = qe[nodalDOF_p]
 
                 p += N[node] * p_node
-                p_qe[:, nodalDOF_p] += N[node] * np.eye(4, dtype=float)
+                p_qe[:, nodalDOF_p] += N[node] * I4
 
                 p_xi += N_xi[node] * p_node
-                p_xi_qe[:, nodalDOF_p] += N_xi[node] * np.eye(4, dtype=float)
+                p_xi_qe[:, nodalDOF_p] += N_xi[node] * I4
 
             # transformation matrix
+            p = Quaternion(p)
             A_IB = Exp_SO3_quat(p, normalize=True)
 
             # derivative w.r.t. generalized coordinates
@@ -455,10 +459,10 @@ def make_CosseratRod_SE3(mixed=True, constraints=None):
 
             H_IK0_h0 = np.zeros((4, 4, 7), dtype=float)
             H_IK0_h0[:3, :3, 3:] = A_IB0_p0
-            H_IK0_h0[:3, 3, :3] = np.eye(3, dtype=float)
+            H_IK0_h0[:3, 3, :3] = I3
             H_IB1_h1 = np.zeros((4, 4, 7), dtype=float)
             H_IB1_h1[:3, :3, 3:] = A_IB1_p1
-            H_IB1_h1[:3, 3, :3] = np.eye(3, dtype=float)
+            H_IB1_h1[:3, 3, :3] = I3
 
             # inverse transformation of first node
             H_IK0_inv = SE3inv(H_IK0)
@@ -659,10 +663,10 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
                 r_OP_node = qe[nodalDOF_r]
 
                 r_OP += N[node] * r_OP_node
-                r_OP_qe[:, nodalDOF_r] += N[node] * np.eye(3, dtype=float)
+                r_OP_qe[:, nodalDOF_r] += N[node] * I3
 
                 r_OP_xi += N_xi[node] * r_OP_node
-                r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * np.eye(3, dtype=float)
+                r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * I3
 
             # interpolate transformation matrix and its derivative + their derivatives
             A_IB = np.zeros((3, 3), dtype=qe.dtype)
