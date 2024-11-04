@@ -387,6 +387,8 @@ def make_CosseratRod_SE3(mixed=True, constraints=None):
             r_OP0, r_OP1 = qe[self.nodalDOF_element_r]
             p0, p1 = qe[self.nodalDOF_element_p]
 
+            p0 = Quaternion(p0)
+            p1 = Quaternion(p1)
             # nodal transformations
             A_IB0 = Exp_SO3_quat(p0)
             A_IB1 = Exp_SO3_quat(p1)
@@ -444,10 +446,10 @@ def make_CosseratRod_SE3(mixed=True, constraints=None):
             )
             h0 = qe[nodalDOF0]
             r_OP0 = h0[:3]
-            p0 = h0[3:]
+            p0 = Quaternion(h0[3:])
             h1 = qe[nodalDOF1]
             r_OP1 = h1[:3]
-            p1 = h1[3:]
+            p1 = Quaternion(h1[3:])
 
             # nodal transformations
             A_IB0 = Exp_SO3_quat(p0)
@@ -625,7 +627,7 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             A_IB = np.zeros((3, 3), dtype=qe.dtype)
             A_IB_xi = np.zeros((3, 3), dtype=qe.dtype)
             for node in range(self.nnodes_element_p):
-                A_IB_node = Exp_SO3_quat(qe[self.nodalDOF_element_p[node]])
+                A_IB_node = Exp_SO3_quat(Quaternion(qe[self.nodalDOF_element_p[node]]))
                 A_IB += N[node] * A_IB_node
                 A_IB_xi += N_xi[node] * A_IB_node
 
@@ -675,7 +677,7 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             A_IB_xi_qe = np.zeros((3, 3, self.nq_element), dtype=qe.dtype)
             for node in range(self.nnodes_element_p):
                 nodalDOF_p = self.nodalDOF_element_p[node]
-                p_node = qe[nodalDOF_p]
+                p_node = Quaternion(qe[nodalDOF_p])
                 A_IB_node = Exp_SO3_quat(p_node)
                 A_IB_q_node = Exp_SO3_quat_p(p_node)
 
@@ -732,7 +734,7 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             # interpolate orientation
             A_IB = np.zeros((3, 3), dtype=qe.dtype)
             for node in range(self.nnodes_element_p):
-                A_IB += N_p[node] * Exp_SO3_quat(qe[self.nodalDOF_element_p[node]])
+                A_IB += N_p[node] * Exp_SO3_quat(Quaternion(qe[self.nodalDOF_element_p[node]]))
 
             return A_IB
 
@@ -744,7 +746,7 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             A_IB_q = np.zeros((3, 3, self.nq_element), dtype=qe.dtype)
             for node in range(self.nnodes_element_p):
                 nodalDOF_p = self.nodalDOF_element_p[node]
-                A_IB_q[:, :, nodalDOF_p] += N_p[node] * Exp_SO3_quat_p(qe[nodalDOF_p])
+                A_IB_q[:, :, nodalDOF_p] += N_p[node] * Exp_SO3_quat_p(Quaternion(qe[nodalDOF_p]))
 
             return A_IB_q
 

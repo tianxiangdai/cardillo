@@ -475,7 +475,7 @@ class CosseratRod(RodExportBase, ABC):
         for node in range(self.nnodes_p):
             nodalDOF_p = self.nodalDOF_p[node]
             nodalDOF_p_u = self.nodalDOF_p_u[node]
-            p = q[nodalDOF_p]
+            p = Quaternion(q[nodalDOF_p])
             B_omega_IK = u[nodalDOF_p_u]
 
             coo[nodalDOF_p, nodalDOF_p] = np.einsum(
@@ -499,7 +499,7 @@ class CosseratRod(RodExportBase, ABC):
 
             p = q[nodalDOF_p]
             p = p / norm(p)
-            coo[nodalDOF_p, nodalDOF_p_u] = T_SO3_inv_quat(p, normalize=False)
+            coo[nodalDOF_p, nodalDOF_p_u] = T_SO3_inv_quat(Quaternion(p), normalize=False)
 
         return coo
 
