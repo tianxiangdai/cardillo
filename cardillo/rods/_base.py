@@ -7,7 +7,12 @@ import warnings
 
 from cardillo.math.algebra import norm, cross3, ax2skew
 from cardillo.math.approx_fprime import approx_fprime
-from cardillo.math.rotations import Log_SO3_quat, T_SO3_inv_quat, T_SO3_inv_quat_P, Quaternion
+from cardillo.math.rotations import (
+    Log_SO3_quat,
+    T_SO3_inv_quat,
+    T_SO3_inv_quat_P,
+    Quaternion,
+)
 from cardillo.math.constants import I3, I4
 from cardillo.utility.coo_matrix import CooMatrix
 from cardillo.utility.check_time_derivatives import check_time_derivatives
@@ -464,7 +469,9 @@ class CosseratRod(RodExportBase, ABC):
             nodalDOF_p_u = self.nodalDOF_p_u[node]
             p = q[nodalDOF_p]
             B_omega_IK = u[nodalDOF_p_u]
-            q_dot[nodalDOF_p] = T_SO3_inv_quat(Quaternion(p), normalize=False) @ B_omega_IK
+            q_dot[nodalDOF_p] = (
+                T_SO3_inv_quat(Quaternion(p), normalize=False) @ B_omega_IK
+            )
 
         return q_dot
 
@@ -499,7 +506,9 @@ class CosseratRod(RodExportBase, ABC):
 
             p = q[nodalDOF_p]
             p = p / norm(p)
-            coo[nodalDOF_p, nodalDOF_p_u] = T_SO3_inv_quat(Quaternion(p), normalize=False)
+            coo[nodalDOF_p, nodalDOF_p_u] = T_SO3_inv_quat(
+                Quaternion(p), normalize=False
+            )
 
         return coo
 

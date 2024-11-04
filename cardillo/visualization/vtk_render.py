@@ -2,9 +2,10 @@ from sys import platform
 from time import time
 from multiprocessing import Process, Queue, Event
 import vtk
-from vtk import vtkDataSetMapper, vtkActor
+from vtk import vtkDataSetMapper, vtkActor, vtkGeometryFilter
 from cardillo.solver import Solution
 from .vtk_export import make_ugrid
+from ..rods._base_export import RodExportBase
 
 
 class RendererBase:
@@ -14,17 +15,17 @@ class RendererBase:
         self.contributions = (
             system.contributions if contributions is None else contributions
         )
-        self.ren = vtk.vtkRenderer()
+        self.__renderer = vtk.vtkRenderer()
         # self.ren.SetBackground(vtkNamedColors().GetColor3d("Grey"))
-        self.ren.SetBackground(vtk.vtkNamedColors().GetColor3d("DarkGreen"))
+        self.__renderer.SetBackground(vtk.vtkNamedColors().GetColor3d("DarkGreen"))
 
         self.fps_actor = vtk.vtkTextActor()
-        self.ren.AddActor(self.fps_actor)
+        self.__renderer.AddActor(self.fps_actor)
         self._init_fps()
 
         self.renwin = vtk.vtkRenderWindow()
         self.renwin.SetWindowName("")
-        self.renwin.AddRenderer(self.ren)
+        self.renwin.AddRenderer(self.__renderer)
         self.renwin.MakeRenderWindowInteractor()
         self.renwin.SetSize(*winsize)
         self.interactor = self.renwin.GetInteractor()
@@ -32,14 +33,14 @@ class RendererBase:
             vtk.vtkCommand.ExitEvent, self.__handle_window_closed
         )
         self.cam_widget = vtk.vtkCameraOrientationWidget()
-        self.cam_widget.SetParentRenderer(self.ren)
+        self.cam_widget.SetParentRenderer(self.__renderer)
         self.cam_widget.On()
-        self.camera = self.ren.GetActiveCamera()
+        self.camera = self.__renderer.GetActiveCamera()
 
         for contr in self.contributions:
             if hasattr(contr, "actors"):
                 for actor in contr.actors:
-                    self.ren.AddActor(actor)
+                    self.__renderer.AddActor(actor)
 
     def _update_fps(self):
         self.n_frame += 1
@@ -75,18 +76,21 @@ class RendererBase:
         for contr in self.contributions:
             if hasattr(contr, "step_render"):
                 contr.step_render(t, q[contr.qDOF], u[contr.uDOF])
-            # TODO: rod needs nonlinear subdivision filter
             elif hasattr(contr, "export"):
                 points, cells, point_data, cell_data = contr.export(
                     Solution(self.system, t, q, u)
                 )
                 ugrid = make_ugrid(points, cells, point_data, cell_data)
-                if not hasattr(contr, "vtk_data_map"):
-                    contr.vtk_data_map = vtkDataSetMapper()
+                if not hasattr(contr, "_vtkfilter"):
+                    contr._vtkfilter = vtkGeometryFilter()
+                    if isinstance(contr, RodExportBase):
+                        contr._vtkfilter.SetNonlinearSubdivisionLevel(3)
+                    mapper = vtkDataSetMapper()
                     actor = vtkActor()
-                    actor.SetMapper(contr.vtk_data_map)
-                    self.ren.AddActor(actor)
-                contr.vtk_data_map.SetInputData(ugrid)
+                    actor.SetMapper(mapper)
+                    self.__renderer.AddActor(actor)
+                    mapper.SetInputConnection(contr._vtkfilter.GetOutputPort())
+                contr._vtkfilter.SetInputData(ugrid)
         self.renwin.Render()
         self.interactor.ProcessEvents()
 

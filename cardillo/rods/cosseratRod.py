@@ -15,7 +15,7 @@ from cardillo.math import (
     T_SO3_quat_P,
     Exp_SO3_quat,
     Exp_SO3_quat_p,
-    Quaternion
+    Quaternion,
 )
 from cardillo.math.constants import I3, I4
 
@@ -734,7 +734,9 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             # interpolate orientation
             A_IB = np.zeros((3, 3), dtype=qe.dtype)
             for node in range(self.nnodes_element_p):
-                A_IB += N_p[node] * Exp_SO3_quat(Quaternion(qe[self.nodalDOF_element_p[node]]))
+                A_IB += N_p[node] * Exp_SO3_quat(
+                    Quaternion(qe[self.nodalDOF_element_p[node]])
+                )
 
             return A_IB
 
@@ -746,7 +748,9 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             A_IB_q = np.zeros((3, 3, self.nq_element), dtype=qe.dtype)
             for node in range(self.nnodes_element_p):
                 nodalDOF_p = self.nodalDOF_element_p[node]
-                A_IB_q[:, :, nodalDOF_p] += N_p[node] * Exp_SO3_quat_p(Quaternion(qe[nodalDOF_p]))
+                A_IB_q[:, :, nodalDOF_p] += N_p[node] * Exp_SO3_quat_p(
+                    Quaternion(qe[nodalDOF_p])
+                )
 
             return A_IB_q
 
