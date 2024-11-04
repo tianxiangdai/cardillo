@@ -12,6 +12,7 @@ from cardillo.math import (
     T_SO3_inv_quat,
     T_SO3_inv_quat_P,
     Spurrier,
+    Quaternion
 )
 
 
@@ -94,20 +95,20 @@ class RigidBody:
     def q_dot(self, t, q, u):
         q_dot = np.zeros(self.nq, dtype=np.common_type(q, u))
         q_dot[:3] = u[:3]
-        q_dot[3:] = T_SO3_inv_quat(q[3:], normalize=False) @ u[3:]
+        q_dot[3:] = T_SO3_inv_quat(Quaternion(q[3:]), normalize=False) @ u[3:]
         return q_dot
 
     def q_dot_q(self, t, q, u):
         q_dot_q = np.zeros((self.nq, self.nq), dtype=np.common_type(q, u))
         q_dot_q[3:, 3:] = np.einsum(
-            "ijk,j->ik", T_SO3_inv_quat_P(q[3:], normalize=False), u[3:]
+            "ijk,j->ik", T_SO3_inv_quat_P(Quaternion(q[3:]), normalize=False), u[3:]
         )
         return q_dot_q
 
     def q_dot_u(self, t, q):
         q_dot_u = np.zeros((self.nq, self.nu), dtype=q.dtype)
         q_dot_u[:3, :3] = np.eye(3, dtype=q.dtype)
-        q_dot_u[3:, 3:] = T_SO3_inv_quat(q[3:], normalize=False)
+        q_dot_u[3:, 3:] = T_SO3_inv_quat(Quaternion(q[3:]), normalize=False)
         return q_dot_u
 
     def step_callback(self, t, q, u):
@@ -164,7 +165,7 @@ class RigidBody:
         key=lambda self, t, q, xi=None: hashkey(t, *q),
     )
     def A_IB(self, t, q, xi=None):
-        return Exp_SO3_quat(q[3:])
+        return Exp_SO3_quat(Quaternion(q[3:]))
 
     @cachedmethod(
         lambda self: self.A_IB_q_cache,
@@ -172,7 +173,7 @@ class RigidBody:
     )
     def A_IB_q(self, t, q, xi=None):
         A_IB_q = np.zeros((3, 3, self.nq), dtype=q.dtype)
-        A_IB_q[:, :, 3:] = Exp_SO3_quat_p(q[3:])
+        A_IB_q[:, :, 3:] = Exp_SO3_quat_p(Quaternion(q[3:]))
         return A_IB_q
 
     @cachedmethod(
