@@ -14,6 +14,28 @@ class Quaternion:
         self.p0, self.p = P[0], P[1:4]
         self.P2 = P @ P
 
+        self.__p_tilde = None
+        self.__p_tilde_p = None
+        self.__p_tilde2 = None
+
+    @property
+    def p_tilde(self):
+        if self.__p_tilde is None:
+            self.__p_tilde = ax2skew(self.p)
+        return self.__p_tilde
+
+    @property
+    def p_tilde_p(self):
+        if self.__p_tilde_p is None:
+            self.__p_tilde_p = ax2skew_a()
+        return self.__p_tilde_p
+
+    @property
+    def p_tilde2(self):
+        if self.__p_tilde2 is None:
+            self.__p_tilde2 = self.p_tilde @ self.p_tilde
+        return self.__p_tilde2
+
 
 def Exp_SO3(psi: np.ndarray) -> np.ndarray:
     """SO(3) exponential function, see Crisfield1999 above (4.1) and 
@@ -559,24 +581,24 @@ def Exp_SO3_quat(quat: Quaternion, normalize=True):
     Nuetzi2016: https://www.research-collection.ethz.ch/handle/20.500.11850/117165
     """
     p0, p = quat.p0, quat.p
-    p_tilde = ax2skew(p)
+    p_tilde = quat.p_tilde
     if normalize:
         P2 = quat.P2
-        return I3 + (2 / P2) * (p0 * p_tilde + p_tilde @ p_tilde)
+        return I3 + (2 / P2) * (p0 * p_tilde + quat.p_tilde2)
     else:
-        return I3 + 2 * (p0 * p_tilde + p_tilde @ p_tilde)
+        return I3 + 2 * (p0 * p_tilde + quat.p_tilde2e)
 
 
 def Exp_SO3_quat_p(quat: Quaternion, normalize=True):
     """Derivative of Exp_SO3_quat with respect to P."""
-    p0, p = quat.p0, quat.p
-    p_tilde = ax2skew(p)
-    p_tilde_p = ax2skew_a()
+    p0 = quat.p0
+    p_tilde = quat.p_tilde
+    p_tilde_p = quat.p_tilde_p
 
     if normalize:
         P2 = quat.P2
         A_P = np.einsum(
-            "ij,k->ijk", p0 * p_tilde + p_tilde @ p_tilde, -(4 / (P2 * P2)) * quat.P
+            "ij,k->ijk", p0 * p_tilde + quat.p_tilde2, -(4 / (P2 * P2)) * quat.P
         )
         s2 = 2 / P2
         A_P[:, :, 0] += s2 * p_tilde
@@ -666,9 +688,9 @@ def T_SO3_quat(quat: Quaternion, normalize=True):
     """
     p0, p = quat.p0, quat.p
     if normalize:
-        return (2 / (quat.P2)) * np.hstack((-p[:, None], p0 * I3 - ax2skew(p)))
+        return (2 / (quat.P2)) * np.hstack((-p[:, None], p0 * I3 - quat.p_tilde))
     else:
-        return 2 * np.hstack((-p[:, None], p0 * I3 - ax2skew(p)))
+        return 2 * np.hstack((-p[:, None], p0 * I3 - quat.p_tilde))
 
 
 def T_SO3_inv_quat(quat: Quaternion, normalize=True):
@@ -682,9 +704,9 @@ def T_SO3_inv_quat(quat: Quaternion, normalize=True):
     """
     p0, p = quat.p0, quat.p
     if normalize:
-        return (0.5 / (quat.P2)) * np.vstack((-p.T, p0 * I3 + ax2skew(p)))
+        return (0.5 / (quat.P2)) * np.vstack((-p.T, p0 * I3 + quat.p_tilde))
     else:
-        return 0.5 * np.vstack((-p.T, p0 * I3 + ax2skew(p)))
+        return 0.5 * np.vstack((-p.T, p0 * I3 + quat.p_tilde))
 
 
 def T_SO3_quat_P(quat: Quaternion, normalize=True):
@@ -693,18 +715,18 @@ def T_SO3_quat_P(quat: Quaternion, normalize=True):
         P2 = quat.P2
         T_P = np.einsum(
             "ij,k->ijk",
-            np.hstack((-p[:, None], p0 * I3 - ax2skew(p))),
+            np.hstack((-p[:, None], p0 * I3 - quat.p_tilde)),
             -4 * quat.P / (P2 * P2),
         )
         P22 = 2 / P2
         T_P[:, 0, 1:] -= P22 * I3
         T_P[:, 1:, 0] += P22 * I3
-        T_P[:, 1:, 1:] -= P22 * ax2skew_a()
+        T_P[:, 1:, 1:] -= P22 * quat.p_tilde_p
     else:
         T_P = np.zeros((3, 4, 4), dtype=float)
         T_P[:, 0, 1:] -= 2 * I3
         T_P[:, 1:, 0] += 2 * I3
-        T_P[:, 1:, 1:] -= 2 * ax2skew_a()
+        T_P[:, 1:, 1:] -= 2 * quat.p_tilde_p
 
     return T_P
 
@@ -723,18 +745,18 @@ def T_SO3_inv_quat_P(quat: Quaternion, normalize=True):
         s = quat.P2
         T_inv_P = np.einsum(
             "ij,k->ijk",
-            np.vstack((-p.T, p0 * I3 + ax2skew(p))),
+            np.vstack((-p.T, p0 * I3 + quat.p_tilde)),
             -quat.P / (s * s),
         )
         s2 = 0.5 / s
         T_inv_P[0, :, 1:] -= s2 * I3
         T_inv_P[1:, :, 0] += s2 * I3
-        T_inv_P[1:, :, 1:] += s2 * ax2skew_a()
+        T_inv_P[1:, :, 1:] += s2 * quat.p_tilde_p
     else:
         T_inv_P = np.zeros((4, 3, 4), dtype=float)
         T_inv_P[0, :, 1:] = -0.5 * I3
         T_inv_P[1:, :, 0] = 0.5 * I3
-        T_inv_P[1:, :, 1:] = 0.5 * ax2skew_a()
+        T_inv_P[1:, :, 1:] = 0.5 * quat.p_tilde_p
     return T_inv_P
 
     # from cardillo.math import approx_fprime
