@@ -11,7 +11,7 @@ angle_singular = 0.0
 class Quaternion:
     def __init__(self, P) -> None:
         self.P = P
-        self.p0, self.p = np.array_split(P, [1])
+        self.p0, self.p = P[0], P[1:4]
         self.P2 = P @ P
 
 
