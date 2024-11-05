@@ -263,8 +263,12 @@ class CosseratRod(RodExportBase, ABC):
                 qpi = self.qp[el, i]
 
                 # evaluate required quantities
-                _, _, B_Gamma_bar, B_Kappa_bar = self._eval(
-                    qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
+                B_Gamma_bar, B_Kappa_bar = self._eval(
+                    qe,
+                    qpi,
+                    N=self.N_r[el, i],
+                    N_xi=self.N_r_xi[el, i],
+                    evals=("B_Gamma_bar", "B_Kappa_bar"),
                 )
 
                 # length of reference tangential vector
@@ -286,7 +290,9 @@ class CosseratRod(RodExportBase, ABC):
                 qpi = self.qp_dyn[el, i]
                 N, N_xi = self.basis_functions_r(qpi)
                 # evaluate required quantities
-                _, _, B_Gamma_bar, B_Kappa_bar = self._eval(qe, qpi, N, N_xi)
+                B_Gamma_bar, B_Kappa_bar = self._eval(
+                    qe, qpi, N, N_xi, evals=("B_Gamma_bar", "B_Kappa_bar")
+                )
 
                 # length of reference tangential vector
                 self.J_dyn[el, i] = norm(B_Gamma_bar)
@@ -541,8 +547,12 @@ class CosseratRod(RodExportBase, ABC):
             B_Kappa0 = self.B_Kappa0[el, i]
 
             # evaluate required quantities
-            _, _, B_Gamma_bar, B_Kappa_bar = self._eval(
-                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
+            B_Gamma_bar, B_Kappa_bar = self._eval(
+                qe,
+                qpi,
+                N=self.N_r[el, i],
+                N_xi=self.N_r_xi[el, i],
+                evals=("B_Gamma_bar", "B_Kappa_bar"),
             )
 
             # axial and shear strains
@@ -763,8 +773,12 @@ class CosseratRod(RodExportBase, ABC):
             B_Kappa0 = self.B_Kappa0[el, i]
 
             # evaluate required quantities
-            _, A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
-                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
+            A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
+                qe,
+                qpi,
+                N=self.N_r[el, i],
+                N_xi=self.N_r_xi[el, i],
+                evals=("A_IB", "B_Gamma_bar", "B_Kappa_bar"),
             )
 
             # axial and shear strains
@@ -808,15 +822,26 @@ class CosseratRod(RodExportBase, ABC):
 
             # evaluate required quantities
             (
-                r_OP,
                 A_IB,
                 B_Gamma_bar,
                 B_Kappa_bar,
-                r_OP_qe,
                 A_IB_qe,
                 B_Gamma_bar_qe,
                 B_Kappa_bar_qe,
-            ) = self._deval(qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i])
+            ) = self._deval(
+                qe,
+                qpi,
+                N=self.N_r[el, i],
+                N_xi=self.N_r_xi[el, i],
+                evals=(
+                    "A_IB",
+                    "B_Gamma_bar",
+                    "B_Kappa_bar",
+                    "A_IB_qe",
+                    "B_Gamma_bar_qe",
+                    "B_Kappa_bar_qe",
+                ),
+            )
 
             # axial and shear strains
             B_Gamma = B_Gamma_bar / Ji
@@ -978,24 +1003,14 @@ class CosseratRod(RodExportBase, ABC):
     ##########################
     def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
         N, N_xi = self.basis_functions_r(xi)
-        r_OC, A_IB, _, _ = self._eval(qe, xi, N, N_xi)
+        r_OC, A_IB = self._eval(qe, xi, N, N_xi, evals=("r_OP", "A_IB"))
         return r_OC + A_IB @ B_r_CP
 
     # TODO: Think of a faster version than using _deval
     def r_OP_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
         # evaluate required quantities
         N, N_xi = self.basis_functions_r(xi)
-        (
-            r_OC,
-            A_IB,
-            _,
-            _,
-            r_OC_q,
-            A_IB_q,
-            _,
-            _,
-        ) = self._deval(qe, xi, N, N_xi)
-
+        (r_OC_q, A_IB_q) = self._deval(qe, xi, N, N_xi, evals=("r_OP_qe", "A_IB_qe"))
         return r_OC_q + np.einsum("ijk,j->ik", A_IB_q, B_r_CP)
 
     def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
@@ -1045,8 +1060,9 @@ class CosseratRod(RodExportBase, ABC):
         J_P = np.zeros((3, self.nu_element), dtype=qe.dtype)
         for node in range(self.nnodes_element_r):
             J_P[:, self.nodalDOF_element_r[node]] += N[node] * I3
+        A = A_IB @ B_r_CP_tilde
         for node in range(self.nnodes_element_p):
-            J_P[:, self.nodalDOF_element_p_u[node]] -= N[node] * A_IB @ B_r_CP_tilde
+            J_P[:, self.nodalDOF_element_p_u[node]] -= N[node] * A
 
         return J_P
 
@@ -1158,13 +1174,17 @@ class CosseratRod(RodExportBase, ABC):
         qe = q[self.elDOF[el]]
 
         N, N_xi = self.basis_functions_r(xi)
-        _, _, B_Gamma_bar0, B_Kappa_bar0 = self._eval(Qe, xi, N, N_xi)
+        B_Gamma_bar0, B_Kappa_bar0 = self._eval(
+            Qe, xi, N, N_xi, evals=("B_Gamma_bar", "B_Kappa_bar")
+        )
 
         J = norm(B_Gamma_bar0)
         B_Gamma0 = B_Gamma_bar0 / J
         B_Kappa0 = B_Kappa_bar0 / J
 
-        _, _, B_Gamma_bar, B_Kappa_bar = self._eval(qe, xi, N, N_xi)
+        B_Gamma_bar, B_Kappa_bar = self._eval(
+            qe, xi, N, N_xi, evals=("B_Gamma_bar", "B_Kappa_bar")
+        )
 
         B_Gamma = B_Gamma_bar / J
         B_Kappa = B_Kappa_bar / J
@@ -1180,13 +1200,17 @@ class CosseratRod(RodExportBase, ABC):
         qe = q[self.elDOF[el]]
 
         N, N_xi = self.basis_functions_r(xi)
-        _, _, B_Gamma_bar0, B_Kappa_bar0 = self._eval(Qe, xi, N, N_xi)
+        B_Gamma_bar0, B_Kappa_bar0 = self._eval(
+            Qe, xi, N, N_xi, evals=("B_Gamma_bar", "B_Kappa_bar")
+        )
 
         J = norm(B_Gamma_bar0)
         B_Gamma0 = B_Gamma_bar0 / J
         B_Kappa0 = B_Kappa_bar0 / J
 
-        _, _, B_Gamma_bar, B_Kappa_bar = self._eval(qe, xi, N, N_xi)
+        B_Gamma_bar, B_Kappa_bar = self._eval(
+            qe, xi, N, N_xi, evals=("B_Gamma_bar", "B_Kappa_bar")
+        )
 
         B_Gamma = B_Gamma_bar / J
         B_Kappa = B_Kappa_bar / J
@@ -1424,8 +1448,12 @@ class CosseratRodMixed(CosseratRod):
             B_Kappa0 = self.B_Kappa0[el, i]
 
             # evaluate required quantities
-            _, _, B_Gamma_bar, B_Kappa_bar = self._eval(
-                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
+            B_Gamma_bar, B_Kappa_bar = self._eval(
+                qe,
+                qpi,
+                N=self.N_r[el, i],
+                N_xi=self.N_r_xi[el, i],
+                evals=("B_Gamma_bar", "B_Kappa_bar"),
             )
 
             la_c = np.zeros(self.mesh_la_c.dim_q, dtype=la_ce.dtype)
@@ -1515,15 +1543,15 @@ class CosseratRodMixed(CosseratRod):
 
             # evaluate required quantities
             (
-                _,
-                _,
-                _,
-                _,
-                _,
-                _,
                 B_Gamma_bar_qe,
                 B_Kappa_bar_qe,
-            ) = self._deval(qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i])
+            ) = self._deval(
+                qe,
+                qpi,
+                N=self.N_r[el, i],
+                N_xi=self.N_r_xi[el, i],
+                evals=("B_Gamma_bar_qe", "B_Kappa_bar_qe"),
+            )
 
             delta_strains_qe = np.vstack((B_Gamma_bar_qe, B_Kappa_bar_qe))
 
@@ -1553,8 +1581,12 @@ class CosseratRodMixed(CosseratRod):
             qwi = self.qw[el, i]
 
             # evaluate required quantities
-            _, A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
-                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
+            A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
+                qe,
+                qpi,
+                N=self.N_r[el, i],
+                N_xi=self.N_r_xi[el, i],
+                evals=("A_IB", "B_Gamma_bar", "B_Kappa_bar"),
             )
 
             ############################
@@ -1615,15 +1647,20 @@ class CosseratRodMixed(CosseratRod):
 
             # evaluate required quantities
             (
-                r_OP,
-                A_IB,
-                B_Gamma_bar,
-                B_Kappa_bar,
-                r_OP_qe,
                 A_IB_qe,
                 B_Gamma_bar_qe,
                 B_Kappa_bar_qe,
-            ) = self._deval(qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i])
+            ) = self._deval(
+                qe,
+                qpi,
+                N=self.N_r[el, i],
+                N_xi=self.N_r_xi[el, i],
+                evals=(
+                    "A_IB_qe",
+                    "B_Gamma_bar_qe",
+                    "B_Kappa_bar_qe",
+                ),
+            )
 
             # interpolation of the n and m
             la_c = np.zeros(self.mesh_la_c.dim_q, dtype=qe.dtype)
@@ -1676,7 +1713,9 @@ class CosseratRodMixed(CosseratRod):
         Qe = self.Q[self.elDOF[el]]
 
         N, N_xi = self.basis_functions_r(xi)
-        _, _, B_Gamma_bar0, B_Kappa_bar0 = self._eval(Qe, xi, N, N_xi)
+        B_Gamma_bar0, B_Kappa_bar0 = self._eval(
+            Qe, xi, N, N_xi, evals=("B_Gamma_bar", "B_Kappa_bar")
+        )
 
         J = norm(B_Gamma_bar0)
         B_Gamma0 = B_Gamma_bar0 / J

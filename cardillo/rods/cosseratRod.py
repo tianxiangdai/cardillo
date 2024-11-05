@@ -152,13 +152,19 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
                 B_omega_IK0,
             )
 
-        @cachedmethod(
-            lambda self: self._eval_cache,
-            key=lambda self, qe, xi, N, N_xi: hashkey(*qe, xi),
-        )
-        def _eval(self, qe, xi, N, N_xi):
+        # @cachedmethod(
+        #     lambda self: self._eval_cache,
+        #     key=lambda self, qe, xi, N, N_xi, evals=("r_OP", "A_IB", "B_Gamma_bar", "B_Kappa_bar"): hashkey(*qe, xi, *evals),
+        # )
+        def _eval(
+            self, qe, xi, N, N_xi, evals=("r_OP", "A_IB", "B_Gamma_bar", "B_Kappa_bar")
+        ):
             # evaluate shape functions
             # N, N_xi = self.basis_functions_r(xi)
+
+            ret = {}
+            for e in evals:
+                ret[e] = None
 
             # interpolate
             r_OP = np.zeros(3, dtype=qe.dtype)
@@ -167,32 +173,69 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
             p_xi = np.zeros(4, dtype=float)
             for node in range(self.nnodes_element_r):
                 r_OP_node = qe[self.nodalDOF_element_r[node]]
-                r_OP += N[node] * r_OP_node
-                r_OP_xi += N_xi[node] * r_OP_node
+                if "r_OP" in evals:
+                    r_OP += N[node] * r_OP_node
+                if "B_Gamma_bar" in evals:
+                    r_OP_xi += N_xi[node] * r_OP_node
 
                 p_node = qe[self.nodalDOF_element_p[node]]
-                p += N[node] * p_node
-                p_xi += N_xi[node] * p_node
+                if any([e in evals for e in ["A_IB", "B_Gamma_bar", "B_Kappa_bar"]]):
+                    p += N[node] * p_node
+
+                if "B_Kappa_bar" in evals:
+                    p_xi += N_xi[node] * p_node
+
+            p = Quaternion(p)
+
+            if "r_OP" in evals:
+                ret["r_OP"] = r_OP
 
             # transformation matrix
-            p = Quaternion(p)
-            A_IB = Exp_SO3_quat(p, normalize=True)
+            if "A_IB" in evals:
+                A_IB = Exp_SO3_quat(p, normalize=True)
+                ret["A_IB"] = A_IB
+            elif "B_Gamma_bar" in evals:
+                A_IB = Exp_SO3_quat(p, normalize=True)
 
             # dilatation and shear strains
-            B_Gamma_bar = A_IB.T @ r_OP_xi
+            if "B_Gamma_bar" in evals:
+                B_Gamma_bar = A_IB.T @ r_OP_xi
+                ret["B_Gamma_bar"] = B_Gamma_bar
 
             # curvature, Rucker2018 (17)
-            B_Kappa_bar = T_SO3_quat(p, normalize=True) @ p_xi
+            if "B_Kappa_bar" in evals:
+                B_Kappa_bar = T_SO3_quat(p, normalize=True) @ p_xi
+                ret["B_Kappa_bar"] = B_Kappa_bar
 
-            return r_OP, A_IB, B_Gamma_bar, B_Kappa_bar
+            return tuple(ret.values())
 
-        @cachedmethod(
-            lambda self: self._deval_cache,
-            key=lambda self, qe, xi, N, N_xi: hashkey(*qe, xi),
-        )
-        def _deval(self, qe, xi, N, N_xi):
+        # @cachedmethod(
+        #     lambda self: self._deval_cache,
+        #     key=lambda self, qe, xi, N, N_xi, evals=("r_OP", "A_IB", "B_Gamma_bar", "B_Kappa_bar"): hashkey(*qe, xi, *evals),
+        # )
+        def _deval(
+            self,
+            qe,
+            xi,
+            N,
+            N_xi,
+            evals=(
+                "r_OP",
+                "A_IB",
+                "B_Gamma_bar",
+                "B_Kappa_bar",
+                "r_OP_qe",
+                "A_IB_qe",
+                "B_Gamma_bar_qe",
+                "B_Kappa_bar_qe",
+            ),
+        ):
             # evaluate shape functions
             # N, N_xi = self.basis_functions_r(xi)
+
+            ret = {}
+            for e in evals:
+                ret[e] = None
 
             # interpolate
             r_OP = np.zeros(3, dtype=qe.dtype)
@@ -209,61 +252,100 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
                 nodalDOF_r = self.nodalDOF_element_r[node]
                 r_OP_node = qe[nodalDOF_r]
 
-                r_OP += N[node] * r_OP_node
-                r_OP_qe[:, nodalDOF_r] += N[node] * I3
+                if "r_OP" in evals:
+                    r_OP += N[node] * r_OP_node
 
-                r_OP_xi += N_xi[node] * r_OP_node
-                r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * I3
+                if "r_OP_qe" in evals:
+                    r_OP_qe[:, nodalDOF_r] += N[node] * I3
+
+                if any([e in evals for e in ["B_Gamma_bar", "B_Gamma_bar_qe"]]):
+                    r_OP_xi += N_xi[node] * r_OP_node
+
+                if "B_Gamma_bar_qe" in evals:
+                    r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * I3
 
                 nodalDOF_p = self.nodalDOF_element_p[node]
                 p_node = qe[nodalDOF_p]
 
-                p += N[node] * p_node
-                p_qe[:, nodalDOF_p] += N[node] * I4
+                if any(
+                    [
+                        e in evals
+                        for e in ["A_IB", "B_Gamma_bar", "A_IB_qe", "B_Gamma_bar_qe"]
+                    ]
+                ):
+                    p += N[node] * p_node
 
-                p_xi += N_xi[node] * p_node
-                p_xi_qe[:, nodalDOF_p] += N_xi[node] * I4
+                if any(
+                    [
+                        e in evals
+                        for e in ["A_IB_qe", "B_Gamma_bar_qe", "B_Kappa_bar_qe"]
+                    ]
+                ):
+                    p_qe[:, nodalDOF_p] += N[node] * I4
+
+                if any([e in evals for e in ["B_Kappa_bar", "B_Kappa_bar_qe"]]):
+                    p_xi += N_xi[node] * p_node
+
+                if "B_Kappa_bar_qe" in evals:
+                    p_xi_qe[:, nodalDOF_p] += N_xi[node] * I4
+
+            if "r_OP" in evals:
+                ret["r_OP"] = r_OP
+
+            if "r_OP_qe" in evals:
+                ret["r_OP_qe"] = r_OP_qe
 
             # transformation matrix
             p = Quaternion(p)
-            A_IB = Exp_SO3_quat(p, normalize=True)
+
+            if "A_IB" in evals:
+                A_IB = Exp_SO3_quat(p, normalize=True)
+                ret["A_IB"] = A_IB
+            elif "B_Gamma_bar" in evals or "B_Gamma_bar_qe" in evals:
+                A_IB = Exp_SO3_quat(p, normalize=True)
 
             # derivative w.r.t. generalized coordinates
-            A_IB_qe = Exp_SO3_quat_p(p, normalize=True) @ p_qe
+            if "A_IB_qe" in evals:
+                A_IB_qe = Exp_SO3_quat_p(p, normalize=True) @ p_qe
+                ret["A_IB_qe"] = A_IB_qe
+            elif "B_Gamma_bar_qe" in evals:
+                A_IB_qe = Exp_SO3_quat_p(p, normalize=True) @ p_qe
 
             # axial and shear strains
-            B_Gamma_bar = A_IB.T @ r_OP_xi
-            B_Gamma_bar_qe = np.einsum("k,kij", r_OP_xi, A_IB_qe) + A_IB.T @ r_OP_xi_qe
+            if "B_Gamma_bar" in evals:
+                B_Gamma_bar = A_IB.T @ r_OP_xi
+                ret["B_Gamma_bar"] = B_Gamma_bar
+
+            if "B_Gamma_bar_qe" in evals:
+                B_Gamma_bar_qe = (
+                    np.einsum("k,kij", r_OP_xi, A_IB_qe) + A_IB.T @ r_OP_xi_qe
+                )
+                ret["B_Gamma_bar_qe"] = B_Gamma_bar_qe
 
             # curvature, Rucker2018 (17)
-            T = T_SO3_quat(p, normalize=True)
-            B_Kappa_bar = T @ p_xi
+            if "B_Kappa_bar" in evals:
+                T = T_SO3_quat(p, normalize=True)
+                B_Kappa_bar = T @ p_xi
+                ret["B_Kappa_bar"] = B_Kappa_bar
 
             # B_Kappa_bar_qe = approx_fprime(qe, lambda qe: self._eval(qe, xi)[3])
-            B_Kappa_bar_qe = (
-                np.einsum(
-                    "ijk,j->ik",
-                    T_SO3_quat_P(p, normalize=True),
-                    p_xi,
+            if "B_Kappa_bar_qe" in evals:
+                B_Kappa_bar_qe = (
+                    np.einsum(
+                        "ijk,j->ik",
+                        T_SO3_quat_P(p, normalize=True),
+                        p_xi,
+                    )
+                    @ p_qe
+                    + T @ p_xi_qe
                 )
-                @ p_qe
-                + T @ p_xi_qe
-            )
+                ret["B_Kappa_bar_qe"] = B_Kappa_bar_qe
 
-            return (
-                r_OP,
-                A_IB,
-                B_Gamma_bar,
-                B_Kappa_bar,
-                r_OP_qe,
-                A_IB_qe,
-                B_Gamma_bar_qe,
-                B_Kappa_bar_qe,
-            )
+            return tuple(ret.values())
 
         def A_IB(self, t, qe, xi):
             N, N_xi = self.basis_functions_r(xi)
-            return self._eval(qe, xi, N, N_xi)[1]
+            return self._eval(qe, xi, N, N_xi, evals=("A_IB",))[0]
             # # evaluate shape functions
             # N_p, _ = self.basis_functions_p(xi)
 
@@ -279,7 +361,7 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
         def A_IB_q(self, t, qe, xi):
             # return approx_fprime(q, lambda q: self.A_IB(t, q, xi))
             N, N_xi = self.basis_functions_r(xi)
-            return self._deval(qe, xi, N, N_xi)[5]
+            return self._deval(qe, xi, N, N_xi, evals=("A_IB_qe",))[0]
 
     return CosseratRod_Quat
 
