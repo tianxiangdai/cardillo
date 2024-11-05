@@ -7,11 +7,13 @@ from .constants import I3
 # angle_singular = 1.0e-6
 angle_singular = 0.0
 
+
 class Quaternion:
     def __init__(self, P) -> None:
         self.P = P
-        self.p0, self.p = np.array_split(P, [1])
+        self.p0, self.p = P[0], P[1:4]
         self.P2 = P @ P
+
 
 def Exp_SO3(psi: np.ndarray) -> np.ndarray:
     """SO(3) exponential function, see Crisfield1999 above (4.1) and 
@@ -30,9 +32,7 @@ def Exp_SO3(psi: np.ndarray) -> np.ndarray:
         alpha = sa / angle
         beta2 = (1.0 - ca) / (angle * angle)
         psi_tilde = ax2skew(psi)
-        return (
-            I3 + alpha * psi_tilde + beta2 * psi_tilde @ psi_tilde
-        )
+        return I3 + alpha * psi_tilde + beta2 * psi_tilde @ psi_tilde
     else:
         # first order approximation
         return I3 + ax2skew(psi)
@@ -167,11 +167,7 @@ def T_SO3(psi: np.ndarray) -> np.ndarray:
         psi_tilde = ax2skew(psi)
         alpha = sa / angle
         beta2 = (1.0 - ca) / angle2
-        return (
-            I3
-            - beta2 * psi_tilde
-            + ((1.0 - alpha) / angle2) * psi_tilde @ psi_tilde
-        )
+        return I3 - beta2 * psi_tilde + ((1.0 - alpha) / angle2) * psi_tilde @ psi_tilde
     else:
         # first order approximation
         return I3 - 0.5 * ax2skew(psi)
@@ -265,11 +261,7 @@ def T_SO3_inv(psi: np.ndarray) -> np.ndarray:
     if angle > angle_singular:
         # Park2005 (19), actually its the transposed!
         gamma = 0.5 * angle / (np.tan(0.5 * angle))
-        return (
-            I3
-            + 0.5 * psi_tilde
-            + ((1.0 - gamma) / angle2) * psi_tilde @ psi_tilde
-        )
+        return I3 + 0.5 * psi_tilde + ((1.0 - gamma) / angle2) * psi_tilde @ psi_tilde
     else:
         # first order approximation
         return I3 + 0.5 * psi_tilde
@@ -557,7 +549,7 @@ def smallest_rotation(
         return Exp_SO3(psi * axis)
 
 
-def Exp_SO3_quat(quat:Quaternion, normalize=True):
+def Exp_SO3_quat(quat: Quaternion, normalize=True):
     """Exponential mapping defined by (unit) quaternion, see 
     Egeland2002 (6.199) and Nuetzi2016 (3.31).
 
@@ -575,7 +567,7 @@ def Exp_SO3_quat(quat:Quaternion, normalize=True):
         return I3 + 2 * (p0 * p_tilde + p_tilde @ p_tilde)
 
 
-def Exp_SO3_quat_p(quat:Quaternion, normalize=True):
+def Exp_SO3_quat_p(quat: Quaternion, normalize=True):
     """Derivative of Exp_SO3_quat with respect to P."""
     p0, p = quat.p0, quat.p
     p_tilde = ax2skew(p)
@@ -665,7 +657,7 @@ Log_SO3_quat = Spurrier
 #     return quat / norm(quat)
 
 
-def T_SO3_quat(quat:Quaternion, normalize=True):
+def T_SO3_quat(quat: Quaternion, normalize=True):
     """Tangent map for unit quaternion. See Egeland2002 (6.327).
 
     References:
@@ -674,14 +666,12 @@ def T_SO3_quat(quat:Quaternion, normalize=True):
     """
     p0, p = quat.p0, quat.p
     if normalize:
-        return (2 / (quat.P2)) * np.hstack(
-            (-p[:, None], p0 * I3 - ax2skew(p))
-        )
+        return (2 / (quat.P2)) * np.hstack((-p[:, None], p0 * I3 - ax2skew(p)))
     else:
         return 2 * np.hstack((-p[:, None], p0 * I3 - ax2skew(p)))
 
 
-def T_SO3_inv_quat(quat:Quaternion, normalize=True):
+def T_SO3_inv_quat(quat: Quaternion, normalize=True):
     """Inverse tangent map for unit quaternion. See Egeland2002 (6.329) and
     (6.330) as well as Nuetzi2016 (3.11), (3.12) and (4.19).
 
@@ -692,14 +682,12 @@ def T_SO3_inv_quat(quat:Quaternion, normalize=True):
     """
     p0, p = quat.p0, quat.p
     if normalize:
-        return (0.5 / (quat.P2)) * np.vstack(
-            (-p.T, p0 * I3 + ax2skew(p))
-        )
+        return (0.5 / (quat.P2)) * np.vstack((-p.T, p0 * I3 + ax2skew(p)))
     else:
         return 0.5 * np.vstack((-p.T, p0 * I3 + ax2skew(p)))
 
 
-def T_SO3_quat_P(quat:Quaternion, normalize=True):
+def T_SO3_quat_P(quat: Quaternion, normalize=True):
     if normalize:
         p0, p = quat.p0, quat.p
         P2 = quat.P2
@@ -729,7 +717,7 @@ def T_SO3_quat_P(quat:Quaternion, normalize=True):
     # return T_P_num
 
 
-def T_SO3_inv_quat_P(quat:Quaternion, normalize=True):
+def T_SO3_inv_quat_P(quat: Quaternion, normalize=True):
     if normalize:
         p0, p = quat.p0, quat.p
         s = quat.P2

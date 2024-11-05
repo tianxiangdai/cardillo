@@ -7,7 +7,12 @@ import warnings
 
 from cardillo.math.algebra import norm, cross3, ax2skew
 from cardillo.math.approx_fprime import approx_fprime
-from cardillo.math.rotations import Log_SO3_quat, T_SO3_inv_quat, T_SO3_inv_quat_P, Quaternion
+from cardillo.math.rotations import (
+    Log_SO3_quat,
+    T_SO3_inv_quat,
+    T_SO3_inv_quat_P,
+    Quaternion,
+)
 from cardillo.math.constants import I3, I4
 from cardillo.utility.coo_matrix import CooMatrix
 from cardillo.utility.check_time_derivatives import check_time_derivatives
@@ -464,7 +469,9 @@ class CosseratRod(RodExportBase, ABC):
             nodalDOF_p_u = self.nodalDOF_p_u[node]
             p = q[nodalDOF_p]
             B_omega_IK = u[nodalDOF_p_u]
-            q_dot[nodalDOF_p] = T_SO3_inv_quat(Quaternion(p), normalize=False) @ B_omega_IK
+            q_dot[nodalDOF_p] = (
+                T_SO3_inv_quat(Quaternion(p), normalize=False) @ B_omega_IK
+            )
 
         return q_dot
 
@@ -499,7 +506,9 @@ class CosseratRod(RodExportBase, ABC):
 
             p = q[nodalDOF_p]
             p = p / norm(p)
-            coo[nodalDOF_p, nodalDOF_p_u] = T_SO3_inv_quat(Quaternion(p), normalize=False)
+            coo[nodalDOF_p, nodalDOF_p_u] = T_SO3_inv_quat(
+                Quaternion(p), normalize=False
+            )
 
         return coo
 
@@ -772,20 +781,16 @@ class CosseratRod(RodExportBase, ABC):
             ############################
             # virtual work contributions
             ############################
+            A = A_IB @ B_n * qwi
             for node in range(self.nnodes_element_r):
                 f_int_el[self.nodalDOF_element_r_u[node]] -= (
-                    self.N_r_xi[el, i, node] * A_IB @ B_n * qwi
+                    self.N_r_xi[el, i, node] * A
                 )
-
+            B = B_m * qwi
+            C = (cross3(B_Gamma_bar, B_n) + cross3(B_Kappa_bar, B_m)) * qwi
             for node in range(self.nnodes_element_p):
-                f_int_el[self.nodalDOF_element_p_u[node]] -= (
-                    self.N_p_xi[el, i, node] * B_m * qwi
-                )
-
                 f_int_el[self.nodalDOF_element_p_u[node]] += (
-                    self.N_p[el, i, node]
-                    * (cross3(B_Gamma_bar, B_n) + cross3(B_Kappa_bar, B_m))
-                    * qwi
+                    -self.N_p_xi[el, i, node] * B + self.N_p[el, i, node] * C
                 )
 
         return f_int_el
@@ -844,38 +849,30 @@ class CosseratRod(RodExportBase, ABC):
             ############################
             # virtual work contributions
             ############################
+            A = qwi * (np.einsum("ikj,k->ij", A_IB_qe, B_n) + A_IB @ B_n_qe)
             for node in range(self.nnodes_element_r):
                 f_int_el_qe[self.nodalDOF_element_r[node], :] -= (
-                    self.N_r_xi[el, i, node]
-                    * qwi
-                    * (np.einsum("ikj,k->ij", A_IB_qe, B_n) + A_IB @ B_n_qe)
+                    self.N_r_xi[el, i, node] * A
                 )
-
+            B = qwi * (ax2skew(B_Gamma_bar) @ B_n_qe - ax2skew(B_n) @ B_Gamma_bar_qe)
+            C = qwi * B_m_qe
+            D = qwi * (ax2skew(B_Kappa_bar) @ B_m_qe - ax2skew(B_m) @ B_Kappa_bar_qe)
             for node in range(self.nnodes_element_p):
                 f_int_el_qe[self.nodalDOF_element_p_u[node], :] += (
-                    self.N_p[el, i, node]
-                    * qwi
-                    * (ax2skew(B_Gamma_bar) @ B_n_qe - ax2skew(B_n) @ B_Gamma_bar_qe)
-                )
-
-                f_int_el_qe[self.nodalDOF_element_p_u[node], :] -= (
-                    self.N_p_xi[el, i, node] * qwi * B_m_qe
-                )
-
-                f_int_el_qe[self.nodalDOF_element_p_u[node], :] += (
-                    self.N_p[el, i, node]
-                    * qwi
-                    * (ax2skew(B_Kappa_bar) @ B_m_qe - ax2skew(B_m) @ B_Kappa_bar_qe)
+                    self.N_p[el, i, node] * B
+                    - self.N_p_xi[el, i, node] * C
+                    + self.N_p[el, i, node] * D
                 )
 
         return f_int_el_qe
 
     def f_gyr_el(self, t, qe, ue, el):
-        f_gyr_el = np.zeros(self.nu_element, dtype=np.common_type(qe, ue))
+        dtype = np.common_type(qe, ue)
+        f_gyr_el = np.zeros(self.nu_element, dtype=dtype)
 
         for i in range(self.nquadrature_dyn):
             # interpoalte angular velocity
-            B_Omega = np.zeros(3, dtype=np.common_type(qe, ue))
+            B_Omega = np.zeros(3, dtype=dtype)
             for node in range(self.nnodes_element_p):
                 B_Omega += (
                     self.N_p_dyn[el, i, node] * ue[self.nodalDOF_element_p_u[node]]

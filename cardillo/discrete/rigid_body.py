@@ -12,7 +12,7 @@ from cardillo.math import (
     T_SO3_inv_quat,
     T_SO3_inv_quat_P,
     Spurrier,
-    Quaternion
+    Quaternion,
 )
 
 
