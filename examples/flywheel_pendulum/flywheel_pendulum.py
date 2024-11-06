@@ -5,11 +5,12 @@ from matplotlib import pyplot as plt
 
 from cardillo import System
 from cardillo.math import axis_angle2quat, cross3
-from cardillo.discrete import RigidBody
+from cardillo.discrete import RigidBody, Meshed
 from cardillo.solver import ScipyIVP, ScipyDAE
 from cardillo.constraints import Revolute
 from cardillo.forces import Force
 from cardillo.constraints import GearTransmission
+from cardillo.visualization import Renderer
 
 # parameter
 m1 = (445 + 124) * 1e-3
@@ -36,7 +37,7 @@ g = 9.81
 kp, kd = np.array([2.5261, 0.0032]), np.array([0.3712, 0.0070])
 
 tend = 10
-dt = 1e-3
+dt = 1e-2
 alpha0 = np.deg2rad(170)
 
 
@@ -125,7 +126,6 @@ class Controller:
         return la_tau_u
 
 
-
 M = np.array(
     [
         [
@@ -149,8 +149,14 @@ omega = np.array([0, 0, 0])
 v_S = cross3(omega, r_OS)
 q0_pendulum = np.concatenate([r_OS, p])
 u0 = np.concatenate([v_S, omega])
-pendulum = RigidBody(
-    mass=m1, B_Theta_C=np.diag([1, 1, theta_A]), q0=q0_pendulum, name="pendulum"
+pendulum = Meshed(RigidBody)(
+    path.join(path.dirname(__file__), "stl", "Pendulum.STL"),
+    scale=1e-3,
+    B_r_CP=np.array([0, l1, 0]),
+    mass=m1,
+    B_Theta_C=np.diag([1, 1, theta_A]),
+    q0=q0_pendulum,
+    name="pendulum",
 )
 system.add(pendulum)
 
@@ -162,8 +168,14 @@ omega = np.array([0, 0, 0])
 v_S = cross3(omega, r_OS)
 q0_rotor = np.concatenate([r_OS, p])
 u0 = np.concatenate([v_S, omega])
-rotor = RigidBody(
-    mass=m2, B_Theta_C=np.diag([1, 1, theta_B]), q0=q0_rotor, name="rotor"
+rotor = Meshed(RigidBody)(
+    path.join(path.dirname(__file__), "stl", "Rotor.STL"),
+    scale=1e-3,
+    B_r_CP=np.array([0, -l2, 0]),
+    mass=m2,
+    B_Theta_C=np.diag([1, 1, theta_B]),
+    q0=q0_rotor,
+    name="rotor",
 )
 system.add(rotor)
 
@@ -175,9 +187,16 @@ omega = np.array([0, 0, 0])
 v_S = cross3(omega, r_OS)
 q0_flywheel = np.concatenate([r_OS, p])
 u0 = np.concatenate([v_S, omega])
-flywheel = RigidBody(
-    mass=m3, B_Theta_C=np.diag([1, 1, theta_C]), q0=q0_flywheel, name="flywheel"
+flywheel = Meshed(RigidBody)(
+    path.join(path.dirname(__file__), "stl", "Flywheel.STL"),
+    scale=1e-3,
+    B_r_CP=np.array([0, l3, 0]),
+    mass=m3,
+    B_Theta_C=np.diag([1, 1, theta_C]),
+    q0=q0_flywheel,
+    name="flywheel",
 )
+
 system.add(flywheel)
 
 rj1 = Revolute(system.origin, pendulum, axis=2, angle0=alpha0)
@@ -202,6 +221,9 @@ system.assemble()
 solver = ScipyDAE(system, tend, dt)
 sol = solver.solve()
 
+ren = Renderer(system, [flywheel, rotor, pendulum])
+ren.render_solution(sol, repeat=True)
+
 rj1.previous_quadrant = 1
 rj1.n_full_rotations = 0
 rj2.previous_quadrant = 1
@@ -210,6 +232,7 @@ angle = np.zeros((len(sol.t), 2), sol.q.dtype)
 for i, (ti, qi) in enumerate(zip(sol.t, sol.q)):
     angle[i] = rj1.angle(ti, qi[rj1.qDOF]), rj2.angle(ti, qi[rj2.qDOF])
 g = np.array([gear.g(ti, qi[gear.qDOF]) for (ti, qi) in zip(sol.t, sol.q)])
+
 
 # analytical solution
 def func(x, t):
