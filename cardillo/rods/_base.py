@@ -480,11 +480,7 @@ class CosseratRod(RodExportBase, ABC):
             p = q[nodalDOF_p]
             B_omega_IK = u[nodalDOF_p_u]
 
-            coo[nodalDOF_p, nodalDOF_p] = np.einsum(
-                "ijk,j->ik",
-                T_SO3_inv_quat_P(p, normalize=False),
-                B_omega_IK,
-            )
+            coo[nodalDOF_p, nodalDOF_p] = B_omega_IK @ T_SO3_inv_quat_P(p, normalize=False)
 
         return coo
 
@@ -840,10 +836,8 @@ class CosseratRod(RodExportBase, ABC):
             ############################
             # virtual work contributions
             ############################
-            n_qe_qwi = qwi * (np.einsum("ikj,k->ij", A_IB_qe, B_n) + A_IB @ B_n_qe)
-            f_int_el_qe[self.nodalDOF_element_r, :] -= np.expand_dims(
-                n_qe_qwi, 0
-            ) * np.expand_dims(self.N_r_xi[el, i, :], [1, 2])
+            n_qe_qwi = qwi * (B_n @ A_IB_qe + A_IB @ B_n_qe)
+            f_int_el_qe[self.nodalDOF_element_r, :] -= n_qe_qwi * np.expand_dims(self.N_r_xi[el, i, :], [1, 2])
             B_Gamma_bar_B_n_qe_qwi = qwi * (
                 ax2skew(B_Gamma_bar) @ B_n_qe - ax2skew(B_n) @ B_Gamma_bar_qe
             )
@@ -852,12 +846,9 @@ class CosseratRod(RodExportBase, ABC):
                 ax2skew(B_Kappa_bar) @ B_m_qe - ax2skew(B_m) @ B_Kappa_bar_qe
             )
             f_int_el_qe[self.nodalDOF_element_p_u, :] += (
-                np.expand_dims(B_Gamma_bar_B_n_qe_qwi, 0)
-                * np.expand_dims(self.N_p[el, i, :], [1, 2])
-                - np.expand_dims(B_m_qe_qwi, 0)
-                * np.expand_dims(self.N_p_xi[el, i, :], [1, 2])
-                + np.expand_dims(B_Kappa_bar_B_m_qe_qwi, 0)
-                * np.expand_dims(self.N_p[el, i, :], [1, 2])
+                B_Gamma_bar_B_n_qe_qwi * np.expand_dims(self.N_p[el, i, :], [1, 2])
+                - B_m_qe_qwi * np.expand_dims(self.N_p_xi[el, i, :], [1, 2])
+                + B_Kappa_bar_B_m_qe_qwi * np.expand_dims(self.N_p[el, i, :], [1, 2])
             )
         return f_int_el_qe
 
@@ -969,7 +960,7 @@ class CosseratRod(RodExportBase, ABC):
             _,
         ) = self._deval(qe, xi, N, N_xi)
 
-        return r_OC_q + np.einsum("ijk,j->ik", A_IB_q, B_r_CP)
+        return r_OC_q + B_r_CP @ A_IB_q
 
     def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
         N, _ = self.basis_functions_r(xi)
@@ -997,11 +988,7 @@ class CosseratRod(RodExportBase, ABC):
         for node in range(self.nnodes_element_p):
             B_Omega += N[node] * ue[self.nodalDOF_element_p_u[node]]
 
-        v_P_q = np.einsum(
-            "ijk,j->ik",
-            A_IB_q,
-            cross3(B_Omega, B_r_CP),
-        )
+        v_P_q = cross3(B_Omega, B_r_CP) @ A_IB_q
         return v_P_q
 
     def J_P(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
@@ -1030,7 +1017,7 @@ class CosseratRod(RodExportBase, ABC):
 
         B_r_CP_tilde = ax2skew(B_r_CP)
         A_IB_q = self.A_IB_q(t, qe, xi)
-        prod = np.einsum("ijl,jk", A_IB_q, B_r_CP_tilde)
+        prod = B_r_CP_tilde.T @ A_IB_q
 
         # interpolate axis angle contributions since centerline contributon is
         # zero
@@ -1064,11 +1051,7 @@ class CosseratRod(RodExportBase, ABC):
     def a_P_q(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
         B_Omega = self.B_Omega(t, qe, ue, xi)
         B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
-        a_P_q = np.einsum(
-            "ijk,j->ik",
-            self.A_IB_q(t, qe, xi),
-            cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP)),
-        )
+        a_P_q = (cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP))) @ self.A_IB_q(t, qe, xi)
         return a_P_q
 
     def a_P_u(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
@@ -1613,7 +1596,7 @@ class CosseratRodMixed(CosseratRod):
                 Wla_c_el_qe[self.nodalDOF_element_r_u[node], :] -= (
                     self.N_r_xi[el, i, node]
                     * qwi
-                    * (np.einsum("ikj,k->ij", A_IB_qe, B_n))
+                    * B_n @ A_IB_qe
                 )
 
             for node in range(self.nnodes_element_p):
@@ -2009,7 +1992,7 @@ def make_CosseratRodConstrained(mixed, constraints):
                     Wla_g_q_el[self.nodalDOF_element_r_u[node], :] -= (
                         self.N_r_xi[el, i, node]
                         * qwi
-                        * (np.einsum("ikj,k->ij", A_IB_qe, B_n))
+                        * B_n @ A_IB_qe
                     )
 
                 for node in range(self.nnodes_element_p):
@@ -2044,7 +2027,7 @@ def make_CosseratRodConstrained(mixed, constraints):
             g_ddot += self.W_g(t, q).toarray().T @ u_dot
             W_g_T_q = approx_fprime(q, lambda q1: self.W_g(t, q1).toarray().T)
             q_dot = self.q_dot(t, q, u)
-            g_ddot += np.einsum("ijk, k->ij", W_g_T_q, q_dot) @ u
+            g_ddot += W_g_T_q @ q_dot @ u
             return g_ddot
 
         ##############################

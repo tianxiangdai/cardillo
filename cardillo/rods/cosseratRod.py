@@ -33,7 +33,7 @@ _ax2skew_a = ax2skew_a()
 class Quaternion:
     def __init__(self, P, normalize=True):
         self.P = P
-        self.p0, self.p = np.array_split(P, [1])
+        self.p0, self.p = P[0], P[1:]
         self.normalize = normalize
 
     @property
@@ -73,25 +73,23 @@ class Quaternion:
             p_tilde_p = ax2skew_a()
 
             if self.normalize:
-                self._Exp_SO3_quat_p = np.einsum(
-                    "ij,k->ijk",
-                    self.p0 * self.p_tilde + self.p_tilde_square,
-                    -(4 / (self.P2 * self.P2)) * self.P,
-                )
+                self._Exp_SO3_quat_p = np.expand_dims(
+                    self.p0 * self.p_tilde + self.p_tilde_square, -1
+                ) * (-(4 / (self.P2 * self.P2)) * self.P)
                 s2 = 2 / self.P2
                 self._Exp_SO3_quat_p[:, :, 0] += s2 * self.p_tilde
                 self._Exp_SO3_quat_p[:, :, 1:] += (
                     s2 * self.p0 * p_tilde_p
-                    + np.einsum("ijl,jk->ikl", p_tilde_p, s2 * self.p_tilde)
-                    + np.einsum("ij,jkl->ikl", s2 * self.p_tilde, p_tilde_p)
+                    + s2 * self.p_tilde.T @ p_tilde_p
+                    + (p_tilde_p.T @ (s2 * self.p_tilde.T)).T
                 )
             else:
                 self._Exp_SO3_quat_p = np.zeros((3, 3, 4), dtype=self.P.dtype)
                 self._Exp_SO3_quat_p[:, :, 0] = 2 * self.p_tilde
                 self._Exp_SO3_quat_p[:, :, 1:] = (
                     2 * self.p0 * p_tilde_p
-                    + np.einsum("ijl,jk->ikl", p_tilde_p, 2 * self.p_tilde)
-                    + np.einsum("ij,jkl->ikl", 2 * self.p_tilde, p_tilde_p)
+                    + 2 * self.p_tilde.T @ p_tilde_p
+                    + (p_tilde_p.T @ (2 * self.p_tilde.T)).T
                 )
         return self._Exp_SO3_quat_p
 
@@ -125,11 +123,9 @@ class Quaternion:
     def T_SO3_quat_P(self):
         if not hasattr(self, "_T_SO3_quat_P"):
             if self.normalize:
-                self._T_SO3_quat_P = np.einsum(
-                    "ij,k->ijk",
-                    np.hstack((-self.p[:, None], self.p0 * eye3 - ax2skew(self.p))),
-                    -4 * self.P / (self.P2 * self.P2),
-                )
+                self._T_SO3_quat_P = np.expand_dims(
+                    np.hstack((-self.p[:, None], self.p0 * eye3 - ax2skew(self.p))), -1
+                ) * (-4 * self.P / (self.P2 * self.P2))
                 P22 = 2 / self.P2
                 self._T_SO3_quat_P[:, 0, 1:] -= P22 * eye3
                 self._T_SO3_quat_P[:, 1:, 0] += P22 * eye3
@@ -145,11 +141,9 @@ class Quaternion:
     def T_SO3_inv_quat_P(self):
         if not hasattr(self, "_T_SO3_inv_quat_P"):
             if self.normalize:
-                self._T_SO3_inv_quat_P = np.einsum(
-                    "ij,k->ijk",
-                    np.vstack((-self.p.T, self.p0 * eye3 + ax2skew(self.p))),
-                    -self.P / (self.P2 * self.P2),
-                )
+                self._T_SO3_inv_quat_P = np.expand_dims(
+                    np.vstack((-self.p.T, self.p0 * eye3 + ax2skew(self.p))), -1
+                ) * (-self.P / (self.P2 * self.P2))
                 s2 = 0.5 / self.P2
                 self._T_SO3_inv_quat_P[0, :, 1:] -= s2 * eye3
                 self._T_SO3_inv_quat_P[1:, :, 0] += s2 * eye3
@@ -334,23 +328,23 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
             r_OP = N @ r_OP_nodes
             r_OP_qe[:, self.nodalDOF_element_r.T] = np.expand_dims(
                 eye3, 2
-            ) * np.expand_dims(N, [0, 1])
+            ) * N
 
             r_OP_xi = N_xi @ r_OP_nodes
             r_OP_xi_qe[:, self.nodalDOF_element_r.T] = np.expand_dims(
                 eye3, 2
-            ) * np.expand_dims(N_xi, [0, 1])
+            ) * N_xi
 
             p_nodes = qe[self.nodalDOF_element_p]
             p = N @ p_nodes
             p_qe[:, self.nodalDOF_element_p.T] = np.expand_dims(
                 eye4, 2
-            ) * np.expand_dims(N, [0, 1])
+            ) * N
 
             p_xi = N_xi @ p_nodes
             p_xi_qe[:, self.nodalDOF_element_p.T] = np.expand_dims(
                 eye4, 2
-            ) * np.expand_dims(N_xi, [0, 1])
+            ) * N_xi
 
             p = Quaternion(p, normalize=True)
             # transformation matrix
@@ -361,22 +355,13 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
 
             # axial and shear strains
             B_Gamma_bar = A_IB.T @ r_OP_xi
-            B_Gamma_bar_qe = np.einsum("k,kij", r_OP_xi, A_IB_qe) + A_IB.T @ r_OP_xi_qe
-
+            B_Gamma_bar_qe = np.moveaxis(A_IB_qe, 0, -1) @ r_OP_xi + A_IB.T @ r_OP_xi_qe
             # curvature, Rucker2018 (17)
             T = p.T_SO3_quat
             B_Kappa_bar = T @ p_xi
 
             # B_Kappa_bar_qe = approx_fprime(qe, lambda qe: self._eval(qe, xi)[3])
-            B_Kappa_bar_qe = (
-                np.einsum(
-                    "ijk,j->ik",
-                    p.T_SO3_quat_P,
-                    p_xi,
-                )
-                @ p_qe
-                + T @ p_xi_qe
-            )
+            B_Kappa_bar_qe = p_xi @ p.T_SO3_quat_P @ p_qe + T @ p_xi_qe
 
             return (
                 r_OP,
