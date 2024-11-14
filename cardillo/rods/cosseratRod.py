@@ -326,25 +326,17 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
 
             r_OP_nodes = qe[self.nodalDOF_element_r]
             r_OP = N @ r_OP_nodes
-            r_OP_qe[:, self.nodalDOF_element_r.T] = np.expand_dims(
-                eye3, 2
-            ) * N
+            r_OP_qe[:, self.nodalDOF_element_r.T] = np.expand_dims(eye3, 2) * N
 
             r_OP_xi = N_xi @ r_OP_nodes
-            r_OP_xi_qe[:, self.nodalDOF_element_r.T] = np.expand_dims(
-                eye3, 2
-            ) * N_xi
+            r_OP_xi_qe[:, self.nodalDOF_element_r.T] = np.expand_dims(eye3, 2) * N_xi
 
             p_nodes = qe[self.nodalDOF_element_p]
             p = N @ p_nodes
-            p_qe[:, self.nodalDOF_element_p.T] = np.expand_dims(
-                eye4, 2
-            ) * N
+            p_qe[:, self.nodalDOF_element_p.T] = np.expand_dims(eye4, 2) * N
 
             p_xi = N_xi @ p_nodes
-            p_xi_qe[:, self.nodalDOF_element_p.T] = np.expand_dims(
-                eye4, 2
-            ) * N_xi
+            p_xi_qe[:, self.nodalDOF_element_p.T] = np.expand_dims(eye4, 2) * N_xi
 
             p = Quaternion(p, normalize=True)
             # transformation matrix
