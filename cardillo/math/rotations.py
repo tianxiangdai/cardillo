@@ -544,6 +544,138 @@ def smallest_rotation(
         return Exp_SO3(psi * axis)
 
 
+class Quaternion:
+    def __init__(self, P, normalize=True):
+        self.P = P
+        self.p0, self.p = np.array_split(P, [1])
+        self.normalize = normalize
+
+    @property
+    def p_tilde(self):
+        if not hasattr(self, "_p_tilde"):
+            self._p_tilde = ax2skew(self.p)
+        return self._p_tilde
+
+    @property
+    def p_tilde_square(self):
+        if not hasattr(self, "_p_tilde_square"):
+            self._p_tilde_square = ax2skew_squared(self.p)
+        return self._p_tilde_square
+
+    @property
+    def P2(self):
+        if not hasattr(self, "_P2"):
+            self._P2 = self.P @ self.P
+        return self._P2
+
+    @property
+    def Exp_SO3_quat(self):
+        if not hasattr(self, "_Exp_SO3_quat"):
+            if self.normalize:
+                self._Exp_SO3_quat = eye3 + (2 / self.P2) * (
+                    self.p0 * self.p_tilde + self.p_tilde_square
+                )
+            else:
+                self._Exp_SO3_quat = eye3 + 2 * (
+                    self.p0 * self.p_tilde + self.p_tilde_square
+                )
+        return self._Exp_SO3_quat
+
+    @property
+    def Exp_SO3_quat_p(self):
+        if not hasattr(self, "_Exp_SO3_quat_p"):
+            p_tilde_p = ax2skew_a()
+
+            if self.normalize:
+                self._Exp_SO3_quat_p = np.einsum(
+                    "ij,k->ijk",
+                    self.p0 * self.p_tilde + self.p_tilde_square,
+                    -(4 / (self.P2 * self.P2)) * self.P,
+                )
+                s2 = 2 / self.P2
+                self._Exp_SO3_quat_p[:, :, 0] += s2 * self.p_tilde
+                self._Exp_SO3_quat_p[:, :, 1:] += (
+                    s2 * self.p0 * p_tilde_p
+                    + np.einsum("ijl,jk->ikl", p_tilde_p, s2 * self.p_tilde)
+                    + np.einsum("ij,jkl->ikl", s2 * self.p_tilde, p_tilde_p)
+                )
+            else:
+                self._Exp_SO3_quat_p = np.zeros((3, 3, 4), dtype=self.P.dtype)
+                self._Exp_SO3_quat_p[:, :, 0] = 2 * self.p_tilde
+                self._Exp_SO3_quat_p[:, :, 1:] = (
+                    2 * self.p0 * p_tilde_p
+                    + np.einsum("ijl,jk->ikl", p_tilde_p, 2 * self.p_tilde)
+                    + np.einsum("ij,jkl->ikl", 2 * self.p_tilde, p_tilde_p)
+                )
+        return self._Exp_SO3_quat_p
+
+    @property
+    def T_SO3_quat(self):
+        if not hasattr(self, "_T_SO3_quat"):
+            if self.normalize:
+                self._T_SO3_quat = (2 / self.P2) * np.hstack(
+                    (-self.p[:, None], self.p0 * eye3 - self.p_tilde)
+                )
+            else:
+                self._T_SO3_quat = 2 * np.hstack(
+                    (-self.p[:, None], self.p0 * eye3 - self.p_tilde)
+                )
+        return self._T_SO3_quat
+
+    @property
+    def T_SO3_inv_quat(self):
+        if not hasattr(self, "_T_SO3_inv_quat"):
+            if self.normalize:
+                self._T_SO3_inv_quat = (0.5 / self.P2) * np.vstack(
+                    (-self.p.T, self.p0 * eye3 + self.p_tilde)
+                )
+            else:
+                self._T_SO3_inv_quat = 0.5 * np.vstack(
+                    (-self.p.T, self.p0 * eye3 + self.p_tilde)
+                )
+        return self._T_SO3_inv_quat
+
+    @property
+    def T_SO3_quat_P(self):
+        if not hasattr(self, "_T_SO3_quat_P"):
+            if self.normalize:
+                self._T_SO3_quat_P = np.einsum(
+                    "ij,k->ijk",
+                    np.hstack((-self.p[:, None], self.p0 * eye3 - ax2skew(self.p))),
+                    -4 * self.P / (self.P2 * self.P2),
+                )
+                P22 = 2 / self.P2
+                self._T_SO3_quat_P[:, 0, 1:] -= P22 * eye3
+                self._T_SO3_quat_P[:, 1:, 0] += P22 * eye3
+                self._T_SO3_quat_P[:, 1:, 1:] -= P22 * ax2skew_a()
+            else:
+                self._T_SO3_quat_P = np.zeros((3, 4, 4), dtype=float)
+                self._T_SO3_quat_P[:, 0, 1:] -= 2 * eye3
+                self._T_SO3_quat_P[:, 1:, 0] += 2 * eye3
+                self._T_SO3_quat_P[:, 1:, 1:] -= 2 * ax2skew_a()
+        return self._T_SO3_quat_P
+
+    @property
+    def T_SO3_inv_quat_P(self):
+        if not hasattr(self, "_T_SO3_inv_quat_P"):
+            if self.normalize:
+                self._T_SO3_inv_quat_P = np.einsum(
+                    "ij,k->ijk",
+                    np.vstack((-self.p.T, self.p0 * eye3 + ax2skew(self.p))),
+                    -self.P / (self.P2 * self.P2),
+                )
+                s2 = 0.5 / self.P2
+                self._T_SO3_inv_quat_P[0, :, 1:] -= s2 * eye3
+                self._T_SO3_inv_quat_P[1:, :, 0] += s2 * eye3
+                self._T_SO3_inv_quat_P[1:, :, 1:] += s2 * ax2skew_a()
+            else:
+                self._T_SO3_inv_quat_P = np.zeros((4, 3, 4), dtype=float)
+                self._T_SO3_inv_quat_P[0, :, 1:] = -0.5 * eye3
+                self._T_SO3_inv_quat_P[1:, :, 0] = 0.5 * eye3
+                self._T_SO3_inv_quat_P[1:, :, 1:] = 0.5 * ax2skew_a()
+        return self._T_SO3_inv_quat_P
+
+
 def Exp_SO3_quat(P, normalize=True):
     """Exponential mapping defined by (unit) quaternion, see 
     Egeland2002 (6.199) and Nuetzi2016 (3.31).

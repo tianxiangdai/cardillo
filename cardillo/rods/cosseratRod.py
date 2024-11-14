@@ -15,6 +15,7 @@ from cardillo.math import (
     T_SO3_quat_P,
     Exp_SO3_quat,
     Exp_SO3_quat_p,
+    Quaternion,
 )
 
 
@@ -24,6 +25,9 @@ from ._base import (
     make_CosseratRodConstrained,
 )
 from ._cross_section import CrossSectionInertias
+
+eye3 = np.eye(3, dtype=float)
+eye4 = np.eye(4, dtype=float)
 
 
 def make_CosseratRod(interpolation="Quaternion", mixed=True, constraints=None):
@@ -159,27 +163,23 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
             # N, N_xi = self.basis_functions_r(xi)
 
             # interpolate
-            r_OP = np.zeros(3, dtype=qe.dtype)
-            r_OP_xi = np.zeros(3, dtype=qe.dtype)
-            p = np.zeros(4, dtype=float)
-            p_xi = np.zeros(4, dtype=float)
-            for node in range(self.nnodes_element_r):
-                r_OP_node = qe[self.nodalDOF_element_r[node]]
-                r_OP += N[node] * r_OP_node
-                r_OP_xi += N_xi[node] * r_OP_node
+            r_OP_nodes = qe[self.nodalDOF_element_r]
+            r_OP = N @ r_OP_nodes
+            r_OP_xi = N_xi @ r_OP_nodes
 
-                p_node = qe[self.nodalDOF_element_p[node]]
-                p += N[node] * p_node
-                p_xi += N_xi[node] * p_node
+            p_nodes = qe[self.nodalDOF_element_p]
+            p_xi = N_xi @ p_nodes
+            p = N @ p_nodes
 
+            p = Quaternion(p, normalize=True)
             # transformation matrix
-            A_IB = Exp_SO3_quat(p, normalize=True)
+            A_IB = p.Exp_SO3_quat
 
             # dilatation and shear strains
             B_Gamma_bar = A_IB.T @ r_OP_xi
 
             # curvature, Rucker2018 (17)
-            B_Kappa_bar = T_SO3_quat(p, normalize=True) @ p_xi
+            B_Kappa_bar = p.T_SO3_quat @ p_xi
 
             return r_OP, A_IB, B_Gamma_bar, B_Kappa_bar
 
@@ -192,54 +192,54 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
             # N, N_xi = self.basis_functions_r(xi)
 
             # interpolate
-            r_OP = np.zeros(3, dtype=qe.dtype)
             r_OP_qe = np.zeros((3, self.nq_element), dtype=qe.dtype)
-            r_OP_xi = np.zeros(3, dtype=qe.dtype)
             r_OP_xi_qe = np.zeros((3, self.nq_element), dtype=qe.dtype)
 
-            p = np.zeros(4, dtype=float)
             p_qe = np.zeros((4, self.nq_element), dtype=qe.dtype)
-            p_xi = np.zeros(4, dtype=float)
             p_xi_qe = np.zeros((4, self.nq_element), dtype=qe.dtype)
 
-            for node in range(self.nnodes_element_r):
-                nodalDOF_r = self.nodalDOF_element_r[node]
-                r_OP_node = qe[nodalDOF_r]
+            r_OP_nodes = qe[self.nodalDOF_element_r]
+            r_OP = N @ r_OP_nodes
+            r_OP_qe[:, self.nodalDOF_element_r.T] = np.expand_dims(
+                eye3, 2
+            ) * np.expand_dims(N, [0, 1])
 
-                r_OP += N[node] * r_OP_node
-                r_OP_qe[:, nodalDOF_r] += N[node] * np.eye(3, dtype=float)
+            r_OP_xi = N_xi @ r_OP_nodes
+            r_OP_xi_qe[:, self.nodalDOF_element_r.T] = np.expand_dims(
+                eye3, 2
+            ) * np.expand_dims(N_xi, [0, 1])
 
-                r_OP_xi += N_xi[node] * r_OP_node
-                r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * np.eye(3, dtype=float)
+            p_nodes = qe[self.nodalDOF_element_p]
+            p = N @ p_nodes
+            p_qe[:, self.nodalDOF_element_p.T] = np.expand_dims(
+                eye4, 2
+            ) * np.expand_dims(N, [0, 1])
 
-                nodalDOF_p = self.nodalDOF_element_p[node]
-                p_node = qe[nodalDOF_p]
+            p_xi = N_xi @ p_nodes
+            p_xi_qe[:, self.nodalDOF_element_p.T] = np.expand_dims(
+                eye4, 2
+            ) * np.expand_dims(N_xi, [0, 1])
 
-                p += N[node] * p_node
-                p_qe[:, nodalDOF_p] += N[node] * np.eye(4, dtype=float)
-
-                p_xi += N_xi[node] * p_node
-                p_xi_qe[:, nodalDOF_p] += N_xi[node] * np.eye(4, dtype=float)
-
+            p = Quaternion(p, normalize=True)
             # transformation matrix
-            A_IB = Exp_SO3_quat(p, normalize=True)
+            A_IB = p.Exp_SO3_quat
 
             # derivative w.r.t. generalized coordinates
-            A_IB_qe = Exp_SO3_quat_p(p, normalize=True) @ p_qe
+            A_IB_qe = p.Exp_SO3_quat_p @ p_qe
 
             # axial and shear strains
             B_Gamma_bar = A_IB.T @ r_OP_xi
             B_Gamma_bar_qe = np.einsum("k,kij", r_OP_xi, A_IB_qe) + A_IB.T @ r_OP_xi_qe
 
             # curvature, Rucker2018 (17)
-            T = T_SO3_quat(p, normalize=True)
+            T = p.T_SO3_quat
             B_Kappa_bar = T @ p_xi
 
             # B_Kappa_bar_qe = approx_fprime(qe, lambda qe: self._eval(qe, xi)[3])
             B_Kappa_bar_qe = (
                 np.einsum(
                     "ijk,j->ik",
-                    T_SO3_quat_P(p, normalize=True),
+                    p.T_SO3_quat_P,
                     p_xi,
                 )
                 @ p_qe
@@ -455,10 +455,10 @@ def make_CosseratRod_SE3(mixed=True, constraints=None):
 
             H_IK0_h0 = np.zeros((4, 4, 7), dtype=float)
             H_IK0_h0[:3, :3, 3:] = A_IB0_p0
-            H_IK0_h0[:3, 3, :3] = np.eye(3, dtype=float)
+            H_IK0_h0[:3, 3, :3] = eye3
             H_IB1_h1 = np.zeros((4, 4, 7), dtype=float)
             H_IB1_h1[:3, :3, 3:] = A_IB1_p1
-            H_IB1_h1[:3, 3, :3] = np.eye(3, dtype=float)
+            H_IB1_h1[:3, 3, :3] = eye3
 
             # inverse transformation of first node
             H_IK0_inv = SE3inv(H_IK0)
@@ -659,10 +659,10 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
                 r_OP_node = qe[nodalDOF_r]
 
                 r_OP += N[node] * r_OP_node
-                r_OP_qe[:, nodalDOF_r] += N[node] * np.eye(3, dtype=float)
+                r_OP_qe[:, nodalDOF_r] += N[node] * eye3
 
                 r_OP_xi += N_xi[node] * r_OP_node
-                r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * np.eye(3, dtype=float)
+                r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * eye3
 
             # interpolate transformation matrix and its derivative + their derivatives
             A_IB = np.zeros((3, 3), dtype=qe.dtype)

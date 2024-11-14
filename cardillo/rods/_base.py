@@ -775,16 +775,14 @@ class CosseratRod(RodExportBase, ABC):
             # virtual work contributions
             ############################
             n_qwi = A_IB @ B_n * qwi
-            for node in range(self.nnodes_element_r):
-                f_int_el[self.nodalDOF_element_r_u[node]] -= (
-                    self.N_r_xi[el, i, node] * n_qwi
-                )
+            f_int_el[self.nodalDOF_element_r_u] -= np.outer(
+                self.N_r_xi[el, i, :], n_qwi
+            )
             m_qwi = B_m * qwi
             cross = (cross3(B_Gamma_bar, B_n) + cross3(B_Kappa_bar, B_m)) * qwi
-            for node in range(self.nnodes_element_p):
-                f_int_el[self.nodalDOF_element_p_u[node]] += (
-                    -self.N_p_xi[el, i, node] * m_qwi + self.N_p[el, i, node] * cross
-                )
+            f_int_el[self.nodalDOF_element_p_u] += np.outer(
+                -self.N_p_xi[el, i, :], m_qwi
+            ) + np.outer(self.N_p[el, i, :], cross)
 
         return f_int_el
 
@@ -843,10 +841,9 @@ class CosseratRod(RodExportBase, ABC):
             # virtual work contributions
             ############################
             n_qe_qwi = qwi * (np.einsum("ikj,k->ij", A_IB_qe, B_n) + A_IB @ B_n_qe)
-            for node in range(self.nnodes_element_r):
-                f_int_el_qe[self.nodalDOF_element_r[node], :] -= (
-                    self.N_r_xi[el, i, node] * n_qe_qwi
-                )
+            f_int_el_qe[self.nodalDOF_element_r, :] -= np.expand_dims(
+                n_qe_qwi, 0
+            ) * np.expand_dims(self.N_r_xi[el, i, :], [1, 2])
             B_Gamma_bar_B_n_qe_qwi = qwi * (
                 ax2skew(B_Gamma_bar) @ B_n_qe - ax2skew(B_n) @ B_Gamma_bar_qe
             )
@@ -854,13 +851,14 @@ class CosseratRod(RodExportBase, ABC):
             B_Kappa_bar_B_m_qe_qwi = qwi * (
                 ax2skew(B_Kappa_bar) @ B_m_qe - ax2skew(B_m) @ B_Kappa_bar_qe
             )
-            for node in range(self.nnodes_element_p):
-                f_int_el_qe[self.nodalDOF_element_p_u[node], :] += (
-                    self.N_p[el, i, node] * B_Gamma_bar_B_n_qe_qwi
-                    - self.N_p_xi[el, i, node] * B_m_qe_qwi
-                    + self.N_p[el, i, node] * B_Kappa_bar_B_m_qe_qwi
-                )
-
+            f_int_el_qe[self.nodalDOF_element_p_u, :] += (
+                np.expand_dims(B_Gamma_bar_B_n_qe_qwi, 0)
+                * np.expand_dims(self.N_p[el, i, :], [1, 2])
+                - np.expand_dims(B_m_qe_qwi, 0)
+                * np.expand_dims(self.N_p_xi[el, i, :], [1, 2])
+                + np.expand_dims(B_Kappa_bar_B_m_qe_qwi, 0)
+                * np.expand_dims(self.N_p[el, i, :], [1, 2])
+            )
         return f_int_el_qe
 
     def f_gyr_el(self, t, qe, ue, el):
@@ -869,11 +867,7 @@ class CosseratRod(RodExportBase, ABC):
 
         for i in range(self.nquadrature_dyn):
             # interpoalte angular velocity
-            B_Omega = np.zeros(3, dtype=common_type)
-            for node in range(self.nnodes_element_p):
-                B_Omega += (
-                    self.N_p_dyn[el, i, node] * ue[self.nodalDOF_element_p_u[node]]
-                )
+            B_Omega = self.N_p_dyn[el, i] @ ue[self.nodalDOF_element_p_u]
 
             # vector of gyroscopic forces
             f_gyr_el_p = (
@@ -883,10 +877,9 @@ class CosseratRod(RodExportBase, ABC):
             )
 
             # multiply vector of gyroscopic forces with nodal virtual rotations
-            for node in range(self.nnodes_element_p):
-                f_gyr_el[self.nodalDOF_element_p_u[node]] += (
-                    self.N_p_dyn[el, i, node] * f_gyr_el_p
-                )
+            f_gyr_el[self.nodalDOF_element_p_u] += np.outer(
+                self.N_p_dyn[el, i], f_gyr_el_p
+            )
 
         return f_gyr_el
 
@@ -895,11 +888,7 @@ class CosseratRod(RodExportBase, ABC):
 
         for i in range(self.nquadrature_dyn):
             # interpoalte angular velocity
-            B_Omega = np.zeros(3, dtype=float)
-            for node in range(self.nnodes_element_p):
-                B_Omega += (
-                    self.N_p_dyn[el, i, node] * ue[self.nodalDOF_element_p_u[node]]
-                )
+            B_Omega = self.N_p_dyn[el, i] @ ue[self.nodalDOF_element_p_u]
 
             # derivative of vector of gyroscopic forces
             f_gyr_u_el_p = (
