@@ -837,23 +837,18 @@ class CosseratRod(RodExportBase, ABC):
 
     def f_gyr_el(self, t, qe, ue, el):
         common_type = np.common_type(qe, ue)
+        # interpoalte angular velocity
+        B_Omegas = self.N_p_dyn[el] @ ue[self.nodalDOF_element_p_u]
+        # gyroscopic forces
+        f_gyr_el_p = np.cross(
+            B_Omegas, B_Omegas @ self.cross_section_inertias.B_I_rho0
+        ) * np.expand_dims(self.J_dyn[el] * self.qw_dyn[el], 1)
+        
+        # multiply of gyroscopic forces with nodal virtual rotations
         f_gyr_el = np.zeros(self.nu_element, dtype=common_type)
-
-        for i in range(self.nquadrature_dyn):
-            # interpoalte angular velocity
-            B_Omega = self.N_p_dyn[el, i] @ ue[self.nodalDOF_element_p_u]
-
-            # vector of gyroscopic forces
-            f_gyr_el_p = (
-                cross3(B_Omega, self.cross_section_inertias.B_I_rho0 @ B_Omega)
-                * self.J_dyn[el, i]
-                * self.qw_dyn[el, i]
-            )
-
-            # multiply vector of gyroscopic forces with nodal virtual rotations
-            f_gyr_el[self.nodalDOF_element_p_u] += np.outer(
-                self.N_p_dyn[el, i], f_gyr_el_p
-            )
+        f_gyr_el[self.nodalDOF_element_p_u] = np.sum(
+            np.expand_dims(self.N_p_dyn[el], 2) * np.expand_dims(f_gyr_el_p, 1), axis=0
+        )
 
         return f_gyr_el
 
