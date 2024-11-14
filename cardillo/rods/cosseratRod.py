@@ -27,6 +27,7 @@ from ._cross_section import CrossSectionInertias
 
 eye3 = np.eye(3, dtype=float)
 eye4 = np.eye(4, dtype=float)
+_ax2skew_a = ax2skew_a()
 
 
 class Quaternion:
@@ -132,12 +133,12 @@ class Quaternion:
                 P22 = 2 / self.P2
                 self._T_SO3_quat_P[:, 0, 1:] -= P22 * eye3
                 self._T_SO3_quat_P[:, 1:, 0] += P22 * eye3
-                self._T_SO3_quat_P[:, 1:, 1:] -= P22 * ax2skew_a()
+                self._T_SO3_quat_P[:, 1:, 1:] -= P22 * _ax2skew_a
             else:
                 self._T_SO3_quat_P = np.zeros((3, 4, 4), dtype=float)
                 self._T_SO3_quat_P[:, 0, 1:] -= 2 * eye3
                 self._T_SO3_quat_P[:, 1:, 0] += 2 * eye3
-                self._T_SO3_quat_P[:, 1:, 1:] -= 2 * ax2skew_a()
+                self._T_SO3_quat_P[:, 1:, 1:] -= 2 * _ax2skew_a
         return self._T_SO3_quat_P
 
     @property
@@ -152,12 +153,12 @@ class Quaternion:
                 s2 = 0.5 / self.P2
                 self._T_SO3_inv_quat_P[0, :, 1:] -= s2 * eye3
                 self._T_SO3_inv_quat_P[1:, :, 0] += s2 * eye3
-                self._T_SO3_inv_quat_P[1:, :, 1:] += s2 * ax2skew_a()
+                self._T_SO3_inv_quat_P[1:, :, 1:] += s2 * _ax2skew_a
             else:
                 self._T_SO3_inv_quat_P = np.zeros((4, 3, 4), dtype=float)
                 self._T_SO3_inv_quat_P[0, :, 1:] = -0.5 * eye3
                 self._T_SO3_inv_quat_P[1:, :, 0] = 0.5 * eye3
-                self._T_SO3_inv_quat_P[1:, :, 1:] = 0.5 * ax2skew_a()
+                self._T_SO3_inv_quat_P[1:, :, 1:] = 0.5 * _ax2skew_a
         return self._T_SO3_inv_quat_P
 
 
