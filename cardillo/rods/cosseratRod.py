@@ -310,6 +310,112 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
             return r_OP, A_IB, B_Gamma_bar, B_Kappa_bar
 
         @cachedmethod(
+            lambda self: self._eval_all_cache,
+            key=lambda self, qe, xis, Ns, N_xis: hashkey(*qe, *xis),
+        )
+        def _eval_all(self, qe, xis, Ns, N_xis):
+            # interpolate
+            r_OP_nodes = qe[self.nodalDOF_element_r]
+            r_OPs = Ns @ r_OP_nodes
+            r_OP_xis = N_xis @ r_OP_nodes
+
+            p_nodes = qe[self.nodalDOF_element_p]
+            p_xis = N_xis @ p_nodes
+            ps = Ns @ p_nodes
+
+            n = len(ps)
+            A_IBs = np.empty((n, 3, 3))
+            B_Gamma_bars = np.empty((n, 3))
+            B_Kappa_bars = np.empty((n, 3))
+            for i, p in enumerate(ps):
+                p = Quaternion(p, normalize=True)
+                # transformation matrix
+                A_IBs[i] = p.Exp_SO3_quat
+
+                # dilatation and shear strains
+                B_Gamma_bars[i] = A_IBs[i].T @ r_OP_xis[i]
+
+                # curvature, Rucker2018 (17)
+                B_Kappa_bars[i] = p.T_SO3_quat @ p_xis[i]
+            # B_Gamma_bars = (np.swapaxes(A_IBs, 1, 2) @ np.expand_dims(r_OP_xis, -1)).squeeze()
+            return r_OPs, A_IBs, B_Gamma_bars, B_Kappa_bars
+
+        @cachedmethod(
+            lambda self: self._deval_all_cache,
+            key=lambda self, qe, xis, Ns, N_xis: hashkey(*qe, *xis),
+        )
+        def _deval_all(self, qe, xis, Ns, N_xis):
+            # interpolate
+            n = len(Ns)
+            r_OP_qes = np.zeros((n, 3, self.nq_element), dtype=qe.dtype)
+            r_OP_xi_qes = np.zeros((n, 3, self.nq_element), dtype=qe.dtype)
+
+            p_qes = np.zeros((n, 4, self.nq_element), dtype=qe.dtype)
+            p_xi_qes = np.zeros((n, 4, self.nq_element), dtype=qe.dtype)
+
+            r_OP_nodes = qe[self.nodalDOF_element_r]
+            r_OPs = Ns @ r_OP_nodes
+            r_OP_qes[:, :, self.nodalDOF_element_r.T] = np.expand_dims(
+                eye3, 2
+            ) * np.expand_dims(Ns, [1, 2])
+
+            r_OP_xis = N_xis @ r_OP_nodes
+            r_OP_xi_qes[:, :, self.nodalDOF_element_r.T] = np.expand_dims(
+                eye3, 2
+            ) * np.expand_dims(N_xis, [1, 2])
+
+            p_nodes = qe[self.nodalDOF_element_p]
+            ps = Ns @ p_nodes
+            p_qes[:, :, self.nodalDOF_element_p.T] = np.expand_dims(
+                eye4, 2
+            ) * np.expand_dims(Ns, [1, 2])
+
+            p_xis = N_xis @ p_nodes
+            p_xi_qes[:, :, self.nodalDOF_element_p.T] = np.expand_dims(
+                eye4, 2
+            ) * np.expand_dims(N_xis, [1, 2])
+
+            A_IBs = np.empty((n, 3, 3))
+            A_IB_qes = np.empty((n, 3, 3, self.nq_element))
+            B_Gamma_bars = np.empty((n, 3))
+            B_Gamma_bar_qes = np.empty((n, 3, self.nq_element))
+            B_Kappa_bars = np.empty((n, 3))
+            B_Kappa_bar_qes = np.empty((n, 3, self.nq_element))
+            for i, p in enumerate(ps):
+                p = Quaternion(p, normalize=True)
+                # transformation matrix
+                A_IBs[i] = p.Exp_SO3_quat
+
+                # derivative w.r.t. generalized coordinates
+                A_IB_qes[i] = p.Exp_SO3_quat_p @ p_qes[i]
+
+                # axial and shear strains
+                B_Gamma_bars[i] = A_IBs[i].T @ r_OP_xis[i]
+                B_Gamma_bar_qes[i] = (
+                    np.moveaxis(A_IB_qes[i], 0, -1) @ r_OP_xis[i]
+                    + A_IBs[i].T @ r_OP_xi_qes[i]
+                )
+                # curvature, Rucker2018 (17)
+                T = p.T_SO3_quat
+                B_Kappa_bars[i] = T @ p_xis[i]
+
+                # B_Kappa_bar_qe = approx_fprime(qe, lambda qe: self._eval(qe, xi)[3])
+                B_Kappa_bar_qes[i] = (
+                    p_xis[i] @ p.T_SO3_quat_P @ p_qes[i] + T @ p_xi_qes[i]
+                )
+
+            return (
+                r_OPs,
+                A_IBs,
+                B_Gamma_bars,
+                B_Kappa_bars,
+                r_OP_qes,
+                A_IB_qes,
+                B_Gamma_bar_qes,
+                B_Kappa_bar_qes,
+            )
+
+        @cachedmethod(
             lambda self: self._deval_cache,
             key=lambda self, qe, xi, N, N_xi: hashkey(*qe, xi),
         )

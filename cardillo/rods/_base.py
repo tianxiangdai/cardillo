@@ -95,7 +95,9 @@ class CosseratRod(RodExportBase, ABC):
         self.nelement = nelement
 
         self._eval_cache = LRUCache(maxsize=nquadrature + 10)
+        self._eval_all_cache = LRUCache(maxsize=nquadrature + 10)
         self._deval_cache = LRUCache(maxsize=nquadrature + 10)
+        self._deval_all_cache = LRUCache(maxsize=nquadrature + 10)
 
         ##############################################################
         # discretization parameters centerline (r) and orientation (p)
@@ -521,6 +523,9 @@ class CosseratRod(RodExportBase, ABC):
     def E_pot_el(self, qe, el):
         E_pot_el = 0.0
 
+        _, _, B_Gamma_bars, B_Kappa_bars = self._eval_all(
+            qe, self.qp[el], self.N_r[el], self.N_r_xi[el]
+        )
         for i in range(self.nquadrature):
             # extract reference state variables
             qpi = self.qp[el, i]
@@ -530,9 +535,7 @@ class CosseratRod(RodExportBase, ABC):
             B_Kappa0 = self.B_Kappa0[el, i]
 
             # evaluate required quantities
-            _, _, B_Gamma_bar, B_Kappa_bar = self._eval(
-                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
-            )
+            B_Gamma_bar, B_Kappa_bar = B_Gamma_bars[i], B_Kappa_bars[i]
 
             # axial and shear strains
             B_Gamma = B_Gamma_bar / Ji
@@ -728,24 +731,24 @@ class CosseratRod(RodExportBase, ABC):
     def f_int_el(self, qe, el):
         f_int_el = np.zeros(self.nu_element, dtype=qe.dtype)
 
+        _, A_IBs, B_Gamma_bars, B_Kappa_bars = self._eval_all(
+            qe, self.qp[el], self.N_r[el], self.N_r_xi[el]
+        )
+        # axial and shear strains
+        B_Gammas = B_Gamma_bars / np.expand_dims(self.J[el], -1)
+        # torsional and flexural strains
+        B_Kappas = B_Kappa_bars / np.expand_dims(self.J[el], -1)
         for i in range(self.nquadrature):
             # extract reference state variables
-            qpi = self.qp[el, i]
             qwi = self.qw[el, i]
-            J = self.J[el, i]
             B_Gamma0 = self.B_Gamma0[el, i]
             B_Kappa0 = self.B_Kappa0[el, i]
 
-            # evaluate required quantities
-            _, A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
-                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
-            )
+            A_IB, B_Gamma_bar, B_Kappa_bar = A_IBs[i], B_Gamma_bars[i], B_Kappa_bars[i]
 
-            # axial and shear strains
-            B_Gamma = B_Gamma_bar / J
+            B_Gamma = B_Gammas[i]
 
-            # torsional and flexural strains
-            B_Kappa = B_Kappa_bar / J
+            B_Kappa = B_Kappas[i]
 
             # compute contact forces and couples from partial derivatives of
             # the strain energy function w.r.t. strain measures
@@ -771,33 +774,50 @@ class CosseratRod(RodExportBase, ABC):
     def f_int_el_qe(self, qe, el):
         f_int_el_qe = np.zeros((self.nu_element, self.nq_element), dtype=float)
 
+        (
+            _,
+            A_IBs,
+            B_Gamma_bars,
+            B_Kappa_bars,
+            _,
+            A_IB_qes,
+            B_Gamma_bar_qes,
+            B_Kappa_bar_qes,
+        ) = self._deval_all(qe, self.qp[el], self.N_r[el], self.N_r_xi[el])
+        # axial and shear strains
+        B_Gammas = B_Gamma_bars / np.expand_dims(self.J[el], -1)
+        B_Gamma_qes = B_Gamma_bar_qes / np.expand_dims(self.J[el], [1, 2])
+        # torsional and flexural strains
+        B_Kappas = B_Kappa_bars / np.expand_dims(self.J[el], -1)
+        B_Kappa_qes = B_Kappa_bar_qes / np.expand_dims(self.J[el], [1, 2])
         for i in range(self.nquadrature):
             # extract reference state variables
-            qpi = self.qp[el, i]
             qwi = self.qw[el, i]
-            Ji = self.J[el, i]
             B_Gamma0 = self.B_Gamma0[el, i]
             B_Kappa0 = self.B_Kappa0[el, i]
 
             # evaluate required quantities
             (
-                r_OP,
                 A_IB,
                 B_Gamma_bar,
                 B_Kappa_bar,
-                r_OP_qe,
                 A_IB_qe,
                 B_Gamma_bar_qe,
                 B_Kappa_bar_qe,
-            ) = self._deval(qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i])
+            ) = (
+                A_IBs[i],
+                B_Gamma_bars[i],
+                B_Kappa_bars[i],
+                A_IB_qes[i],
+                B_Gamma_bar_qes[i],
+                B_Kappa_bar_qes[i],
+            )
 
-            # axial and shear strains
-            B_Gamma = B_Gamma_bar / Ji
-            B_Gamma_qe = B_Gamma_bar_qe / Ji
+            B_Gamma = B_Gammas[i]
+            B_Gamma_qe = B_Gamma_qes[i]
 
-            # torsional and flexural strains
-            B_Kappa = B_Kappa_bar / Ji
-            B_Kappa_qe = B_Kappa_bar_qe / Ji
+            B_Kappa = B_Kappas[i]
+            B_Kappa_qe = B_Kappa_qes[i]
 
             # compute contact forces and couples from partial derivatives of
             # the strain energy function w.r.t. strain measures
@@ -843,7 +863,7 @@ class CosseratRod(RodExportBase, ABC):
         f_gyr_el_p = np.cross(
             B_Omegas, B_Omegas @ self.cross_section_inertias.B_I_rho0
         ) * np.expand_dims(self.J_dyn[el] * self.qw_dyn[el], 1)
-        
+
         # multiply of gyroscopic forces with nodal virtual rotations
         f_gyr_el = np.zeros(self.nu_element, dtype=common_type)
         f_gyr_el[self.nodalDOF_element_p_u] = np.sum(
