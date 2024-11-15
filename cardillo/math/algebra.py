@@ -17,6 +17,7 @@ from ..cpp.algebra_cpp import (
     skew2ax,
     ax2skew_a,
     skew2ax_A,
+    cross3,
 )
 
 '''
@@ -132,7 +133,6 @@ def skew2ax_A() -> np.ndarray:
     A[2, 1, 0] = 0.5
     A[2, 0, 1] = -0.5
     return A
-'''
 
 
 def cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -144,6 +144,7 @@ def cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
                      a[2] * b[0] - a[0] * b[2], \
                      a[0] * b[1] - a[1] * b[0] ])
     # fmt: on
+'''
 
 
 def is_positive_definite(A) -> bool:
