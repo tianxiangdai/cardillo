@@ -114,7 +114,7 @@ py::array_t<double> cross3(const std::vector<double>& a, const std::vector<doubl
 
 // Python module definition
 PYBIND11_MODULE(algebra_cpp, m) {
-    m.def("atan2_custom", &atan2_custom);
+    m.def("atan2", &atan2_custom);
     m.def("ei", &ei);
     m.def("sign", &sign);
     m.def("norm", &norm);
