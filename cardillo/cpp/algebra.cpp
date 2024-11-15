@@ -6,7 +6,6 @@
 #include <vector>
 #include <cassert>
 
-
 namespace py = pybind11;
 
 // Constants
@@ -72,7 +71,7 @@ py::array_t<double> ax2skew_squared(const std::vector<double>& a) {
 py::array_t<double> skew2ax(py::array_t<double> A) {
     auto r = A.unchecked<2>();
     double data[3] = {0.5 * (r(2, 1) - r(1, 2)), 0.5 * (r(0, 2) - r(2, 0)), 0.5 * (r(1, 0) - r(0, 1))};
-    return py::array_t<double>(3, &data[0]);
+    return py::array_t<double>({{3}}, &data[0]);
 }
 
 // ax2skew_a function
@@ -97,7 +96,7 @@ py::array_t<double> skew2ax_A() {
 py::array_t<double> cross3(const std::vector<double>& a, const std::vector<double>& b) {
     assert(a.size() == 3 && b.size() == 3);
     double data[3] = {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
-    return py::array_t<double>(3, &data[0]);
+    return py::array_t<double>({{3}}, &data[0]);
 }
 
 // is_positive_definite function
