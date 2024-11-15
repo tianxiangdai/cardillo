@@ -4,7 +4,8 @@ from pybind11.setup_helpers import Pybind11Extension, build_ext
 ext_modules = [
     Pybind11Extension(
         "algebra_cpp",
-        ["src/algebra.cpp"],
+        ["cardillo/cpp/algebra.cpp"],
+        include_dirs=["/usr/include/eigen3"],
     ),
 ]
 

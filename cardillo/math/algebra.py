@@ -6,7 +6,20 @@ e1 = np.array([1, 0, 0], dtype=float)
 e2 = np.array([0, 1, 0], dtype=float)
 e3 = np.array([0, 0, 1], dtype=float)
 
+from ..cpp.algebra_cpp import (
+    atan2,
+    ei,
+    sign,
+    norm,
+    LeviCivita3,
+    ax2skew,
+    ax2skew_squared,
+    skew2ax,
+    ax2skew_a,
+    skew2ax_A,
+)
 
+'''
 def atan2(y, x):
     """Atan2 implementation that can handle complex numbers,
     see https://en.wikipedia.org/wiki/Atan2#Definition. It returns
@@ -119,6 +132,7 @@ def skew2ax_A() -> np.ndarray:
     A[2, 1, 0] = 0.5
     A[2, 0, 1] = -0.5
     return A
+'''
 
 
 def cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
