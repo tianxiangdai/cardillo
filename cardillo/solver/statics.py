@@ -72,10 +72,16 @@ class Newton:
         # the jacobian
         # csr is used for efficient matrix vector multiplication, see
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
-        self.W_g = self.system.W_g(t, q, format="csr")
-        self.W_c = self.system.W_c(t, q, format="csr")
-        self.W_N = self.system.W_N(t, q, format="csr")
-        self.g_N = self.system.g_N(t, q)
+        self.W_g = (
+            self.system.W_g(t, q, format="csr") if self.mask_x[1] else np.empty(0)
+        )
+        self.W_c = (
+            self.system.W_c(t, q, format="csr") if self.mask_x[2] else np.empty(0)
+        )
+        self.W_N = (
+            self.system.W_N(t, q, format="csr") if self.mask_x[3] else np.empty(0)
+        )
+        self.g_N = self.system.g_N(t, q) if self.mask_x[3] else np.empty((0))
 
         # static equilibrium
         F = np.zeros_like(x)
@@ -103,11 +109,17 @@ class Newton:
             + self.system.Wla_c_q(t, q, la_c)
             + self.system.Wla_N_q(t, q, la_N)
         )
-
-        g_q = self.system.g_q(t, q) if self.mask_f[1] else None
-        g_S_q = self.system.g_S_q(t, q) if self.mask_f[3] else None
-        c_q = self.system.c_q(t, q, self.u0, la_c) if self.mask_f[2] else None
-        c_la_c = self.system.c_la_c() if self.mask_f[2] else None
+        if self.mask_f[1]:
+            g_q = self.system.g_q(t, q)
+        else:
+            g_q = self.W_g = None
+        if self.mask_f[2]:
+            c_q = self.system.c_q(t, q, self.u0, la_c)
+            c_la_c = self.system.c_la_c()
+        else:
+            c_q = c_la_c = self.W_c = None
+        if self.mask_f[3]:
+            g_S_q = self.system.g_S_q(t, q)
 
         # note: csr_matrix is best for row slicing, see
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
@@ -122,8 +134,7 @@ class Newton:
                 else:
                     Rla_N_q[i] = g_N_q[i]
         else:
-            Rla_N_q = None
-            Rla_N_la_N = None
+            Rla_N_q = Rla_N_la_N = self.W_N = None
 
         # fmt: off
         _jac = np.array(
