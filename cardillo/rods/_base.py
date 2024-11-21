@@ -979,7 +979,6 @@ class CosseratRod(RodExportBase, ABC):
         J_P[:, self.nodalDOF_element_r.T] += N * eye3[..., None]
         r_CP_tilde = A_IB @ B_r_CP_tilde
         J_P[:, self.nodalDOF_element_p_u.T] -= N * r_CP_tilde[..., None]
-
         return J_P
 
     def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
