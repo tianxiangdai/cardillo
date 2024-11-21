@@ -60,6 +60,10 @@ class Newton:
         self.x = np.zeros((self.nt, nx), dtype=float)
         self.x[0] = x0
 
+        # mask for jac
+        self.mask_f = (np.hstack([self.split_f, nx]) - np.hstack([0, self.split_f])) > 0
+        self.mask_x = (np.hstack([self.split_x, nx]) - np.hstack([0, self.split_x])) > 0
+
     def fun(self, x, t):
         # unpack unknowns
         q, la_g, la_c, la_N = np.array_split(x, self.split_x)
@@ -99,29 +103,39 @@ class Newton:
             + self.system.Wla_c_q(t, q, la_c)
             + self.system.Wla_N_q(t, q, la_N)
         )
-        g_q = self.system.g_q(t, q)
-        g_S_q = self.system.g_S_q(t, q)
-        c_q = self.system.c_q(t, q, self.u0, la_c)
-        c_la_c = self.system.c_la_c()
+
+        g_q = self.system.g_q(t, q) if self.mask_f[1] else None
+        g_S_q = self.system.g_S_q(t, q) if self.mask_f[3] else None
+        c_q = self.system.c_q(t, q, self.u0, la_c) if self.mask_f[2] else None
+        c_la_c = self.system.c_la_c() if self.mask_f[2] else None
 
         # note: csr_matrix is best for row slicing, see
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
-        g_N_q = self.system.g_N_q(t, q, format="csr")
+        if self.mask_f[4]:
+            g_N_q = self.system.g_N_q(t, q, format="csr")
 
-        Rla_N_q = lil_array((self.nla_N, self.nq), dtype=float)
-        Rla_N_la_N = lil_array((self.nla_N, self.nla_N), dtype=float)
-        for i in range(self.nla_N):
-            if la_N[i] < self.g_N[i]:
-                Rla_N_la_N[i, i] = 1.0
-            else:
-                Rla_N_q[i] = g_N_q[i]
+            Rla_N_q = lil_array((self.nla_N, self.nq), dtype=float)
+            Rla_N_la_N = lil_array((self.nla_N, self.nla_N), dtype=float)
+            for i in range(self.nla_N):
+                if la_N[i] < self.g_N[i]:
+                    Rla_N_la_N[i, i] = 1.0
+                else:
+                    Rla_N_q[i] = g_N_q[i]
+        else:
+            Rla_N_q = None
+            Rla_N_la_N = None
 
         # fmt: off
-        return bmat([[      K, self.W_g, self.W_c,   self.W_N], 
-                     [    g_q,     None,     None,       None],
-                     [    c_q,     None,   c_la_c,       None],
-                     [  g_S_q,     None,     None,       None],
-                     [Rla_N_q,     None,     None, Rla_N_la_N]], format="csc")
+        _jac = np.array(
+            [
+                [      K, self.W_g, self.W_c,   self.W_N],
+                [    g_q,     None,     None,       None],
+                [    c_q,     None,   c_la_c,       None],
+                [  g_S_q,     None,     None,       None],
+                [Rla_N_q,     None,     None, Rla_N_la_N]
+            ]
+        )[self.mask_f][:, self.mask_x]
+        return bmat(_jac, format="csc")
         # fmt: on
 
     def __pbar_text(self, force_iter, newton_iter, error):
