@@ -1,7 +1,7 @@
 from numpy.polynomial import Polynomial
 import numpy as np
 from math import comb
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from vtk import VTK_BEZIER_HEXAHEDRON
 
 from cardillo.visualization import Export
