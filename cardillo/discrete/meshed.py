@@ -4,6 +4,7 @@ from vtk import (
     VTK_TRIANGLE,
     VTK_BEZIER_WEDGE,
     VTK_BEZIER_HEXAHEDRON,
+    VTK_LAGRANGE_HEXAHEDRON,
 )
 
 
@@ -135,17 +136,16 @@ def Meshed(Base):
 
 
 def Box(Base):
-    MeshedBase = Meshed(Base)
-
-    class _Box(MeshedBase):
+    class _Box(Base):
         def __init__(
             self,
             dimensions=np.ones(3),
             density=None,
+            B_r_CP=np.zeros(3),
+            A_BM=np.eye(3),
             **kwargs,
         ):
             self.dimensions = dimensions
-            trimesh_obj = trimesh.creation.box(extents=dimensions)
             # compute inertia quantities of body
             if density is not None:
                 mass = density * dimensions[0] * dimensions[1] * dimensions[2]
@@ -173,14 +173,47 @@ def Box(Base):
                         "Specified moment of inertia does not correspond to moment of inertia of mesh."
                     )
                 kwargs.update({"mass": mass, "B_Theta_C": B_Theta_C})
-            super().__init__(mesh_obj=trimesh_obj, **kwargs)
+            super().__init__(**kwargs)
+            # mesh for visualization
+            xyzs = np.array(
+                [
+                    [1, 1, -1],
+                    [-1, 1, -1],
+                    [-1, -1, -1],
+                    [1, -1, -1],
+                    [1, 1, 1],
+                    [-1, 1, 1],
+                    [-1, -1, 1],
+                    [1, -1, 1],
+                ],
+                dtype=float,
+            )
+            xyzs[:, 0] *= dimensions[0] / 2
+            xyzs[:, 1] *= dimensions[1] / 2
+            xyzs[:, 2] *= dimensions[2] / 2
+            self.B_r_CM = B_r_CP + xyzs @ A_BM.T
+            self.cells = [(VTK_LAGRANGE_HEXAHEDRON, range(8))]
+            # c = 1 / np.sqrt(2)
+            # self.point_data = {
+            #     "RationalWeights": np.vstack([1] * 8 + [c] * 8 + [0.5] * 2),
+            # }
+            # self.cell_data = {
+            #     "HigherOrderDegrees": [[1, 1, 1]],
+            # }
+
+        def export(self, sol_i, base_export=False, **kwargs):
+            if base_export:
+                return super().export(sol_i, **kwargs)
+            else:
+                r_OC = self.r_OP(sol_i.t, sol_i.q[self.qDOF])
+                A_IB = self.A_IB(sol_i.t, sol_i.q[self.qDOF])
+                vtk_points = r_OC + self.B_r_CM @ A_IB.T
+                return vtk_points, self.cells, {}, {}
 
     return _Box
 
 
 def Cone(Base):
-    MeshedBase = Meshed(Base)
-
     class _Cone(Base):
         def __init__(
             self,
