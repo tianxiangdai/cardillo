@@ -1,6 +1,10 @@
 import numpy as np
 import trimesh
-from vtk import VTK_TRIANGLE
+from vtk import (
+    VTK_TRIANGLE,
+    VTK_BEZIER_WEDGE,
+    VTK_BEZIER_HEXAHEDRON,
+)
 
 
 def Meshed(Base):
@@ -177,17 +181,18 @@ def Box(Base):
 def Cone(Base):
     MeshedBase = Meshed(Base)
 
-    class _Cone(MeshedBase):
+    class _Cone(Base):
         def __init__(
             self,
             radius=1,
             height=2,
             density=None,
+            B_r_CP=np.zeros(3),
+            A_BM=np.eye(3),
             **kwargs,
         ):
             self.radius = radius
             self.height = height
-            trimesh_obj = trimesh.creation.cone(radius, height)
             # compute inertia quantities of body
             if density is not None:
                 mass = density / 3 * height * np.pi * radius**2
@@ -214,25 +219,70 @@ def Cone(Base):
                         "Specified moment of inertia does not correspond to moment of inertia of mesh."
                     )
                 kwargs.update({"mass": mass, "B_Theta_C": B_Theta_C})
-            super().__init__(mesh_obj=trimesh_obj, **kwargs)
+            super().__init__(**kwargs)
+            # mesh for visualization
+            xyzs = np.array(
+                [
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [-1, 0, 0],
+                    [0, -1, 0],
+                    [1, 0, 1],
+                    [0, 1, 1],
+                    [-1, 0, 1],
+                    [0, -1, 1],
+                    [1, 1, 0],
+                    [-1, 1, 0],
+                    [-1, -1, 0],
+                    [1, -1, 0],
+                    [1, 1, 1],
+                    [-1, 1, 1],
+                    [-1, -1, 1],
+                    [1, -1, 1],
+                    [0, 0, 0],
+                    [0, 0, 1],
+                ],
+                dtype=float,
+            )
+            xyzs[4:8, :2] *= 0
+            xyzs[12:16, :2] *= 0
+            xyzs[:, :2] *= radius
+            xyzs[:, 2] *= height
+            self.B_r_CM = B_r_CP + xyzs @ A_BM.T
+            self.cells = [(VTK_BEZIER_HEXAHEDRON, range(18))]
+            c = 1 / np.sqrt(2)
+            self.point_data = {
+                "RationalWeights": np.vstack([1] * 8 + [c] * 8 + [0.5] * 2),
+            }
+            self.cell_data = {
+                "HigherOrderDegrees": [[2, 2, 1]],
+            }
+
+        def export(self, sol_i, base_export=False, **kwargs):
+            if base_export:
+                return super().export(sol_i, **kwargs)
+            else:
+                r_OC = self.r_OP(sol_i.t, sol_i.q[self.qDOF])
+                A_IB = self.A_IB(sol_i.t, sol_i.q[self.qDOF])
+                vtk_points = r_OC + self.B_r_CM @ A_IB.T
+                return vtk_points, self.cells, self.point_data, self.cell_data
 
     return _Cone
 
 
 def Cylinder(Base):
-    MeshedBase = Meshed(Base)
-
-    class _Cylinder(MeshedBase):
+    class _Cylinder(Base):
         def __init__(
             self,
             radius=1,
             height=2,
             density=None,
+            B_r_CP=np.zeros(3),
+            A_BM=np.eye(3),
             **kwargs,
         ):
             self.radius = radius
             self.height = height
-            trimesh_obj = trimesh.creation.cylinder(radius, height=height)
             # compute inertia quantities of body
             if density is not None:
                 mass = density * height * np.pi * radius**2
@@ -259,7 +309,61 @@ def Cylinder(Base):
                         "Specified moment of inertia does not correspond to moment of inertia of mesh."
                     )
                 kwargs.update({"mass": mass, "B_Theta_C": B_Theta_C})
-            super().__init__(mesh_obj=trimesh_obj, **kwargs)
+            super().__init__(**kwargs)
+            # mesh for visualization
+            phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
+            xyz1 = np.stack(
+                [
+                    np.cos(phis) * radius,
+                    np.sin(phis) * radius,
+                    np.ones_like(phis) * (-height / 2),
+                ],
+                axis=1,
+            )
+            xyz2 = np.stack(
+                [
+                    np.cos(phis) * radius,
+                    np.sin(phis) * radius,
+                    np.ones_like(phis) * (height / 2),
+                ],
+                axis=1,
+            )
+            phis2 = phis + (np.pi / 3.0)
+            xyz3 = np.stack(
+                [
+                    np.cos(phis2) * 2.0 * radius,
+                    np.sin(phis2) * 2.0 * radius,
+                    np.ones_like(phis2) * (-height / 2),
+                ],
+                axis=1,
+            )
+            xyz4 = np.stack(
+                [
+                    np.cos(phis2) * 2.0 * radius,
+                    np.sin(phis2) * 2.0 * radius,
+                    np.ones_like(phis2) * (height / 2),
+                ],
+                axis=1,
+            )
+            self.B_r_CM = (
+                B_r_CP + np.concatenate([xyz1, xyz2, xyz3, xyz4], axis=0) @ A_BM.T
+            )
+            self.cells = [(VTK_BEZIER_WEDGE, range(12))]
+            self.point_data = {
+                "RationalWeights": np.vstack([1] * 6 + [0.5] * 6),
+            }
+            self.cell_data = {
+                "HigherOrderDegrees": [[2, 2, 1]],
+            }
+
+        def export(self, sol_i, base_export=False, **kwargs):
+            if base_export:
+                return super().export(sol_i, **kwargs)
+            else:
+                r_OC = self.r_OP(sol_i.t, sol_i.q[self.qDOF])
+                A_IB = self.A_IB(sol_i.t, sol_i.q[self.qDOF])
+                vtk_points = r_OC + self.B_r_CM @ A_IB.T
+                return vtk_points, self.cells, self.point_data, self.cell_data
 
     return _Cylinder
 
