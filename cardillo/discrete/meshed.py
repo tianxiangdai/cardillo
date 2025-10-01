@@ -693,7 +693,6 @@ def Capsule(Base):
             self.cell_data = {
                 "HigherOrderDegrees": [cdata_cyl] + [[4, 4, 0]] * 8,
             }
-            print()
 
         def export(self, sol_i, base_export=False, **kwargs):
             if base_export:

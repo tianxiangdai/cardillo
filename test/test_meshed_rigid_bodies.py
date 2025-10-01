@@ -28,34 +28,49 @@ if __name__ == "__main__":
 
     cube_mesh = trimesh.creation.box(extents=[3, 3, 3])
     plane_mesh = cube_mesh.copy().apply_transform(np.diag([1, 1, 0.001, 1]))
-    frame = Meshed(Frame)(plane_mesh, B_r_CP=np.array([0, 0, 0]))
+    frame = Meshed(Frame)(plane_mesh, B_r_CP=np.array([0, 0, 0]), name="Ground")
 
     q10 = np.concatenate([np.array([0, 0, 1]), Spurrier(A_IB_basic(np.pi / 4).x)])
     rigid_body1 = Box(RigidBody)(
-        dimensions=[0.2, 0.2, 0.1], density=2, mass=1, B_Theta_C=np.eye(3), q0=q10
+        dimensions=[0.2, 0.2, 0.1],
+        density=2,
+        mass=1,
+        B_Theta_C=np.eye(3),
+        q0=q10,
+        name="Box",
     )
 
     q20 = np.concatenate([np.array([0, 1, 1]), Spurrier(A_IB_basic(np.pi / 2).x)])
     rigid_body2 = Meshed(RigidBody)(
-        Path.joinpath(path.parent, "_data/tippedisk.stl"), density=1, scale=3, q0=q20
+        Path.joinpath(path.parent, "_data/tippedisk.stl"),
+        density=1,
+        scale=3,
+        q0=q20,
+        name="Disk",
     )
 
     q30 = np.concatenate([np.array([1, 1, 1]), Spurrier(A_IB_basic(-np.pi / 4).x)])
     rigid_body3 = Cone(RigidBody)(
-        radius=0.1, height=0.2, mass=1, B_Theta_C=np.eye(3), q0=q30
+        radius=0.1, height=0.2, mass=1, B_Theta_C=np.eye(3), q0=q30, name="Cone"
     )
 
     q40 = np.concatenate([np.array([1, -1, 1]), Spurrier(A_IB_basic(0).x)])
-    rigid_body4 = Cylinder(RigidBody)(radius=0.1, height=0.2, density=2, q0=q40)
+    rigid_body4 = Cylinder(RigidBody)(
+        radius=0.1, height=0.2, density=2, q0=q40, name="Cylinder"
+    )
 
     q50 = np.concatenate([np.array([0, -1, 1]), np.array([1, 0, 0, 0])])
-    rigid_body5 = Sphere(RigidBody)(radius=0.1, density=2, q0=q50)
+    rigid_body5 = Sphere(RigidBody)(radius=0.1, density=2, q0=q50, name="Sphere")
 
     q60 = np.concatenate([np.array([1, 0, 1]), Spurrier(A_IB_basic(-np.pi / 3).x)])
-    rigid_body6 = Capsule(RigidBody)(radius=0.1, height=0.2, density=2, q0=q60)
+    rigid_body6 = Capsule(RigidBody)(
+        radius=0.1, height=0.2, density=2, q0=q60, name="Capsule"
+    )
 
     q70 = np.concatenate([np.array([-1, 0, 1]), Spurrier(A_IB_basic(0).x)])
-    rigid_body7 = Tetrahedron(RigidBody)(edge=0.3, density=2, q0=q70)
+    rigid_body7 = Tetrahedron(RigidBody)(
+        edge=0.3, density=2, q0=q70, name="Tetrahedron"
+    )
 
     system = System()
     system.add(frame)
@@ -76,7 +91,7 @@ if __name__ == "__main__":
     system.assemble()
 
     # this will end the execution of the file on MacOS!!
-    show_system(system, system.t0, system.q0, origin_size=0.05)
+    # show_system(system, system.t0, system.q0, origin_size=0.05)
 
     sol = BackwardEuler(system, 5, 1e-1).solve()
 
@@ -100,4 +115,4 @@ if __name__ == "__main__":
         e.export_contr(rigid_body7)
 
     # this will end the execution of the file on MacOS!!
-    animate_system(system, sol.t, sol.q, t_factor=1, fps=10, origin_size=0.05)
+    # animate_system(system, sol.t, sol.q, t_factor=1, fps=10, origin_size=0.05)
