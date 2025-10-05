@@ -6,6 +6,7 @@ from vtk import (
     VTK_LAGRANGE_HEXAHEDRON,
     VTK_LAGRANGE_TETRAHEDRON,
     VTK_BEZIER_TRIANGLE,
+    VTK_BEZIER_QUADRILATERAL,
 )
 
 
@@ -573,47 +574,6 @@ def Capsule(Base):
                     )
                 kwargs.update({"mass": mass, "B_Theta_C": B_Theta_C})
             super().__init__(**kwargs)
-            # mesh for cylinder
-            phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
-            xyz1 = np.stack(
-                [
-                    np.cos(phis) * radius,
-                    np.sin(phis) * radius,
-                    np.ones_like(phis) * (-height / 2),
-                ],
-                axis=1,
-            )
-            xyz2 = np.stack(
-                [
-                    np.cos(phis) * radius,
-                    np.sin(phis) * radius,
-                    np.ones_like(phis) * (height / 2),
-                ],
-                axis=1,
-            )
-            phis2 = phis + (np.pi / 3.0)
-            xyz3 = np.stack(
-                [
-                    np.cos(phis2) * 2.0 * radius,
-                    np.sin(phis2) * 2.0 * radius,
-                    np.ones_like(phis2) * (-height / 2),
-                ],
-                axis=1,
-            )
-            xyz4 = np.stack(
-                [
-                    np.cos(phis2) * 2.0 * radius,
-                    np.sin(phis2) * 2.0 * radius,
-                    np.ones_like(phis2) * (height / 2),
-                ],
-                axis=1,
-            )
-            B_r_CM_cyl = (
-                B_r_CP + np.concatenate([xyz1, xyz2, xyz3, xyz4], axis=0) @ A_BM.T
-            )
-            cell_cyl = (VTK_BEZIER_WEDGE, range(12))
-            weights_cyl = np.vstack([1] * 6 + [0.5] * 6)
-            cdata_cyl = [2, 2, 1]
             # mesh for caps, similar to sphere
             c1 = (np.sqrt(3) - 1.0) / np.sqrt(3)
             c2 = (np.sqrt(3) + 1.0) / (2.0 * np.sqrt(3))
@@ -683,16 +643,69 @@ def Capsule(Base):
                     ids[np.isin(ids, ids_old)] = ids_new[sort]
                     pids.append(ids)
             B_r_CM_sph = B_r_CP + xyzs @ A_BM.T
-            cells_sph = [(VTK_BEZIER_TRIANGLE, ids + len(B_r_CM_cyl)) for ids in pids]
+            cells_sph = [(VTK_BEZIER_TRIANGLE, ids) for ids in pids]
 
-            self.B_r_CM = np.vstack((B_r_CM_cyl, B_r_CM_sph))
-            self.cells = [cell_cyl] + cells_sph
+            # mesh for caps
+            c1 = (np.sqrt(3) - 1.0) / np.sqrt(3)
+            c2 = (np.sqrt(3) + 1.0) / (2.0 * np.sqrt(3))
+            xyzs = (
+                np.array(
+                    [
+                        [1, 0, 0],
+                        [0, 1, 0],
+                        [1, c1, 0],
+                        [c2, c2, 0],
+                        [c1, 1, 0],
+                    ]
+                )
+                * radius
+            )
+            diff = np.array([0, 0, height / 2])
+            xyzs = np.vstack((xyzs - diff, xyzs + diff))
+            w1 = 4 * np.sqrt(3) * (np.sqrt(3) - 1.0)
+            w2 = 3 * np.sqrt(2)
+            weights_cyl = np.array(
+                [
+                    w1,
+                    w1,
+                    w2,
+                    4.0,
+                    w2,
+                ]
+            ).reshape(-1, 1)
+            weights_cyl = np.vstack((weights_cyl, weights_cyl))
+            pids = [np.array([0, 1, 6, 5, 2, 3, 4, 7, 8, 9])]
+            # flip octant to get full cylinder
+            for ax in range(2):
+                flip_mask = np.array([1, 1, 1])
+                flip_mask[ax] = -1
+                npts = len(xyzs)
+                sel = xyzs[:, np.where(flip_mask == -1)[0][0]] != 0
+                ids_old = np.argwhere(sel).flatten()
+                ids_new = np.arange(np.sum(sel)) + npts
+                xyzs = np.append(xyzs, xyzs[sel] * flip_mask, axis=0)
+                weights_cyl = np.append(weights_cyl, weights_cyl[sel], axis=0)
+                for i in range(len(pids)):
+                    ids = pids[i].copy()
+                    sort = np.array(
+                        [np.where(ids_old == x)[0][0] for x in ids if x in ids_old]
+                    )
+                    ids[np.isin(ids, ids_old)] = ids_new[sort]
+                    pids.append(ids)
+            B_r_CM_cyl = B_r_CP + xyzs @ A_BM.T
+            cells_cyl = [
+                (VTK_BEZIER_QUADRILATERAL, ids + len(B_r_CM_sph)) for ids in pids
+            ]
+
+            self.B_r_CM = np.vstack((B_r_CM_sph, B_r_CM_cyl))
+            self.cells = cells_sph + cells_cyl
             self.point_data = {
-                "RationalWeights": np.vstack((weights_cyl, weights_sph)),
+                "RationalWeights": np.vstack((weights_sph, weights_cyl)),
             }
             self.cell_data = {
-                "HigherOrderDegrees": [cdata_cyl] + [[4, 4, 0]] * 8,
+                "HigherOrderDegrees": [[4, 4, 0]] * 8 + [[4, 1, 0]] * 4,
             }
+            print()
 
         def export(self, sol_i, base_export=False, **kwargs):
             if base_export:
