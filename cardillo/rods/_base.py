@@ -414,7 +414,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
             p = q[nodalDOF_p]
             B_omega_IB = u[nodalDOF_p_u]
 
-            coo[nodalDOF_p, nodalDOF_p] = B_omega_IK @ T_SO3_inv_quat_P(
+            coo[nodalDOF_p, nodalDOF_p] = B_omega_IB @ T_SO3_inv_quat_P(
                 p, normalize=False
             )
 
@@ -507,7 +507,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
 
             v_P = self.N_r_dyn[el, i] @ ue[self.nodalDOF_element_r_u]
 
-            B_omega_IK = self.N_p_dyn[el, i] @ ue[self.nodalDOF_element_p_u]
+            B_omega_IB = self.N_p_dyn[el, i] @ ue[self.nodalDOF_element_p_u]
 
             # delta_r A_rho0 r_ddot part
             E_kin_el += (
@@ -574,7 +574,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
             r_OP = self.N_r_dyn[el, i] @ qe[self.nodalDOF_element_r]
             v_P = self.N_r_dyn[el, i] @ ue[self.nodalDOF_element_r_u]
 
-            B_omega_IK = self.N_p_dyn[el, i] @ ue[self.nodalDOF_element_p_u]
+            B_omega_IB = self.N_p_dyn[el, i] @ ue[self.nodalDOF_element_p_u]
 
             A_IB = self.A_IB(t, qe, (qpi,))
 
