@@ -1,12 +1,14 @@
 import numpy as np
 from cardillo.math import norm, cross3, ax2skew, ax2skew_a, LeviCivita3, ax2skew_squared
 
+from numba import njit
+
 # for small angles we use first order approximations of the equations since
 # most of the SO(3) and SE(3) equations get singular for psi -> 0.
 # angle_singular = 1.0e-6
 angle_singular = 0.0
 
-eye3 = np.eye(3, dtype=float)
+eye3 = np.eye(3, dtype=np.float64)
 
 
 def Exp_SO3(psi: np.ndarray) -> np.ndarray:
@@ -169,7 +171,7 @@ def T_SO3(psi: np.ndarray) -> np.ndarray:
 
 
 def T_SO3_psi(psi: np.ndarray) -> np.ndarray:
-    T_SO3_psi = np.zeros((3, 3, 3), dtype=float)
+    T_SO3_psi = np.zeros((3, 3, 3), dtype=np.float64)
 
     angle = norm(psi)
     if angle > angle_singular:
@@ -246,7 +248,7 @@ def T_SO3_dot(psi: np.ndarray, psi_dot: np.ndarray) -> np.ndarray:
             + c5 * np.outer(psi, psi_dot)
         ).T  #  transpose of Ibrahimbegović1995 (71)
     else:
-        return np.zeros((3, 3), dtype=float)  # Cardona1988 after (46)
+        return np.zeros((3, 3), dtype=np.float64)  # Cardona1988 after (46)
 
 
 def T_SO3_inv(psi: np.ndarray) -> np.ndarray:
@@ -464,12 +466,12 @@ def Spurrier(R: np.ndarray) -> np.ndarray:
     Simo1986: https://doi.org/10.1016/0045-7825(86)90079-4 \\
     Crisfield1997: http://inis.jinr.ru/sl/M_Mathematics/MN_Numerical%20methods/MNf_Finite%20elements/Crisfield%20M.A.%20Vol.2.%20Non-linear%20Finite%20Element%20Analysis%20of%20Solids%20and%20Structures..%20Advanced%20Topics%20(Wiley,1996)(ISBN%20047195649X)(509s).pdf
     """
-    decision = np.zeros(4, dtype=float)
+    decision = np.zeros(4, dtype=np.float64)
     decision[:3] = np.diag(R)
     decision[3] = np.trace(R)
     i = np.argmax(decision)
 
-    quat = np.zeros(4, dtype=float)
+    quat = np.zeros(4, dtype=np.float64)
     if i != 3:
         j = (i + 1) % 3
         k = (j + 1) % 3
@@ -544,6 +546,7 @@ def smallest_rotation(
         return Exp_SO3(psi * axis)
 
 
+@njit(cache=True)
 def Exp_SO3_quat(P, normalize=True):
     """Exponential mapping defined by (unit) quaternion, see 
     Egeland2002 (6.163), Nuetzi2016 (3.31) and Rucker2018 (13).
@@ -554,7 +557,7 @@ def Exp_SO3_quat(P, normalize=True):
     Nuetzi2016: https://www.research-collection.ethz.ch/handle/20.500.11850/117165 \\
     Rucker2018: https://ieeexplore.ieee.org/document/8392463
     """
-    p0, p = P[0, None], P[1:]
+    p0, p = P[0], P[1:]
     if normalize:
         # Nuetzi2016 (3.31) and Rucker2018 (13)
         P2 = P @ P
@@ -565,26 +568,33 @@ def Exp_SO3_quat(P, normalize=True):
         return (p0**2 - p @ p) * eye3 + np.outer(p, 2 * p) + 2 * p0 * ax2skew(p)
 
 
+@njit(cache=True)
 def Exp_SO3_quat_p(P, normalize=True):
     """Derivative of Exp_SO3_quat with respect to P."""
-    p0, p = P[0, None], P[1:]
+    p0, p = P[0], P[1:]
     p_tilde = ax2skew(p)
     p_tilde_p = ax2skew_a()
 
     if normalize:
         P2 = P @ P
-        A_P = (p0 * p_tilde + ax2skew_squared(p))[..., None] * (-(4 / (P2 * P2)) * P)
+        A_P = (p0 * p_tilde + ax2skew_squared(p))[:, :, None] * (
+            -(4.0 / (P2 * P2)) * P
+        )[None, None, :]
         s2 = 2 / P2
-        A_P[:, :, 0] += s2 * p_tilde
-        A_P[:, :, 1:] += (
-            s2 * p0 * p_tilde_p
-            + (s2 * p_tilde.T) @ p_tilde_p
-            + (p_tilde_p.T @ (-s2 * p_tilde)).T
-        )
+        s2_p_tilde = s2 * p_tilde
+        A_P[:, :, 0] += s2_p_tilde
+        A_P[:, :, 1:] += s2 * p0 * p_tilde_p
+        for i in range(3):
+            A_P[:, :, i + 1] += (
+                + p_tilde_p[:, :, i] @ s2_p_tilde
+                + (s2_p_tilde @ p_tilde_p[:, :, i])
+            )
     else:
         A_P = np.zeros((3, 3, 4), dtype=P.dtype)
         A_P[:, :, 0] = 2 * p0 * eye3 + 2 * ax2skew(p)
-        A_P[:, :, 1:] = -np.multiply.outer(eye3, 2 * p) + 2 * p0 * ax2skew_a()
+        A_P[:, :, 1:] = (
+            -eye3[:, :, None] * (2 * p)[None, None, :] + 2 * p0 * ax2skew_a()
+        )
         A_P[0, :, 1:] += 2 * p[0] * eye3
         A_P[1, :, 1:] += 2 * p[1] * eye3
         A_P[2, :, 1:] += 2 * p[2] * eye3
@@ -598,6 +608,7 @@ def Exp_SO3_quat_p(P, normalize=True):
 Log_SO3_quat = Spurrier
 
 
+@njit(cache=True)
 def T_SO3_quat(P, normalize=True):
     """Tangent map for unit quaternion. See Egeland2002 (6.327).
 
@@ -605,13 +616,14 @@ def T_SO3_quat(P, normalize=True):
     -----------
     Egeland2002: https://folk.ntnu.no/oe/Modeling%20and%20Simulation.pdf
     """
-    p0, p = P[0, None], P[1:]
+    p0, p = P[0], P[1:]
     if normalize:
         return (2 / (P @ P)) * np.hstack((-p[:, None], p0 * eye3 - ax2skew(p)))
     else:
         return 2 * (P @ P) * np.hstack((-p[:, None], p0 * eye3 - ax2skew(p)))
 
 
+@njit(cache=True)
 def T_SO3_inv_quat(P, normalize=True):
     """Inverse tangent map for unit quaternion. See Egeland2002 (6.329) and
     (6.330), Nuetzi2016 (3.11) and (4.19) as well as Rucker2018 (21) 
@@ -623,15 +635,20 @@ def T_SO3_inv_quat(P, normalize=True):
     Nuetzi2016: https://www.research-collection.ethz.ch/handle/20.500.11850/117165 \\
     Rucker2018: https://ieeexplore.ieee.org/document/8392463
     """
-    p0, p = P[0, None], P[1:]
+    p0, p = P[0], P[1:]
     if normalize:
-        return 0.5 * np.vstack((-p.T, p0 * eye3 + ax2skew(p)))
+        return 0.5 * np.concatenate((-p.reshape(1, 3), p0 * eye3 + ax2skew(p)))
     else:
-        return 1 / (2 * (P @ P) ** 2) * np.vstack((-p.T, p0 * eye3 + ax2skew(p)))
+        return (
+            1
+            / (2 * (P @ P) ** 2)
+            * np.concatenate((-p.reshape(1, 3), p0 * eye3 + ax2skew(p)))
+        )
 
 
+@njit(cache=True)
 def T_SO3_quat_P(P, normalize=True):
-    p0, p = P[0, None], P[1:]
+    p0, p = P[0], P[1:]
     P2 = P @ P
     matrix = np.hstack((-p[:, None], p0 * eye3 - ax2skew(p)))
     if normalize:
@@ -641,7 +658,7 @@ def T_SO3_quat_P(P, normalize=True):
         factor = 2 * P2
         factor_P = 4 * P
 
-    T_P = np.multiply.outer(matrix, factor_P)
+    T_P = matrix[:, :, None] * factor_P[None, None, :]
     T_P[:, 0, 1:] -= factor * eye3
     T_P[:, 1:, 0] += factor * eye3
     T_P[:, 1:, 1:] -= factor * ax2skew_a()
@@ -649,14 +666,15 @@ def T_SO3_quat_P(P, normalize=True):
     return T_P
 
 
+@njit(cache=True)
 def T_SO3_inv_quat_P(P, normalize=True):
     if normalize:
-        T_inv_P = np.zeros((4, 3, 4), dtype=float)
+        T_inv_P = np.zeros((4, 3, 4), dtype=np.float64)
         T_inv_P[0, :, 1:] = -0.5 * eye3
         T_inv_P[1:, :, 0] = 0.5 * eye3
         T_inv_P[1:, :, 1:] = 0.5 * ax2skew_a()
     else:
-        p0, p = P[0, None], P[1:]
+        p0, p = P[0], P[1:]
         P2 = P @ P
         factor = 1 / (2 * P2**2)
         factor_P = -2 / (P2**3) * P
@@ -677,8 +695,8 @@ def quatprod(P, Q):
     -----------
     Egeland2002: https://folk.ntnu.no/oe/Modeling%20and%20Simulation.pdf
     """
-    p0, p = P[0, None], P[1:]
-    q0, q = Q[0, None], Q[1:]
+    p0, p = P[0], P[1:]
+    q0, q = Q[0], Q[1:]
     z0 = p0 * q0 - p @ q
     z = p0 * q + q0 * p + cross3(p, q)
     return np.array([z0, *z])

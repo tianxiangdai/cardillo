@@ -1,11 +1,13 @@
 import numpy as np
 from math import copysign
+from numba import jit, njit
 
-e1 = np.array([1, 0, 0], dtype=float)
-e2 = np.array([0, 1, 0], dtype=float)
-e3 = np.array([0, 0, 1], dtype=float)
+e1 = np.array([1, 0, 0], dtype=np.float64)
+e2 = np.array([0, 1, 0], dtype=np.float64)
+e3 = np.array([0, 0, 1], dtype=np.float64)
 
 
+@njit(cache=True)
 def atan2(y, x):
     """Atan2 implementation that can handle complex numbers,
     see https://en.wikipedia.org/wiki/Atan2#Definition. It returns
@@ -30,6 +32,7 @@ def atan2(y, x):
             return 0
 
 
+@njit(cache=True)
 def ei(i: int) -> np.ndarray:
     """Retuns the i-th Cartesian basis vector.
     With i=0: e1, i=1: e2, i=2: e3, i=3: e1, etc."""
@@ -41,16 +44,19 @@ def sign(x: float) -> float:
     return copysign(1.0, x)
 
 
+@njit(cache=True)
 def norm(a: np.ndarray) -> float:
     """Euclidean norm of an array of arbitrary length."""
     return np.sqrt(a @ a)
 
 
+@njit(cache=True)
 def LeviCivita3(i: int, j: int, k: int) -> int:
     """Levi-Civita symbol, see https://en.wikipedia.org/wiki/Levi-Civita_symbol"""
     return (i - j) * (j - k) * (k - i) // 2
 
 
+@njit(cache=True)
 def ax2skew(a: np.ndarray) -> np.ndarray:
     """Computes the skew symmetric matrix from a 3D vector."""
     assert a.size == 3
@@ -61,6 +67,7 @@ def ax2skew(a: np.ndarray) -> np.ndarray:
     # fmt: on
 
 
+@njit(cache=True)
 def ax2skew_squared(a: np.ndarray) -> np.ndarray:
     """Computes the product of a skew-symmetric matrix with itself from a given axial vector."""
     assert a.size == 3
@@ -74,6 +81,7 @@ def ax2skew_squared(a: np.ndarray) -> np.ndarray:
     # fmt: on
 
 
+@njit(cache=True)
 def skew2ax(A: np.ndarray) -> np.ndarray:
     """Computes the axial vector from a skew symmetric 3x3 matrix."""
     assert A.shape == (3, 3)
@@ -84,6 +92,7 @@ def skew2ax(A: np.ndarray) -> np.ndarray:
     # fmt: on
 
 
+@njit(cache=True)
 def ax2skew_a():
     """
     Partial derivative of the `ax2skew` function with respect to its argument.
@@ -91,7 +100,7 @@ def ax2skew_a():
     Note:
     -----
     This is a constant 3x3x3 ndarray."""
-    A = np.zeros((3, 3, 3), dtype=float)
+    A = np.zeros((3, 3, 3), dtype=np.float64)
     A[1, 2, 0] = -1
     A[2, 1, 0] = 1
     A[0, 2, 1] = 1
@@ -101,6 +110,7 @@ def ax2skew_a():
     return A
 
 
+@njit(cache=True)
 def skew2ax_A() -> np.ndarray:
     """
     Partial derivative of the `skew2ax` function with respect to its argument.
@@ -108,7 +118,7 @@ def skew2ax_A() -> np.ndarray:
     Note:
     -----
     This is a constant 3x3x3 ndarray."""
-    A = np.zeros((3, 3, 3), dtype=float)
+    A = np.zeros((3, 3, 3), dtype=np.float64)
     A[0, 2, 1] = 0.5
     A[0, 1, 2] = -0.5
 
@@ -120,6 +130,7 @@ def skew2ax_A() -> np.ndarray:
     return A
 
 
+@njit(cache=True)
 def cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Vector product of two 3D vectors."""
     assert a.size == 3
@@ -131,6 +142,7 @@ def cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     # fmt: on
 
 
+@njit(cache=True)
 def is_positive_definite(A) -> bool:
     A = np.asarray(A)
     rows, cols = A.shape
