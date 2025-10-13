@@ -678,9 +678,9 @@ def T_SO3_inv_quat_P(P, normalize=True):
         P2 = P @ P
         factor = 1 / (2 * P2**2)
         factor_P = -2 / (P2**3) * P
-        matrix = np.vstack((-p.T, p0 * eye3 + ax2skew(p)))
+        matrix = np.concatenate((-p[None, :], p0 * eye3 + ax2skew(p)), axis=0)
 
-        T_inv_P = np.multiply.outer(matrix, factor_P)
+        T_inv_P = matrix[:, :, None] * factor_P
         T_inv_P[0, :, 1:] -= factor * eye3
         T_inv_P[1:, :, 0] += factor * eye3
         T_inv_P[1:, :, 1:] += factor * ax2skew_a()
