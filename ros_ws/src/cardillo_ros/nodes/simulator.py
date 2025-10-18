@@ -77,7 +77,7 @@ class SimulatorNode(Node):
         qos_profile = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1)
         self.create_subscription(Forcing, "forcing", self.callback_forcing, qos_profile)
         # model
-        self.cart_ball = CartBall()
+        # self.cart_ball = CartBall()
         # publisher
         self.publisher = self.create_publisher(CartBallState, "cart_ball_state", 10)
         self.timer = self.create_timer(1 / self.cart_ball.fps, self.timer_callback)
