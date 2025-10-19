@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy
 
-from my_interfaces.msg import CartBallState, Forcing
+from my_interfaces.msg import CartPoleState, Forcing
 
 
 class ControllerNode(Node):
@@ -12,21 +12,21 @@ class ControllerNode(Node):
         super().__init__("controller")
         qos_profile = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1)
         self.create_subscription(
-            CartBallState, "cart_ball_state", self.callback_cart_ball_state, qos_profile
+            CartPoleState, "cart_pole_state", self.callback_cart_pole_state, qos_profile
         )
         self.publisher = self.create_publisher(Forcing, "forcing", 10)
 
-    def callback_cart_ball_state(self, msg_cart_ball_state):
+    def callback_cart_pole_state(self, msg_state):
         m_cart = 1
         m_ball = 1
         g_accel = 9.81
         l2 = 0.1
-        # la = msg_cart_ball_state.la
-        r_OS_cart = msg_cart_ball_state.r_os_cart
-        r_OS_ball = msg_cart_ball_state.r_os_ball
+        # la = msg_cart_pole_state.la
+        r_OS_cart = msg_state.r_os_cart
+        r_OS_ball = msg_state.r_os_ball
         dr = r_OS_ball - r_OS_cart
-        v_S_cart = msg_cart_ball_state.v_s_cart
-        v_S_ball = msg_cart_ball_state.v_s_ball
+        v_S_cart = msg_state.v_s_cart
+        v_S_ball = msg_state.v_s_ball
         dv = v_S_ball - v_S_cart
         x, dx = r_OS_cart[0], v_S_cart[0]
         if dr[1] < 0:

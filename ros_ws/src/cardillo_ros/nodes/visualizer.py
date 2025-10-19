@@ -6,7 +6,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy
 
 
-from my_interfaces.msg import CartBallState
+from my_interfaces.msg import CartPoleState
 
 max_fps = 60
 
@@ -17,7 +17,7 @@ class VisualizerNode(Node):
         super().__init__("visualizer")
         qos_profile = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1)
         self.create_subscription(
-            CartBallState, "cart_ball_state", self.callback_cart_ball_state, qos_profile
+            CartPoleState, "cart_pole_state", self.callback_cart_pole_state, qos_profile
         )
         # cart
         box = vtk.vtkCubeSource()
@@ -88,14 +88,14 @@ class VisualizerNode(Node):
     def __handle_window_closed(self, inter, event):
         rclpy.shutdown()
 
-    def callback_cart_ball_state(self, msg_cart_ball_state):
-        # la = msg_cart_ball_state.la
+    def callback_cart_pole_state(self, msg_cart_pole_state):
+        # la = msg_cart_pole_state.la
         ctime = perf_counter()
         if ctime - self.time < 1 / max_fps:
             return
         self.time = ctime
-        r_OS_cart = msg_cart_ball_state.r_os_cart
-        r_OS_ball = msg_cart_ball_state.r_os_ball
+        r_OS_cart = msg_cart_pole_state.r_os_cart
+        r_OS_ball = msg_cart_pole_state.r_os_ball
         self.line.SetPoint1(*r_OS_cart)
         self.line.SetPoint2(*r_OS_ball)
         for i in range(3):

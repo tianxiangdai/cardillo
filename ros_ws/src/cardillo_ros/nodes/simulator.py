@@ -11,7 +11,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy
 
-from my_interfaces.msg import CartBallState, Forcing
+from my_interfaces.msg import CartPoleState, Forcing
 
 
 m_cart = 1
@@ -19,11 +19,11 @@ m_ball = 1
 g_accel = 9.81
 l2 = 0.1
 alpha0 = np.pi / 4
+fps = 1000
 
-
-class CartBall:
+class CartPole:
     def __init__(self):
-        self.fps = 1000
+        self.fps = fps
         system = System()
         self.cart = Box(RigidBody)(
             np.array([30, 10, 10]) * 1e-3, mass=m_cart, B_Theta_C=np.eye(3)
@@ -79,11 +79,11 @@ class SimulatorNode(Node):
         # model
         # self.cart_ball = CartBall()
         # publisher
-        self.publisher = self.create_publisher(CartBallState, "cart_ball_state", 10)
-        self.timer = self.create_timer(1 / self.cart_ball.fps, self.timer_callback)
+        self.publisher = self.create_publisher(CartPoleState, "cart_pole_state", 10)
+        self.timer = self.create_timer(1 / fps, self.timer_callback)
         self.__la = 0.0
         self.__t0 = 0.0
-        self.__dt = 1 / self.cart_ball.fps
+        self.__dt = 1 / fps
         self.__y0 = np.array([0, alpha0, 0, 0])
 
     def callback_forcing(self, msg_forcing):
@@ -98,7 +98,7 @@ class SimulatorNode(Node):
         # self.cart_ball.forcing.force = lambda t: np.zeros(3, dtype=np.float64)
         # ti, qi, ui = sol.t[-1], sol.q[-1], sol.u[-1]
         # # update state
-        # message = CartBallState()
+        # message = CartPoleState()
         # message.la = self.cart_ball.forcing.force(ti)
         # message.r_os_cart = cart.r_OP(
         #     ti, qi[cart.qDOF]
@@ -134,7 +134,7 @@ class SimulatorNode(Node):
         self.__y0 = s.y[:, -1]
         x_ivp, alpha_ivp, dx_ivp, dalpha_ivp = s.y[:, -1]
         # update state
-        message = CartBallState()
+        message = CartPoleState()
         message.la = self.__la
         message.r_os_cart = np.array([x_ivp, 0.0, 0.0])
         message.r_os_ball = [
