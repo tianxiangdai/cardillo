@@ -928,17 +928,15 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
             ############################
             # virtual work contributions
             ############################
-            n_qwi = A_IB @ B_n * qwi
-            for node in range(self.nnodes_element_r):
-                f_int_el[self.nodalDOF_element_r_u[node]] -= (
-                    self.N_r_xi[el, i, node] * n_qwi
-                )
-            m_qwi = B_m * qwi
-            cross = (cross3(B_Gamma_bar, B_n) + cross3(B_Kappa_bar, B_m)) * qwi
-            for node in range(self.nnodes_element_p):
-                f_int_el[self.nodalDOF_element_p_u[node]] += (
-                    -self.N_p_xi[el, i, node] * m_qwi + self.N_p[el, i, node] * cross
-                )
+            f_int_el[self.nodalDOF_element_r_u] -= np.outer(
+                self.N_r_xi[el, i], A_IB @ B_n * qwi
+            )
+            f_int_el[self.nodalDOF_element_p_u] += np.outer(
+                -self.N_p_xi[el, i], B_m * qwi
+            ) + np.outer(
+                self.N_p[el, i],
+                (cross3(B_Gamma_bar, B_n) + cross3(B_Kappa_bar, B_m)) * qwi,
+            )
 
         return f_int_el
 
@@ -996,25 +994,20 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
             ############################
             # virtual work contributions
             ############################
-            n_qe_qwi = qwi * (np.einsum("ikj,k->ij", A_IB_qe, B_n) + A_IB @ B_n_qe)
-            for node in range(self.nnodes_element_r):
-                f_int_el_qe[self.nodalDOF_element_r[node], :] -= (
-                    self.N_r_xi[el, i, node] * n_qe_qwi
-                )
-            B_Gamma_bar_B_n_qe_qwi = qwi * (
-                ax2skew(B_Gamma_bar) @ B_n_qe - ax2skew(B_n) @ B_Gamma_bar_qe
+            f_int_el_qe[self.nodalDOF_element_r] -= (
+                self.N_r_xi[el, i][..., None, None]
+                * qwi
+                * (B_n @ A_IB_qe + A_IB @ B_n_qe)
             )
-            B_m_qe_qwi = qwi * B_m_qe
-            B_Kappa_bar_B_m_qe_qwi = qwi * (
-                ax2skew(B_Kappa_bar) @ B_m_qe - ax2skew(B_m) @ B_Kappa_bar_qe
+            f_int_el_qe[self.nodalDOF_element_p_u] += (
+                self.N_p[el, i][..., None, None]
+                * qwi
+                * (ax2skew(B_Gamma_bar) @ B_n_qe - ax2skew(B_n) @ B_Gamma_bar_qe)
+                - self.N_p_xi[el, i][..., None, None] * qwi * B_m_qe
+                + self.N_p[el, i][..., None, None]
+                * qwi
+                * (ax2skew(B_Kappa_bar) @ B_m_qe - ax2skew(B_m) @ B_Kappa_bar_qe)
             )
-            for node in range(self.nnodes_element_p):
-                f_int_el_qe[self.nodalDOF_element_p_u[node], :] += (
-                    self.N_p[el, i, node] * B_Gamma_bar_B_n_qe_qwi
-                    - self.N_p_xi[el, i, node] * B_m_qe_qwi
-                    + self.N_p[el, i, node] * B_Kappa_bar_B_m_qe_qwi
-                )
-
         return f_int_el_qe
 
     ##############################
