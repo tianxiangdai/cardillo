@@ -37,23 +37,23 @@ class VisualizerNode(Node):
         actor_cart = vtk.vtkActor()
         actor_cart.SetMapper(mapper)
 
-        # ball
+        # pole
         sphere = vtk.vtkSphereSource()
         sphere.SetRadius(0.01)
         sphere.SetPhiResolution(20)
         sphere.SetThetaResolution(20)
 
-        self.H_IB_ball = vtk.vtkMatrix4x4()
+        self.H_IB_pole = vtk.vtkMatrix4x4()
         _H_IB = vtk.vtkMatrixToLinearTransform()
-        _H_IB.SetInput(self.H_IB_ball)
+        _H_IB.SetInput(self.H_IB_pole)
         tf_filter = vtk.vtkTransformPolyDataFilter()
         tf_filter.SetInputConnection(sphere.GetOutputPort())
         tf_filter.SetTransform(_H_IB)
 
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputConnection(tf_filter.GetOutputPort())
-        actor_ball = vtk.vtkActor()
-        actor_ball.SetMapper(mapper)
+        actor_pole = vtk.vtkActor()
+        actor_pole.SetMapper(mapper)
 
         # line
         self.line = vtk.vtkLineSource()
@@ -67,7 +67,7 @@ class VisualizerNode(Node):
         # renderer
         ren = vtk.vtkRenderer()
         ren.AddActor(actor_cart)
-        ren.AddActor(actor_ball)
+        ren.AddActor(actor_pole)
         ren.AddActor(actor_line)
         ren.SetBackground(vtk.vtkNamedColors().GetColor3d("DarkGreen"))
 
@@ -95,14 +95,14 @@ class VisualizerNode(Node):
             return
         self.time = ctime
         r_OS_cart = msg_cart_pole_state.r_os_cart
-        r_OS_ball = msg_cart_pole_state.r_os_ball
+        r_OS_pole = msg_cart_pole_state.r_os_pole
         self.line.SetPoint1(*r_OS_cart)
-        self.line.SetPoint2(*r_OS_ball)
+        self.line.SetPoint2(*r_OS_pole)
         for i in range(3):
             self.H_IB_cart.SetElement(i, 3, r_OS_cart[i])
-            self.H_IB_ball.SetElement(i, 3, r_OS_ball[i])
+            self.H_IB_pole.SetElement(i, 3, r_OS_pole[i])
         self.H_IB_cart.Modified()
-        self.H_IB_ball.Modified()
+        self.H_IB_pole.Modified()
         self.win.Render()
         self.interactor.ProcessEvents()
 
