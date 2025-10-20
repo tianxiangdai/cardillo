@@ -643,48 +643,6 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
             coo[elDOF_u, elDOF_u] = -self.f_gyr_el_ue(t, q[elDOF], u[elDOF_u], el)
         return coo
 
-    def f_int_el(self, qe, el):
-        f_int_el = np.zeros(self.nu_element, dtype=qe.dtype)
-
-        for i in range(self.nquadrature):
-            # extract reference state variables
-            qpi = self.qp[el, i]
-            qwi = self.qw[el, i]
-            J = self.J[el, i]
-            B_Gamma0 = self.B_Gamma0[el, i]
-            B_Kappa0 = self.B_Kappa0[el, i]
-
-            # evaluate required quantities
-            _, A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
-                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
-            )
-
-            # axial and shear strains
-            B_Gamma = B_Gamma_bar / J
-
-            # torsional and flexural strains
-            B_Kappa = B_Kappa_bar / J
-
-            # compute contact forces and couples from partial derivatives of
-            # the strain energy function w.r.t. strain measures
-            B_n = self.material_model.B_n(B_Gamma, B_Gamma0, B_Kappa, B_Kappa0)
-            B_m = self.material_model.B_m(B_Gamma, B_Gamma0, B_Kappa, B_Kappa0)
-
-            ############################
-            # virtual work contributions
-            ############################
-            f_int_el[self.nodalDOF_element_r_u] -= np.outer(
-                self.N_r_xi[el, i], A_IB @ B_n * qwi
-            )
-            f_int_el[self.nodalDOF_element_p_u] += np.outer(
-                -self.N_p_xi[el, i], B_m * qwi
-            ) + np.outer(
-                self.N_p[el, i],
-                (cross3(B_Gamma_bar, B_n) + cross3(B_Kappa_bar, B_m)) * qwi,
-            )
-
-        return f_int_el
-
     def f_int_el_qe(self, qe, el):
         f_int_el_qe = np.zeros((self.nu_element, self.nq_element), dtype=float)
 
