@@ -8,7 +8,7 @@ from scipy.integrate import solve_ivp
 
 from matplotlib import pyplot as plt
 
-test_cardillo = True
+test_cardillo = False
 
 m_cart = 1
 m_pole = 1
@@ -37,20 +37,52 @@ M_inv = lambda alpha: np.array(
 )
 h = lambda alpha, dalpha: m_pole * l2 * np.sin(alpha) * np.array([dalpha**2, -g_accel])
 
+A_lin = np.array(
+    [
+        [0, 0, 1, 0],
+        [0, 0, 0, 1],
+        [0, m_cart / m_cart * g_accel, 0, 0],
+        [0, (m_cart + m_pole) / m_cart * l2 * g_accel, 0, 0],
+    ]
+)
+B_lin = np.array([0, 0, 1 / m_cart, 1 / m_cart / l2])
+# lqr(A,B, diag([1e-10, 1e3, 1, 1e-10]),1,0)
+K_lqr = np.array([0.0000, 32.5570, 1.0000, 2.4537])
+# lqr(A,B, diag([1e-10, 1e4, 1e-5, 1e-10]),1,0)
+K_lqr = np.array([0.0000, 100.2027, 0.0148, 4.4752])
+
+active_lqr = False
+x_goal = np.zeros(4)
+
 
 def fun(t, y):
+    global active_lqr, x_goal
     x, alpha, dx, dalpha = y
-    # E = 0.5 * (m_pole + m_cart) * dx**2 + 0.5 * m_pole * l2 **2 * dalpha **2 + m_pole * l2 * dx * dalpha * np.cos(alpha) - m_pole * g_accel * l2 * np.cos(alpha)
-    # dE = E - m_pole * g_accel * l2
-    E = 0.5 * (
-        (m_cart + m_pole) - m_pole * np.cos(alpha) ** 2
-    ) * l2**2 * dalpha**2 - (m_cart + m_pole) * g_accel * l2 * np.cos(alpha)
-    dE = E - (m_cart + m_pole) * g_accel * l2
-    if dx == 0 or test_cardillo:
-        la = 0
+    if active_lqr:
+        pass
+    elif np.abs(alpha - np.pi) < np.deg2rad(5):
+        active_lqr = True
+        x_goal = np.array([x, np.pi, 0, 0])
+        print(t, x_goal)
+    elif np.abs(alpha + np.pi) < np.deg2rad(5):
+        active_lqr = True
+        x_goal = np.array([x, -np.pi, 0, 0])
+        print(t, x_goal)
+
+    if active_lqr:
+        la = K_lqr @ (x_goal - y)
     else:
-        # la = - np.arctan(dE * dx * 1000) *2 /np.pi * 10
-        la = np.arctan(dE * l2 * np.cos(alpha) * dalpha * 10) * 2 / np.pi * 10
+        # E = 0.5 * (m_pole + m_cart) * dx**2 + 0.5 * m_pole * l2 **2 * dalpha **2 + m_pole * l2 * dx * dalpha * np.cos(alpha) - m_pole * g_accel * l2 * np.cos(alpha)
+        # dE = E - m_pole * g_accel * l2
+        E = 0.5 * (
+            (m_cart + m_pole) - m_pole * np.cos(alpha) ** 2
+        ) * l2**2 * dalpha**2 - (m_cart + m_pole) * g_accel * l2 * np.cos(alpha)
+        dE = E - (m_cart + m_pole) * g_accel * l2
+        if dx == 0 or test_cardillo:
+            la = 0
+        else:
+            # la = - np.arctan(dE * dx * 1000) *2 /np.pi * 10
+            la = np.arctan(dE * l2 * np.cos(alpha) * dalpha * 10) * 2 / np.pi * 10
     dy = np.empty_like(y)
     dy[:2] = y[2:]
     dy[2:] = M_inv(alpha) @ (h(alpha, dalpha) + np.array([la, 0]))

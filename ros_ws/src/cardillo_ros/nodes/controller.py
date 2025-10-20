@@ -21,6 +21,7 @@ class ControllerNode(Node):
             CartPoleState, "cart_pole_state", self.callback_cart_pole_state, qos_profile
         )
         self.publisher = self.create_publisher(Forcing, "forcing", 10)
+        self.active_lqr = False
 
     def callback_cart_pole_state(self, msg_state):
         # la = msg_cart_pole_state.la
@@ -36,16 +37,29 @@ class ControllerNode(Node):
         else:
             alpha = np.pi - np.arcsin(dr[0] / l2)
         dalpha = np.linalg.norm(dv) / l2 * np.sign(np.cross([0, 0, 1], dr) @ dv)
+        if not self.active_lqr:
+            if np.abs(alpha - np.pi) < np.deg2rad(5):
+                self.active_lqr = True
+                self.x_goal = np.array([x, np.pi, 0, 0])
+                print("active lqr: ", self.x_goal)
+            elif np.abs(alpha + np.pi) < np.deg2rad(5):
+                self.active_lqr = True
+                self.x_goal = np.array([x, -np.pi, 0, 0])
+                print("active lqr: ", self.x_goal)
 
-        E = 0.5 * (
-            (m_cart + m_pole) - m_pole * np.cos(alpha) ** 2
-        ) * l2**2 * dalpha**2 - (m_cart + m_pole) * g_accel * l2 * np.cos(alpha)
-        dE = E - (m_cart + m_pole) * g_accel * l2
-        if dx == 0:
-            la = 0.0
+        if self.active_lqr:
+            K_lqr = np.array([0.0000, 100.2027, 0.0148, 4.4752])
+            la = K_lqr @ (self.x_goal - np.array([x, alpha, dx, dalpha]))
         else:
-            # la = - np.arctan(dE * dx * 1000) *2 /np.pi * 10
-            la = np.arctan(dE * l2 * np.cos(alpha) * dalpha * 10) * 2 / np.pi * 10.0
+            E = 0.5 * (
+                (m_cart + m_pole) - m_pole * np.cos(alpha) ** 2
+            ) * l2**2 * dalpha**2 - (m_cart + m_pole) * g_accel * l2 * np.cos(alpha)
+            dE = E - (m_cart + m_pole) * g_accel * l2
+            if dx == 0:
+                la = 0.0
+            else:
+                # la = - np.arctan(dE * dx * 1000) *2 /np.pi * 10
+                la = np.arctan(dE * l2 * np.cos(alpha) * dalpha * 10) * 2 / np.pi * 10.0
         message = Forcing()
         message.la = la
         self.publisher.publish(message)

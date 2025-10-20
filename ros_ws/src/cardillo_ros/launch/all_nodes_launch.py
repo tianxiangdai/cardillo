@@ -14,8 +14,8 @@ def generate_launch_description():
             Node(
                 package="cardillo_ros",
                 executable="simulator",
-                output="screen",
-                emulate_tty=True,
+                # output="screen",
+                # emulate_tty=True,
             ),
             Node(
                 package="cardillo_ros",
