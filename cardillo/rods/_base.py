@@ -14,8 +14,8 @@ from ._cross_section import CrossSectionInertias
 from .discretization.lagrange import LagrangeKnotVector
 from .discretization.mesh1D import Mesh1D
 
-eye3 = np.eye(3, dtype=float)
-eye4 = np.eye(4, dtype=float)
+eye3 = np.eye(3, dtype=np.float64)
+eye4 = np.eye(4, dtype=np.float64)
 
 
 class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
@@ -225,7 +225,9 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         self.N_p_xi = self.mesh_p.N_xi
 
         self.N_r_dyn = self.mesh_r_dyn.N
+        self.N_r_xi_dyn = self.mesh_r_dyn.N_xi
         self.N_p_dyn = self.mesh_p_dyn.N
+        self.N_p_xi_dyn = self.mesh_p_dyn.N_xi
 
         # quadrature points
         # note: compliance equations use the same quadrature points
@@ -238,7 +240,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         # position and velocity coordinates
         self.Q = Q
         self.q0 = Q.copy() if q0 is None else q0
-        self.u0 = np.zeros(self.nu, dtype=float) if u0 is None else u0
+        self.u0 = np.zeros(self.nu, dtype=np.float64) if u0 is None else u0
 
         # evaluate shape functions at specific xi
         self.basis_functions_r = self.mesh_r.eval_basis
@@ -248,7 +250,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         dim_g_S = 1
         self.nla_S = self.nnodes_p * dim_g_S
         self.nodalDOF_la_S = np.arange(self.nla_S).reshape(self.nnodes_p, dim_g_S)
-        self.la_S0 = np.zeros(self.nla_S, dtype=float)
+        self.la_S0 = np.zeros(self.nla_S, dtype=np.float64)
 
         self.set_reference_strains(self.Q)
 
@@ -257,12 +259,12 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
 
         # precompute values of the reference configuration in order to save
         # computation time J in Harsch2020b (5)
-        self.J = np.zeros((self.nelement, self.nquadrature), dtype=float)
-        self.J_dyn = np.zeros((self.nelement, self.nquadrature_dyn), dtype=float)
+        self.J = np.zeros((self.nelement, self.nquadrature), dtype=np.float64)
+        self.J_dyn = np.zeros((self.nelement, self.nquadrature_dyn), dtype=np.float64)
         # dilatation and shear strains of the reference configuration
-        self.B_Gamma0 = np.zeros((self.nelement, self.nquadrature, 3), dtype=float)
+        self.B_Gamma0 = np.zeros((self.nelement, self.nquadrature, 3), dtype=np.float64)
         # curvature of the reference configuration
-        self.B_Kappa0 = np.zeros((self.nelement, self.nquadrature, 3), dtype=float)
+        self.B_Kappa0 = np.zeros((self.nelement, self.nquadrature, 3), dtype=np.float64)
 
         for el in range(self.nelement):
             qe = self.Q[self.elDOF[el]]
@@ -323,10 +325,10 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
 
         q_body = q[self.qDOF]
         if elementwise:
-            r = np.zeros([self.nelement, self.nnodes_element_r, 3], dtype=float)
-            ex = np.zeros([self.nelement, self.nnodes_element_r, 3], dtype=float)
-            ey = np.zeros([self.nelement, self.nnodes_element_r, 3], dtype=float)
-            ez = np.zeros([self.nelement, self.nnodes_element_r, 3], dtype=float)
+            r = np.zeros([self.nelement, self.nnodes_element_r, 3], dtype=np.float64)
+            ex = np.zeros([self.nelement, self.nnodes_element_r, 3], dtype=np.float64)
+            ey = np.zeros([self.nelement, self.nnodes_element_r, 3], dtype=np.float64)
+            ez = np.zeros([self.nelement, self.nnodes_element_r, 3], dtype=np.float64)
             for el, elDOF in enumerate(self.elDOF):
                 qe = q_body[elDOF]
                 r[el] = [qe[nodalDOF_el] for nodalDOF_el in self.nodalDOF_element_r]
@@ -389,7 +391,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
     #####################
     def q_dot(self, t, q, u):
         # centerline part
-        q_dot = np.zeros_like(q, dtype=np.common_type(q, u))
+        q_dot = np.zeros_like(q, dtype=np.float64)
 
         # centerline time derivative from centerline velocities
         q_dot[self.nodalDOF_r] = u[self.nodalDOF_r]
@@ -525,7 +527,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return E_kin_el
 
     def linear_momentum(self, t, q, u):
-        linear_momentum = np.zeros(3, dtype=float)
+        linear_momentum = np.zeros(3, dtype=np.float64)
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
@@ -537,7 +539,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return linear_momentum
 
     def linear_momentum_el(self, qe, ue, el):
-        linear_momentum_el = np.zeros(3, dtype=float)
+        linear_momentum_el = np.zeros(3, dtype=np.float64)
 
         for i in range(self.nquadrature_dyn):
             # extract reference state variables
@@ -551,7 +553,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return linear_momentum_el
 
     def angular_momentum(self, t, q, u):
-        angular_momentum = np.zeros(3, dtype=float)
+        angular_momentum = np.zeros(3, dtype=np.float64)
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
@@ -563,7 +565,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return angular_momentum
 
     def angular_momentum_el(self, t, qe, ue, el):
-        angular_momentum_el = np.zeros(3, dtype=float)
+        angular_momentum_el = np.zeros(3, dtype=np.float64)
 
         for i in range(self.nquadrature_dyn):
             # extract reference state variables
@@ -606,7 +608,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
             self.__M[elDOF_u, elDOF_u] = self.M_el(el)
 
     def M_el(self, el):
-        M_el = np.zeros((self.nu_element, self.nu_element), dtype=float)
+        M_el = np.zeros((self.nu_element, self.nu_element), dtype=np.float64)
 
         for i in range(self.nquadrature_dyn):
             # extract reference state variables
@@ -640,12 +642,12 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            coo[elDOF_u, elDOF_u] = -self.f_gyr_el_ue(t, q[elDOF], u[elDOF_u], el)
+            coo[elDOF_u, elDOF_u] = self.f_int_el_ue(q[elDOF], u[elDOF_u], el)
+            coo[elDOF_u, elDOF_u] = -self.f_gyr_el_ue(q[elDOF], u[elDOF_u], el)
         return coo
 
-    def f_gyr_el(self, t, qe, ue, el):
-        common_type = np.common_type(qe, ue)
-        f_gyr_el = np.zeros(self.nu_element, dtype=common_type)
+    def f_gyr_el(self, ue, el):
+        f_gyr_el = np.zeros(self.nu_element, dtype=np.float64)
         # interpoalte angular velocity
         B_Omegas = self.N_p_dyn[el] @ ue[self.nodalDOF_element_p_u]
         # gyroscopic forces
@@ -659,8 +661,8 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         )
         return f_gyr_el
 
-    def f_gyr_el_ue(self, t, qe, ue, el):
-        f_gyr_el_ue = np.zeros((self.nu_element, self.nu_element), dtype=float)
+    def f_gyr_el_ue(self, qe, ue, el):
+        f_gyr_el_ue = np.zeros((self.nu_element, self.nu_element), dtype=np.float64)
 
         for i in range(self.nquadrature_dyn):
             # interpoalte angular velocity
@@ -725,13 +727,13 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
     ##########################
     # r_OP / A_IB contribution
     ##########################
-    def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
         N, N_xi = self.basis_functions_r(xi)
         r_OC, A_IB, _, _ = self._eval(qe, xi, N, N_xi)
         return r_OC + A_IB @ B_r_CP
 
     # TODO: Think of a faster version than using _deval
-    def r_OP_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def r_OP_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
         # evaluate required quantities
         N, N_xi = self.basis_functions_r(xi)
         (
@@ -747,7 +749,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
 
         return r_OC_q + B_r_CP @ A_IB_q
 
-    def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
         N, _ = self.basis_functions_r(xi)
 
         # interpolate A_IB and angular velocity in B-frame
@@ -759,7 +761,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
 
         return v_C + A_IB @ cross3(B_Omega, B_r_CP)
 
-    def v_P_q(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def v_P_q(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
         # evaluate shape functions
         N, _ = self.basis_functions_r(xi)
 
@@ -770,7 +772,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         v_P_q = cross3(B_Omega, B_r_CP) @ A_IB_q
         return v_P_q
 
-    def J_P(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def J_P(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
         # evaluate required nodal shape functions
         N, _ = self.basis_functions_r(xi)
 
@@ -781,13 +783,13 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         B_r_CP_tilde = ax2skew(B_r_CP)
 
         # interpolate centerline and axis angle contributions
-        J_P = np.zeros((3, self.nu_element), dtype=qe.dtype)
+        J_P = np.zeros((3, self.nu_element), dtype=np.float64)
         J_P[:, self.nodalDOF_element_r.T] += N * eye3[..., None]
         r_CP_tilde = A_IB @ B_r_CP_tilde
         J_P[:, self.nodalDOF_element_p_u.T] -= N * r_CP_tilde[..., None]
         return J_P
 
-    def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
         # evaluate required nodal shape functions
         N, _ = self.basis_functions_r(xi)
 
@@ -797,11 +799,11 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
 
         # interpolate axis angle contributions since centerline contributon is
         # zero
-        J_P_q = np.zeros((3, self.nu_element, self.nq_element), dtype=float)
+        J_P_q = np.zeros((3, self.nu_element, self.nq_element), dtype=np.float64)
         J_P_q[:, self.nodalDOF_element_p_u] = -N[..., None, None] * prod[:, None, ...]
         return J_P_q
 
-    def a_P(self, t, qe, ue, ue_dot, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def a_P(self, t, qe, ue, ue_dot, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
         N, _ = self.basis_functions_r(xi)
 
         # interpolate orientation
@@ -834,7 +836,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         )
 
         N, _ = self.basis_functions_r(xi)
-        a_P_u = np.zeros((3, self.nu_element), dtype=float)
+        a_P_u = np.zeros((3, self.nu_element), dtype=np.float64)
         a_P_u[:, self.nodalDOF_element_p_u.T] = N * local[..., None]
 
         return a_P_u
@@ -848,16 +850,16 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return B_Omega
 
     def B_Omega_q(self, t, qe, ue, xi):
-        return np.zeros((3, self.nq_element), dtype=float)
+        return np.zeros((3, self.nq_element), dtype=np.float64)
 
     def B_J_R(self, t, qe, xi):
         N_p, _ = self.basis_functions_p(xi)
-        B_J_R = np.zeros((3, self.nu_element), dtype=float)
+        B_J_R = np.zeros((3, self.nu_element), dtype=np.float64)
         B_J_R[:, self.nodalDOF_element_p_u.T] = N_p * eye3[..., None]
         return B_J_R
 
     def B_J_R_q(self, t, qe, xi):
-        return np.zeros((3, self.nu_element, self.nq_element), dtype=float)
+        return np.zeros((3, self.nu_element, self.nq_element), dtype=np.float64)
 
     def B_Psi(self, t, qe, ue, ue_dot, xi):
         """Since we use Petrov-Galerkin method we only interpolate the nodal
@@ -868,10 +870,10 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return B_Psi
 
     def B_Psi_q(self, t, qe, ue, ue_dot, xi):
-        return np.zeros((3, self.nq_element), dtype=float)
+        return np.zeros((3, self.nq_element), dtype=np.float64)
 
     def B_Psi_u(self, t, qe, ue, ue_dot, xi):
-        return np.zeros((3, self.nu_element), dtype=float)
+        return np.zeros((3, self.nu_element), dtype=np.float64)
 
 
 class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
@@ -879,12 +881,12 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
     # equations of motion
     #########################################
     def h(self, t, q, u):
-        h = np.zeros(self.nu, dtype=np.common_type(q, u))
+        h = np.zeros(self.nu, dtype=np.float64)
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            h[elDOF_u] += self.f_int_el(q[elDOF], el) - self.f_gyr_el(
-                t, q[elDOF], u[elDOF_u], el
+            h[elDOF_u] += self.f_int_el(q[elDOF], u[elDOF_u], el) - self.f_gyr_el(
+                u[elDOF_u], el
             )
         return h
 
@@ -893,13 +895,18 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            coo[elDOF_u, elDOF] = self.f_int_el_qe(q[elDOF], el)
+            coo[elDOF_u, elDOF] = self.f_int_el_qe(q[elDOF], u[elDOF_u], el)
         return coo
 
     # h_u is implmented in base class.
 
-    def f_int_el(self, qe, el):
-        f_int_el = np.zeros(self.nu_element, dtype=qe.dtype)
+    def f_int_el(self, qe, ue, el):
+        f_int_el = np.zeros(self.nu_element, dtype=np.float64)
+        # interpoalte linear velocity
+        v_C_xis = self.N_r_xi[el] @ ue[self.nodalDOF_element_r_u]
+        # interpoalte angular velocity
+        B_Omegas = self.N_p[el] @ ue[self.nodalDOF_element_p_u]
+        B_Omega_xis = self.N_p_xi[el] @ ue[self.nodalDOF_element_p_u]
 
         for i in range(self.nquadrature):
             # extract reference state variables
@@ -916,14 +923,20 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
 
             # axial and shear strains
             B_Gamma = B_Gamma_bar / J
+            B_Gamma_dot = (A_IB.T @ v_C_xis[i] - cross3(B_Omegas[i], B_Gamma_bar)) / J
 
             # torsional and flexural strains
             B_Kappa = B_Kappa_bar / J
+            B_Kappa_dot = (B_Omega_xis[i] - cross3(B_Omegas[i], B_Kappa_bar)) / J
 
             # compute contact forces and couples from partial derivatives of
             # the strain energy function w.r.t. strain measures
-            B_n = self.material_model.B_n(B_Gamma, B_Gamma0, B_Kappa, B_Kappa0)
-            B_m = self.material_model.B_m(B_Gamma, B_Gamma0, B_Kappa, B_Kappa0)
+            B_n = self.material_model.B_n(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m = self.material_model.B_m(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
 
             ############################
             # virtual work contributions
@@ -940,8 +953,85 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
 
         return f_int_el
 
-    def f_int_el_qe(self, qe, el):
-        f_int_el_qe = np.zeros((self.nu_element, self.nq_element), dtype=float)
+    def f_int_el_ue(self, qe, ue, el):
+        f_int_el_ue = np.zeros((self.nu_element, self.nu_element), dtype=np.float64)
+        # interpoalte linear velocity
+        v_C_xis = self.N_r_xi[el] @ ue[self.nodalDOF_element_r_u]
+        # interpoalte angular velocity
+        B_Omegas = self.N_p[el] @ ue[self.nodalDOF_element_p_u]
+        B_Omega_xis = self.N_p_xi[el] @ ue[self.nodalDOF_element_p_u]
+
+        for i in range(self.nquadrature):
+            # extract reference state variables
+            qpi = self.qp[el, i]
+            qwi = self.qw[el, i]
+            Ji = self.J[el, i]
+            B_Gamma0 = self.B_Gamma0[el, i]
+            B_Kappa0 = self.B_Kappa0[el, i]
+
+            # evaluate required quantities
+            _, A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
+                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
+            )
+
+            # axial and shear strains
+            v_C_xi_ue = np.zeros((3, self.nu_element), dtype=np.float64)
+            B_Omega_ue = np.zeros((3, self.nu_element), dtype=np.float64)
+            B_Omega_xi_ue = np.zeros((3, self.nu_element), dtype=np.float64)
+            for j in range(3):
+                v_C_xi_ue[j, self.nodalDOF_element_r_u[:, j]] = self.N_r_xi[el, i]
+                B_Omega_ue[j, self.nodalDOF_element_p_u[:, j]] = self.N_p[el, i]
+                B_Omega_xi_ue[j, self.nodalDOF_element_p_u[:, j]] = self.N_p_xi[el, i]
+            B_Gamma = B_Gamma_bar / Ji
+            B_Gamma_dot = (A_IB.T @ v_C_xis[i] - cross3(B_Omegas[i], B_Gamma_bar)) / Ji
+            B_Gamma_dot_ue = (
+                A_IB.T @ v_C_xi_ue + ax2skew(B_Gamma_bar) @ B_Omega_ue
+            ) / Ji
+
+            # torsional and flexural strains
+            B_Kappa = B_Kappa_bar / Ji
+            B_Kappa_dot = (B_Omega_xis[i] - cross3(B_Omegas[i], B_Kappa_bar)) / Ji
+            B_Kappa_dot_ue = (B_Omega_xi_ue + ax2skew(B_Kappa_bar) @ B_Omega_ue) / Ji
+
+            # compute contact forces and couples from partial derivatives of
+            # the strain energy function w.r.t. strain measures
+            B_n_B_Gamma_dot = self.material_model.B_n_B_Gamma_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_B_Kappa_dot = self.material_model.B_n_B_Kappa_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_ue = B_n_B_Gamma_dot @ B_Gamma_dot_ue + B_n_B_Kappa_dot @ B_Kappa_dot_ue
+
+            B_m_B_Gamma_dot = self.material_model.B_m_B_Gamma_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_B_Kappa_dot = self.material_model.B_m_B_Kappa_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_ue = B_m_B_Gamma_dot @ B_Gamma_dot_ue + B_m_B_Kappa_dot @ B_Kappa_dot_ue
+
+            ############################
+            # virtual work contributions
+            ############################
+            f_int_el_ue[self.nodalDOF_element_r] -= (
+                self.N_r_xi[el, i][..., None, None] * qwi * A_IB @ B_n_ue
+            )
+            f_int_el_ue[self.nodalDOF_element_p_u] += (
+                self.N_p[el, i][..., None, None] * qwi * ax2skew(B_Gamma_bar) @ B_n_ue
+                - self.N_p_xi[el, i][..., None, None] * qwi * B_m_ue
+                + self.N_p[el, i][..., None, None] * qwi * ax2skew(B_Kappa_bar) @ B_m_ue
+            )
+        # np.allclose(approx_fprime(ue, lambda ue: self.f_int_el(qe, ue, el)), f_int_el_ue)
+        return f_int_el_ue
+
+    def f_int_el_qe(self, qe, ue, el):
+        f_int_el_qe = np.zeros((self.nu_element, self.nq_element), dtype=np.float64)
+        # interpoalte linear velocity
+        v_C_xis = self.N_r_xi[el] @ ue[self.nodalDOF_element_r_u]
+        # interpoalte angular velocity
+        B_Omegas = self.N_p[el] @ ue[self.nodalDOF_element_p_u]
+        B_Omega_xis = self.N_p_xi[el] @ ue[self.nodalDOF_element_p_u]
 
         for i in range(self.nquadrature):
             # extract reference state variables
@@ -966,30 +1056,62 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
             # axial and shear strains
             B_Gamma = B_Gamma_bar / Ji
             B_Gamma_qe = B_Gamma_bar_qe / Ji
+            B_Gamma_dot = (A_IB.T @ v_C_xis[i] - cross3(B_Omegas[i], B_Gamma_bar)) / Ji
+            B_Gamma_dot_qe = (
+                (A_IB_qe.T @ v_C_xis[i]).T - ax2skew(B_Omegas[i]) @ B_Gamma_bar_qe
+            ) / Ji
 
             # torsional and flexural strains
             B_Kappa = B_Kappa_bar / Ji
             B_Kappa_qe = B_Kappa_bar_qe / Ji
+            B_Kappa_dot = (B_Omega_xis[i] - cross3(B_Omegas[i], B_Kappa_bar)) / Ji
+            B_Kappa_dot_qe = -ax2skew(B_Omegas[i]) @ B_Kappa_bar_qe / Ji
 
             # compute contact forces and couples from partial derivatives of
             # the strain energy function w.r.t. strain measures
-            B_n = self.material_model.B_n(B_Gamma, B_Gamma0, B_Kappa, B_Kappa0)
+            B_n = self.material_model.B_n(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
             B_n_B_Gamma = self.material_model.B_n_B_Gamma(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_B_Gamma_dot = self.material_model.B_n_B_Gamma_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
             )
             B_n_B_Kappa = self.material_model.B_n_B_Kappa(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
             )
-            B_n_qe = B_n_B_Gamma @ B_Gamma_qe + B_n_B_Kappa @ B_Kappa_qe
+            B_n_B_Kappa_dot = self.material_model.B_n_B_Kappa_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_qe = (
+                B_n_B_Gamma @ B_Gamma_qe
+                + B_n_B_Kappa @ B_Kappa_qe
+                + B_n_B_Gamma_dot @ B_Gamma_dot_qe
+                + B_n_B_Kappa_dot @ B_Kappa_dot_qe
+            )
 
-            B_m = self.material_model.B_m(B_Gamma, B_Gamma0, B_Kappa, B_Kappa0)
+            B_m = self.material_model.B_m(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
             B_m_B_Gamma = self.material_model.B_m_B_Gamma(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_B_Gamma_dot = self.material_model.B_m_B_Gamma_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
             )
             B_m_B_Kappa = self.material_model.B_m_B_Kappa(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
             )
-            B_m_qe = B_m_B_Gamma @ B_Gamma_qe + B_m_B_Kappa @ B_Kappa_qe
+            B_m_B_Kappa_dot = self.material_model.B_m_B_Kappa_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_qe = (
+                B_m_B_Gamma @ B_Gamma_qe
+                + B_m_B_Kappa @ B_Kappa_qe
+                + B_m_B_Gamma_dot @ B_Gamma_dot_qe
+                + B_m_B_Kappa_dot @ B_Kappa_dot_qe
+            )
 
             ############################
             # virtual work contributions
@@ -1008,6 +1130,7 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
                 * qwi
                 * (ax2skew(B_Kappa_bar) @ B_m_qe - ax2skew(B_m) @ B_Kappa_bar_qe)
             )
+        # np.allclose(approx_fprime(qe, lambda qe: self.f_int_el(qe, ue, el)), f_int_el_qe)
         return f_int_el_qe
 
     ##############################
@@ -1212,14 +1335,14 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
             qwi = self.qw[el, i]
             Ji = self.J[el, i]
 
-            la_c = np.zeros(self.mesh_la_c.dim_q, dtype=la_ce.dtype)
+            la_c = np.zeros(self.mesh_la_c.dim_q, dtype=np.float64)
             # interpolation of internal forces and moments
             for node in range(self.nnodes_element_la_c):
                 la_c_node = la_ce[self.nodalDOF_element_la_c[node]]
                 la_c += self.N_la_c[el, i, node] * la_c_node
 
-            B_n = np.zeros(3, dtype=la_ce.dtype)
-            B_m = np.zeros(3, dtype=la_ce.dtype)
+            B_n = np.zeros(3, dtype=np.float64)
+            B_m = np.zeros(3, dtype=np.float64)
             B_n[self.mixed_n] = la_c[: self.nmixed_n]
             B_m[self.mixed_m] = la_c[self.nmixed_n :]
 
@@ -1234,11 +1357,11 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
     # equations of motion
     #########################################
     def h(self, t, q, u):
-        h = np.zeros(self.nu, dtype=np.common_type(q, u))
+        h = np.zeros(self.nu, dtype=np.float64)
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            h[elDOF_u] -= self.f_gyr_el(t, q[elDOF], u[elDOF_u], el)
+            h[elDOF_u] -= self.f_gyr_el(u[elDOF_u], el)
         return h
 
     # h_u is implmented in base class.
@@ -1248,7 +1371,7 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
     def la_c(self, t, q, u):
         # c(q, la_c) = c_la_c @ la_c + c(q, 0)
         # --> la_c = -c_la_c.inv @ c(q, 0)
-        la_c = np.zeros(self.nla_c, dtype=np.common_type(q, u))
+        la_c = np.zeros(self.nla_c, dtype=np.float64)
         for el in range(self.nelement):
             qe = q[self.elDOF[el]]
             elDOF_la_c = self.elDOF_la_c[el]
@@ -1258,7 +1381,7 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
         return la_c
 
     def c(self, t, q, u, la_c):
-        c = np.zeros(self.nla_c, dtype=np.common_type(q, u, la_c))
+        c = np.zeros(self.nla_c, dtype=np.float64)
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_la_c = self.elDOF_la_c[el]
@@ -1267,8 +1390,7 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
 
     def c_el(self, qe, la_ce, el):
         # TODO: check for speed up by using constant c_la_c matrices
-        dtype = np.common_type(qe, la_ce)
-        c_el = np.zeros(self.nla_c_element, dtype=dtype)
+        c_el = np.zeros(self.nla_c_element, dtype=np.float64)
 
         for i in range(self.nquadrature):
             # extract reference state variables
@@ -1283,14 +1405,14 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
                 qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
             )
 
-            la_c = np.zeros(self.nmixed, dtype=dtype)
+            la_c = np.zeros(self.nmixed, dtype=np.float64)
             # interpolation of internal forces and moments
             for node in range(self.nnodes_element_la_c):
                 la_c_node = la_ce[self.nodalDOF_element_la_c[node]]
                 la_c += self.N_la_c[el, i, node] * la_c_node
 
-            B_n = np.zeros(3, dtype=dtype)
-            B_m = np.zeros(3, dtype=dtype)
+            B_n = np.zeros(3, dtype=np.float64)
+            B_m = np.zeros(3, dtype=np.float64)
 
             B_n[self.mixed_n] = la_c[: self.nmixed_n]
             B_m[self.mixed_m] = la_c[self.nmixed_n :]
@@ -1365,9 +1487,7 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
         return coo
 
     def c_el_qe(self, qe, la_ce, el):
-        c_el_qe = np.zeros(
-            (self.nla_c_element, self.nq_element), dtype=np.common_type(qe, la_ce)
-        )
+        c_el_qe = np.zeros((self.nla_c_element, self.nq_element), dtype=np.float64)
         for i in range(self.nquadrature):
             # extract reference state variables
             qpi = self.qp[el, i]
@@ -1405,7 +1525,7 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
         return coo
 
     def W_c_el(self, qe, el):
-        W_c_el = np.zeros((self.nu_element, self.nla_c_element), dtype=qe.dtype)
+        W_c_el = np.zeros((self.nu_element, self.nla_c_element), dtype=np.float64)
 
         for i in range(self.nquadrature):
             # extract reference state variables
@@ -1464,8 +1584,7 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
         return coo
 
     def Wla_c_el_qe(self, qe, la_ce, el):
-        dtype = np.common_type(qe, la_ce)
-        Wla_c_el_qe = np.zeros((self.nu_element, self.nq_element), dtype=dtype)
+        Wla_c_el_qe = np.zeros((self.nu_element, self.nq_element), dtype=np.float64)
 
         for i in range(self.nquadrature):
             # extract reference state variables
@@ -1485,14 +1604,14 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
             ) = self._deval(qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i])
 
             # interpolation of the n and m
-            la_c = np.zeros(self.mesh_la_c.dim_q, dtype=qe.dtype)
+            la_c = np.zeros(self.mesh_la_c.dim_q, dtype=np.float64)
 
             for node in range(self.nnodes_element_la_c):
                 la_c_node = la_ce[self.nodalDOF_element_la_c[node]]
                 la_c += self.N_la_c[el, i, node] * la_c_node
 
-            B_n = np.zeros(3, dtype=dtype)
-            B_m = np.zeros(3, dtype=dtype)
+            B_n = np.zeros(3, dtype=np.float64)
+            B_m = np.zeros(3, dtype=np.float64)
             B_n[self.mixed_n] = la_c[: self.nmixed_n]
             B_m[self.mixed_m] = la_c[self.nmixed_n :]
 
@@ -1526,8 +1645,8 @@ class CosseratRodMixed(CosseratRod_PetrovGalerkin):
             la_c_node = la_ce[self.nodalDOF_element_la_c[node]]
             la_cc += N_la_ce[node] * la_c_node
 
-        B_n = np.zeros(3, dtype=float)
-        B_m = np.zeros(3, dtype=float)
+        B_n = np.zeros(3, dtype=np.float64)
+        B_m = np.zeros(3, dtype=np.float64)
 
         B_n[self.mixed_n] = la_cc[: self.nmixed_n]
         B_m[self.mixed_m] = la_cc[self.nmixed_n :]
@@ -1691,7 +1810,7 @@ def make_CosseratRodConstrained(mixed, constraints):
             self.N_la_g = self.mesh_la_g.N
 
             # TODO: Dummy initial values for compliance
-            self.la_g0 = np.zeros(self.nla_g, dtype=float)
+            self.la_g0 = np.zeros(self.nla_g, dtype=np.float64)
 
             # evaluate shape functions at specific xi
             self.basis_functions_la_g = self.mesh_la_g.eval_basis
@@ -1700,7 +1819,7 @@ def make_CosseratRodConstrained(mixed, constraints):
         # bilateral constraints on position level
         #########################################
         def g(self, t, q):
-            g = np.zeros(self.nla_g, dtype=q.dtype)
+            g = np.zeros(self.nla_g, dtype=np.float64)
             for el in range(self.nelement):
                 elDOF = self.elDOF[el]
                 elDOF_la_g = self.elDOF_la_g[el]
@@ -1708,7 +1827,7 @@ def make_CosseratRodConstrained(mixed, constraints):
             return g
 
         def g_el(self, qe, el):
-            g_el = np.zeros(self.nla_g_element, dtype=qe.dtype)
+            g_el = np.zeros(self.nla_g_element, dtype=np.float64)
 
             for i in range(self.nquadrature):
                 # extract reference state variables
@@ -1747,7 +1866,7 @@ def make_CosseratRodConstrained(mixed, constraints):
             return coo
 
         def g_q_el(self, qe, el):
-            g_q_el = np.zeros((self.nla_g_element, self.nq_element), dtype=qe.dtype)
+            g_q_el = np.zeros((self.nla_g_element, self.nq_element), dtype=np.float64)
             for i in range(self.nquadrature):
                 # extract reference state variables
                 qpi = self.qp[el, i]
@@ -1787,7 +1906,7 @@ def make_CosseratRodConstrained(mixed, constraints):
             return coo
 
         def W_g_el(self, qe, el):
-            W_g_el = np.zeros((self.nu_element, self.nla_g_element), dtype=qe.dtype)
+            W_g_el = np.zeros((self.nu_element, self.nla_g_element), dtype=np.float64)
 
             for i in range(self.nquadrature):
                 # extract reference state variables
@@ -1857,8 +1976,7 @@ def make_CosseratRodConstrained(mixed, constraints):
             return coo
 
         def Wla_g_q_el(self, qe, la_ge, el):
-            dtype = np.common_type(qe, la_ge)
-            Wla_g_q_el = np.zeros((self.nu_element, self.nq_element), dtype=dtype)
+            Wla_g_q_el = np.zeros((self.nu_element, self.nq_element), dtype=np.float64)
 
             for i in range(self.nquadrature):
                 # extract reference state variables
@@ -1878,14 +1996,14 @@ def make_CosseratRodConstrained(mixed, constraints):
                 ) = self._deval(qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i])
 
                 # interpolation of the n and m
-                la_g = np.zeros(self.nconstraints, dtype=dtype)
+                la_g = np.zeros(self.nconstraints, dtype=np.float64)
 
                 for node in range(self.nnodes_element_la_g):
                     la_g_node = la_ge[self.nodalDOF_element_la_g[node]]
                     la_g += self.N_la_g[el, i, node] * la_g_node
 
-                B_n = np.zeros(3, dtype=dtype)
-                B_m = np.zeros(3, dtype=dtype)
+                B_n = np.zeros(3, dtype=np.float64)
+                B_m = np.zeros(3, dtype=np.float64)
                 B_n[self.constraints_gamma] = la_g[: self.nconstraints_gamma]
                 B_m[self.constraints_kappa] = la_g[self.nconstraints_gamma :]
 
@@ -1924,7 +2042,7 @@ def make_CosseratRodConstrained(mixed, constraints):
 
         def g_ddot(self, t, q, u, u_dot):
             # Check for already moving initial conditions
-            g_ddot = np.zeros(self.nla_g, dtype=q.dtype)
+            g_ddot = np.zeros(self.nla_g, dtype=np.float64)
             g_ddot += self.W_g(t, q).toarray().T @ u_dot
             W_g_T_q = approx_fprime(q, lambda q1: self.W_g(t, q1).toarray().T)
             q_dot = self.q_dot(t, q, u)
@@ -1937,14 +2055,14 @@ def make_CosseratRodConstrained(mixed, constraints):
         def eval_stresses(self, t, q, la_c, la_g, xi, el=None):
             el = self.element_number(xi) if el is None else el
             if self.nconstraints == 6:
-                B_n, B_m = np.zeros(3, dtype=q.dtype), np.zeros(3, dtype=q.dtype)
+                B_n, B_m = np.zeros(3, dtype=np.float64), np.zeros(3, dtype=np.float64)
             else:
                 B_n, B_m = super().eval_stresses(t, q, la_c, la_g, xi, el)
 
             la_ge = la_g[self.elDOF_la_g[el]]
             # TODO: lets see how to avoid the flatten
             N_la_ge = self.basis_functions_la_g(xi, el).flatten()
-            la_gg = np.zeros(self.nconstraints, dtype=float)
+            la_gg = np.zeros(self.nconstraints, dtype=np.float64)
 
             for node in range(self.nnodes_element_la_g):
                 la_g_node = la_ge[self.nodalDOF_element_la_g[node]]
@@ -1958,7 +2076,9 @@ def make_CosseratRodConstrained(mixed, constraints):
         def eval_strains(self, t, q, la_c, la_g, xi, el=None):
             el = self.element_number(xi) if el is None else el
             if self.nconstraints == 6:
-                eps_ga, eps_ka = np.zeros(3, dtype=q.dtype), np.zeros(3, dtype=q.dtype)
+                eps_ga, eps_ka = np.zeros(3, dtype=np.float64), np.zeros(
+                    3, dtype=np.float64
+                )
             else:
                 eps_ga, eps_ka = super().eval_strains(t, q, la_c, la_g, xi, el)
 

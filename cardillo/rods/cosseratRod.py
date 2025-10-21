@@ -29,8 +29,8 @@ from ._base import (
 )
 from ._cross_section import CrossSectionInertias
 
-eye3 = np.eye(3, dtype=float)
-eye4 = np.eye(4, dtype=float)
+eye3 = np.eye(3, dtype=np.float64)
+eye4 = np.eye(4, dtype=np.float64)
 
 
 def make_CosseratRod(
@@ -180,8 +180,8 @@ def make_CosseratRod(
         def straight_configuration(
             nelement,
             L,
-            r_OP0=np.zeros(3, dtype=float),
-            A_IB0=np.eye(3, dtype=float),
+            r_OP0=np.zeros(3, dtype=np.float64),
+            A_IB0=np.eye(3, dtype=np.float64),
         ):
             """Compute generalized position coordinates for straight configuration."""
             nnodes = polynomial_degree * nelement + 1
@@ -210,8 +210,8 @@ def make_CosseratRod(
             r_OP_xixi,
             xi1,
             alpha=0.0,
-            r_OP0=np.zeros(3, dtype=float),
-            A_IB0=np.eye(3, dtype=float),
+            r_OP0=np.zeros(3, dtype=np.float64),
+            A_IB0=np.eye(3, dtype=np.float64),
         ):
             """Compute generalized position coordinates for a pre-curved rod along curve r_OP. The cross-section orientations are based on the Serret-Frenet equations and afterwards rotated by alpha."""
             nnodes_r = polynomial_degree * nelement + 1
@@ -254,8 +254,8 @@ def make_CosseratRod(
             r_OP,
             A_IB,
             xi1=1.0,
-            r_OP0=np.zeros(3, dtype=float),
-            A_IB0=np.eye(3, dtype=float),
+            r_OP0=np.zeros(3, dtype=np.float64),
+            A_IB0=np.eye(3, dtype=np.float64),
         ):
             """Compute generalized position coordinates for a pre-curved rod with centerline curve r_OP and orientation of A_IB."""
             nnodes_r = polynomial_degree * nelement + 1
@@ -290,10 +290,10 @@ def make_CosseratRod(
         def straight_initial_configuration(
             nelement,
             L,
-            r_OP0=np.zeros(3, dtype=float),
-            A_IB0=np.eye(3, dtype=float),
-            v_P0=np.zeros(3, dtype=float),
-            B_omega_IB0=np.zeros(3, dtype=float),
+            r_OP0=np.zeros(3, dtype=np.float64),
+            A_IB0=np.eye(3, dtype=np.float64),
+            v_P0=np.zeros(3, dtype=np.float64),
+            B_omega_IB0=np.zeros(3, dtype=np.float64),
         ):
             """ "Compute initial generalized position and velocity coordinates for straight configuration"""
             nnodes = polynomial_degree * nelement + 1
@@ -317,7 +317,7 @@ def make_CosseratRod(
             # compute generalized velocities
             ################################
             # centerline velocities
-            v_P = np.zeros_like(r_OP, dtype=float)
+            v_P = np.zeros_like(r_OP, dtype=np.float64)
             for i in range(nnodes):
                 v_P[:, i] = v_P0 + cross3(A_IB0 @ B_omega_IB0, (r_OP[:, i] - r_OP0))
 
@@ -389,11 +389,11 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
             # N, N_xi = self.basis_functions_r(xi)
 
             # interpolate
-            r_OP_qe = np.zeros((3, self.nq_element), dtype=qe.dtype)
-            r_OP_xi_qe = np.zeros((3, self.nq_element), dtype=qe.dtype)
+            r_OP_qe = np.zeros((3, self.nq_element), dtype=np.float64)
+            r_OP_xi_qe = np.zeros((3, self.nq_element), dtype=np.float64)
 
-            p_qe = np.zeros((4, self.nq_element), dtype=qe.dtype)
-            p_xi_qe = np.zeros((4, self.nq_element), dtype=qe.dtype)
+            p_qe = np.zeros((4, self.nq_element), dtype=np.float64)
+            p_xi_qe = np.zeros((4, self.nq_element), dtype=np.float64)
 
             r_OP_nodes = qe[self.nodalDOF_element_r]
             r_OP = N @ r_OP_nodes
@@ -443,7 +443,7 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
             # N_p, _ = self.basis_functions_p(xi)
 
             # # interpolate orientation
-            # A_IB = np.zeros((3, 3), dtype=q.dtype)
+            # A_IB = np.zeros((3, 3), dtype=np.float64)
             # for node in range(self.nnodes_element_p):
             #     A_IB += N_p[node] * self.Exp_SO3_quat(
             #         q[self.nodalDOF_element_p[node]]
@@ -555,16 +555,16 @@ def make_CosseratRod_SE3(mixed=True, constraints=None):
             A_IB0_p0 = Exp_SO3_quat_p(p0)
             A_IB1_p1 = Exp_SO3_quat_p(p1)
 
-            H_IK0_h0 = np.zeros((4, 4, 7), dtype=float)
+            H_IK0_h0 = np.zeros((4, 4, 7), dtype=np.float64)
             H_IK0_h0[:3, :3, 3:] = A_IB0_p0
             H_IK0_h0[:3, 3, :3] = eye3
-            H_IB1_h1 = np.zeros((4, 4, 7), dtype=float)
+            H_IB1_h1 = np.zeros((4, 4, 7), dtype=np.float64)
             H_IB1_h1[:3, :3, 3:] = A_IB1_p1
             H_IB1_h1[:3, 3, :3] = eye3
 
             # inverse transformation of first node
             H_IK0_inv = SE3inv(H_IK0)
-            H_IK0_inv_h0 = np.zeros((4, 4, 7), dtype=float)
+            H_IK0_inv_h0 = np.zeros((4, 4, 7), dtype=np.float64)
             H_IK0_inv_h0[:3, :3, 3:] = A_IB0_p0.transpose(1, 0, 2)
             H_IK0_inv_h0[:3, 3, 3:] = -np.einsum("k,kij->ij", r_OP0, A_IB0_p0)
             H_IK0_inv_h0[:3, 3, :3] = -A_IB0.T
@@ -612,20 +612,20 @@ def make_CosseratRod_SE3(mixed=True, constraints=None):
             # extract centerline and transformation matrix
             A_IB = H_IK[:3, :3]
             r_OP = H_IK[:3, 3]
-            A_IB_qe = np.zeros((3, 3, self.nq_element), dtype=float)
+            A_IB_qe = np.zeros((3, 3, self.nq_element), dtype=np.float64)
             A_IB_qe[:, :, nodalDOF0] = H_IB_h0[:3, :3]
             A_IB_qe[:, :, nodalDOF1] = H_IB_h1[:3, :3]
-            r_OP_qe = np.zeros((3, self.nq_element), dtype=float)
+            r_OP_qe = np.zeros((3, self.nq_element), dtype=np.float64)
             r_OP_qe[:, nodalDOF0] = H_IB_h0[:3, 3]
             r_OP_qe[:, nodalDOF1] = H_IB_h1[:3, 3]
 
             # extract strains
             B_Gamma_bar = h_local_xi[:3]
             B_Kappa_bar = h_local_xi[3:]
-            B_Gamma_bar_qe = np.zeros((3, self.nq_element), dtype=float)
+            B_Gamma_bar_qe = np.zeros((3, self.nq_element), dtype=np.float64)
             B_Gamma_bar_qe[:, nodalDOF0] = h_local_xi_h0[:3]
             B_Gamma_bar_qe[:, nodalDOF1] = h_local_xi_h1[:3]
-            B_Kappa_bar_qe = np.zeros((3, self.nq_element), dtype=float)
+            B_Kappa_bar_qe = np.zeros((3, self.nq_element), dtype=np.float64)
             B_Kappa_bar_qe[:, nodalDOF0] = h_local_xi_h0[3:]
             B_Kappa_bar_qe[:, nodalDOF1] = h_local_xi_h1[3:]
 
@@ -678,16 +678,16 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             # N, N_xi = self.basis_functions_r(xi)
 
             # interpolate position and tangent vector
-            r_OP = np.zeros(3, dtype=qe.dtype)
-            r_OP_xi = np.zeros(3, dtype=qe.dtype)
+            r_OP = np.zeros(3, dtype=np.float64)
+            r_OP_xi = np.zeros(3, dtype=np.float64)
             for node in range(self.nnodes_element_r):
                 r_OP_node = qe[self.nodalDOF_element_r[node]]
                 r_OP += N[node] * r_OP_node
                 r_OP_xi += N_xi[node] * r_OP_node
 
             # interpolate transformation matrix and its derivative
-            A_IB = np.zeros((3, 3), dtype=qe.dtype)
-            A_IB_xi = np.zeros((3, 3), dtype=qe.dtype)
+            A_IB = np.zeros((3, 3), dtype=np.float64)
+            A_IB_xi = np.zeros((3, 3), dtype=np.float64)
             for node in range(self.nnodes_element_p):
                 A_IB_node = Exp_SO3_quat(qe[self.nodalDOF_element_p[node]])
                 A_IB += N[node] * A_IB_node
@@ -718,10 +718,10 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             # N, N_xi = self.basis_functions_r(xi)
 
             # interpolate position and tangent vector + their derivatives
-            r_OP = np.zeros(3, dtype=qe.dtype)
-            r_OP_qe = np.zeros((3, self.nq_element), dtype=qe.dtype)
-            r_OP_xi = np.zeros(3, dtype=qe.dtype)
-            r_OP_xi_qe = np.zeros((3, self.nq_element), dtype=qe.dtype)
+            r_OP = np.zeros(3, dtype=np.float64)
+            r_OP_qe = np.zeros((3, self.nq_element), dtype=np.float64)
+            r_OP_xi = np.zeros(3, dtype=np.float64)
+            r_OP_xi_qe = np.zeros((3, self.nq_element), dtype=np.float64)
             for node in range(self.nnodes_element_r):
                 nodalDOF_r = self.nodalDOF_element_r[node]
                 r_OP_node = qe[nodalDOF_r]
@@ -733,10 +733,10 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
                 r_OP_xi_qe[:, nodalDOF_r] += N_xi[node] * eye3
 
             # interpolate transformation matrix and its derivative + their derivatives
-            A_IB = np.zeros((3, 3), dtype=qe.dtype)
-            A_IB_xi = np.zeros((3, 3), dtype=qe.dtype)
-            A_IB_qe = np.zeros((3, 3, self.nq_element), dtype=qe.dtype)
-            A_IB_xi_qe = np.zeros((3, 3, self.nq_element), dtype=qe.dtype)
+            A_IB = np.zeros((3, 3), dtype=np.float64)
+            A_IB_xi = np.zeros((3, 3), dtype=np.float64)
+            A_IB_qe = np.zeros((3, 3, self.nq_element), dtype=np.float64)
+            A_IB_xi_qe = np.zeros((3, 3, self.nq_element), dtype=np.float64)
             for node in range(self.nnodes_element_p):
                 nodalDOF_p = self.nodalDOF_element_p[node]
                 p_node = qe[nodalDOF_p]
@@ -794,7 +794,7 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             N_p, _ = self.basis_functions_p(xi)
 
             # interpolate orientation
-            A_IB = np.zeros((3, 3), dtype=qe.dtype)
+            A_IB = np.zeros((3, 3), dtype=np.float64)
             for node in range(self.nnodes_element_p):
                 A_IB += N_p[node] * Exp_SO3_quat(qe[self.nodalDOF_element_p[node]])
 
@@ -805,7 +805,7 @@ def make_CosseratRod_R12(mixed=True, constraints=None):
             N_p, _ = self.basis_functions_p(xi)
 
             # interpolate centerline position and orientation
-            A_IB_q = np.zeros((3, 3, self.nq_element), dtype=qe.dtype)
+            A_IB_q = np.zeros((3, 3, self.nq_element), dtype=np.float64)
             for node in range(self.nnodes_element_p):
                 nodalDOF_p = self.nodalDOF_element_p[node]
                 A_IB_q[:, :, nodalDOF_p] += N_p[node] * Exp_SO3_quat_p(qe[nodalDOF_p])
