@@ -18,13 +18,13 @@ class ControllerNode(Node):
         super().__init__("controller")
         qos_profile = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1)
         self.create_subscription(
-            CartPoleState, "cart_pole_state", self.callback_cart_pole_state, qos_profile
+            CartPoleState, "cartpole_state", self.callback_cartpole_state, qos_profile
         )
         self.publisher = self.create_publisher(Forcing, "forcing", 10)
         self.active_lqr = False
 
-    def callback_cart_pole_state(self, msg_state):
-        # la = msg_cart_pole_state.la
+    def callback_cartpole_state(self, msg_state):
+        # la = msg_cartpole_state.la
         r_OS_cart = msg_state.r_os_cart
         r_OS_pole = msg_state.r_os_pole
         dr = r_OS_pole - r_OS_cart

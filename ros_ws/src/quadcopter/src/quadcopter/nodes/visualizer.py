@@ -6,9 +6,11 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy
 
 
-from my_interfaces.msg import CartPoleState
+from my_interfaces.msg import QuadCopterState
 
 max_fps = 60
+L = 0.1  # distance from center to motor
+H = 0.03  # height of quadcopter body
 
 
 class VisualizerNode(Node):
@@ -17,58 +19,30 @@ class VisualizerNode(Node):
         super().__init__("visualizer")
         qos_profile = QoSProfile(history=HistoryPolicy.KEEP_LAST, depth=1)
         self.create_subscription(
-            CartPoleState, "cart_pole_state", self.callback_cart_pole_state, qos_profile
+            QuadCopterState, "quad_copter_state", self.callback_quad_copter_state, qos_profile
         )
-        # cart
+        # body
         box = vtk.vtkCubeSource()
-        box.SetXLength(0.03)
-        box.SetYLength(0.01)
-        box.SetZLength(0.01)
+        box.SetXLength(2*L)
+        box.SetYLength(2*L)
+        box.SetZLength(H)
 
-        self.H_IB_cart = vtk.vtkMatrix4x4()
+        self.H_IB_body = vtk.vtkMatrix4x4()
         _H_IB = vtk.vtkMatrixToLinearTransform()
-        _H_IB.SetInput(self.H_IB_cart)
+        _H_IB.SetInput(self.H_IB_body)
         tf_filter = vtk.vtkTransformPolyDataFilter()
         tf_filter.SetInputConnection(box.GetOutputPort())
         tf_filter.SetTransform(_H_IB)
 
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputConnection(tf_filter.GetOutputPort())
-        actor_cart = vtk.vtkActor()
-        actor_cart.SetMapper(mapper)
+        actor_quadcopter = vtk.vtkActor()
+        actor_quadcopter.SetMapper(mapper)
 
-        # pole
-        sphere = vtk.vtkSphereSource()
-        sphere.SetRadius(0.01)
-        sphere.SetPhiResolution(20)
-        sphere.SetThetaResolution(20)
-
-        self.H_IB_pole = vtk.vtkMatrix4x4()
-        _H_IB = vtk.vtkMatrixToLinearTransform()
-        _H_IB.SetInput(self.H_IB_pole)
-        tf_filter = vtk.vtkTransformPolyDataFilter()
-        tf_filter.SetInputConnection(sphere.GetOutputPort())
-        tf_filter.SetTransform(_H_IB)
-
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(tf_filter.GetOutputPort())
-        actor_pole = vtk.vtkActor()
-        actor_pole.SetMapper(mapper)
-
-        # line
-        self.line = vtk.vtkLineSource()
-        self.line.SetPoint1([0, 0, 0])
-        self.line.SetPoint2([0, 0, 0])
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(self.line.GetOutputPort())
-        actor_line = vtk.vtkActor()
-        actor_line.SetMapper(mapper)
 
         # renderer
         ren = vtk.vtkRenderer()
-        ren.AddActor(actor_cart)
-        ren.AddActor(actor_pole)
-        ren.AddActor(actor_line)
+        ren.AddActor(actor_quadcopter)
         ren.SetBackground(vtk.vtkNamedColors().GetColor3d("DarkGreen"))
 
         self.win = vtk.vtkRenderWindow()
@@ -88,21 +62,15 @@ class VisualizerNode(Node):
     def __handle_window_closed(self, inter, event):
         rclpy.shutdown()
 
-    def callback_cart_pole_state(self, msg_cart_pole_state):
-        # la = msg_cart_pole_state.la
+    def callback_quad_copter_state(self, msg):
+        t, q, u = msg.t, msg.q, msg.u
         ctime = perf_counter()
         if ctime - self.time < 1 / max_fps:
             return
         self.time = ctime
-        r_OS_cart = msg_cart_pole_state.r_os_cart
-        r_OS_pole = msg_cart_pole_state.r_os_pole
-        self.line.SetPoint1(*r_OS_cart)
-        self.line.SetPoint2(*r_OS_pole)
         for i in range(3):
-            self.H_IB_cart.SetElement(i, 3, r_OS_cart[i])
-            self.H_IB_pole.SetElement(i, 3, r_OS_pole[i])
-        self.H_IB_cart.Modified()
-        self.H_IB_pole.Modified()
+            self.H_IB_body.SetElement(i, 3, q[i])
+        self.H_IB_body.Modified()
         self.win.Render()
         self.interactor.ProcessEvents()
 

@@ -15,6 +15,8 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CartPoleState.msg"
   "msg/Forcing.msg"
+  "msg/QuadCopterState.msg"
+  "msg/QuadMotorForce.msg"
 )
 
 if(BUILD_TESTING)

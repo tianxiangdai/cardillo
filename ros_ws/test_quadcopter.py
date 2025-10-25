@@ -17,7 +17,7 @@ H = 0.03  # height of quadcopter body
 Km = 0.01  # quadmotor moment/force ratio
 input_map = np.array([[1, 1, 1, 1], [-L, L, L, -L], [-L, -L, L, L], [Km, -Km, Km, -Km]])
 input_map_inv = np.linalg.inv(input_map)
-print(np.linalg.matrix_rank(input_map))
+
 r_OP0 = np.array([0.0, 0.0, 1.0])
 p0 = axis_angle2quat(np.array([1.0, 1.0, 1.0]), np.deg2rad(0))
 q0 = np.hstack((r_OP0, p0))

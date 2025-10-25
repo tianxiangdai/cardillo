@@ -128,28 +128,28 @@ class CartPole:
 
 
 if test_cardillo:
-    cart_pole = CartPole()
-    solver = cart_pole.solver
+    cartpole = CartPole()
+    solver = cartpole.solver
     # # integration time
     t0 = 0
     t1 = 1
     dt = 1e-2
-    cart_pole.set_solver(t0, t1, dt)
-    sol1 = cart_pole.solve()
+    cartpole.set_solver(t0, t1, dt)
+    sol1 = cartpole.solve()
     # integration time
     t0 = 1
     dt = 1e-2
     t1 = 2
     x0 = np.concatenate([sol1.q[-1], sol1.u[-1]])
-    cart_pole.set_solver(t0, t1, dt, x0)
-    sol2 = cart_pole.solve()
+    cartpole.set_solver(t0, t1, dt, x0)
+    sol2 = cartpole.solve()
 
     r_OS_cart = []
     r_OS_pole = []
     v_S_cart = []
     v_S_pole = []
-    cart = cart_pole.cart
-    pole = cart_pole.pole
+    cart = cartpole.cart
+    pole = cartpole.pole
     for si in sol1:
         ti, qi, ui = si.t, si.q, si.u
         r_OS_cart.append(cart.r_OP(ti, qi[cart.qDOF]))

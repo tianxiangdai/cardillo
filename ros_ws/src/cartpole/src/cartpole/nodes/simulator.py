@@ -81,9 +81,9 @@ class SimulatorNode(Node):
         self.create_subscription(Forcing, "forcing", self.callback_forcing, qos_profile)
         # model
         if test_cardillo:
-            self.cart_pole = CartPole()
+            self.cartpole = CartPole()
         # publisher
-        self.publisher = self.create_publisher(CartPoleState, "cart_pole_state", 10)
+        self.publisher = self.create_publisher(CartPoleState, "cartpole_state", 10)
         self.timer = self.create_timer(1 / fps, self.timer_callback)
         self.__la = 0.0
         self.__ivp_y0 = np.array([0, alpha0, 0, 0])
@@ -94,12 +94,12 @@ class SimulatorNode(Node):
     def timer_callback(self):
         # step simulation
         if test_cardillo:
-            cart = self.cart_pole.cart
-            pole = self.cart_pole.pole
-            self.cart_pole.set_force(self.__la)
-            sol = self.cart_pole.solve()
+            cart = self.cartpole.cart
+            pole = self.cartpole.pole
+            self.cartpole.set_force(self.__la)
+            sol = self.cartpole.solve()
             ti, qi, ui = sol.t[-1], sol.q[-1], sol.u[-1]
-            self.cart_pole.set_solver(qi, ui)
+            self.cartpole.set_solver(qi, ui)
             # update state
             message = CartPoleState()
             message.la = self.__la

@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>quadcopter</name>
+  <version>0.1.0</version>
+  <description>Example ROS2 Python package with src layout</description>
+  <maintainer email="you@example.com">Your Name</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>my_interfaces</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
