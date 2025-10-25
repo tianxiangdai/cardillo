@@ -19,9 +19,9 @@ setup(
     ],
     install_requires=["setuptools"],
     zip_safe=True,
-    maintainer="tianxdai",
-    maintainer_email="tianxdai@gmail.com",
-    description="TODO: Package description",
+    maintainer="you",
+    maintainer_email="you@example.com",
+    description="Package description",
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
