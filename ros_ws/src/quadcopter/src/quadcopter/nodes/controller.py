@@ -26,16 +26,32 @@ Kd_r, Kp_r = 2 * lam, lam**2
 Kd_p, Kp_p = Kd_r * loop_rate, Kp_r * loop_rate**2
 
 
+r_OP0 = np.array([0.0, 0.0, 1.0])
 def traj(t):
-    r0 = np.array([0, 0, 1])
-    r1 = np.array([1, 1, 2])
-    t_tran = 3
-    omega = np.pi / t_tran
-    if t >= t_tran:
-        return r1, r1 * 0, r1 * 0
-    r_OP = (r1 + r0) / 2 - (r1 - r0) / 2 * np.cos(omega * t)
-    v_P = (r1 - r0) / 2 * np.sin(omega * t) * omega
-    a_P = (r1 - r0) / 2 * np.cos(omega * t) * omega**2
+    t_trans = 3
+    t_trans2 = 10
+    if t <= t_trans:
+        r0 = r_OP0
+        r1 = r_OP0 + np.array([1, 0, 1])
+        s = min(1, t/t_trans)
+        r_OP = r0 + (r1 - r0) * (10 * s** 3 - 15 * s ** 4 + 6 * s **5)
+        v_P = (r1 - r0) / t_trans * (30 * s** 2 - 60 * s ** 3 + 30 * s **4)
+        a_P = (r1 - r0) / (t_trans ** 2) * (60 * s - 180 * s ** 2 + 120 * s **3)
+    elif t - t_trans <= t_trans2:
+        p0 = 0
+        p1 = np.pi * 2
+        s = min(1, (t-t_trans)/t_trans2)
+        phi = p0 + (p1 - p0) * (10 * s** 3 - 15 * s ** 4 + 6 * s **5)
+        phi_dot = (p1 - p0) / t_trans2 * (30 * s** 2 - 60 * s ** 3 + 30 * s **4)
+        phi_ddot = (p1 - p0) / (t_trans2 ** 2) * (60 * s - 180 * s ** 2 + 120 * s **3)
+        r_OP = r_OP0 + np.array([np.cos(phi), np.sin(phi), 1])
+        v_P = np.array([-np.sin(phi), np.cos(phi), 0]) * phi_dot
+        a_P = np.array([-np.sin(phi), np.cos(phi), 0]) * phi_ddot + np.array([-np.cos(phi), -np.sin(phi), 0]) * phi_dot**2
+    else:
+        r_OP = r_OP0 + np.array([1, 0, 1])
+        v_P = r_OP0 * 0
+        a_P = r_OP0 * 0
+        
     return r_OP, v_P, a_P
 
 

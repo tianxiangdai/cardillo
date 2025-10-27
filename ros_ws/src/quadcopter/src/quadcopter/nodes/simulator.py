@@ -123,7 +123,8 @@ class SimulatorNode(Node):
         self.publisher = self.create_publisher(QuadCopterState, "quad_copter_state", 10)
         self.timer = self.create_timer(1 / fps, self.timer_callback)
         self.__la = np.zeros(4, np.float64)
-
+        self.__nt = 0
+        
     def callback_motor_force(self, msg):
         self.__la = msg.las
 
@@ -135,8 +136,9 @@ class SimulatorNode(Node):
         ti, qi, ui = sol.t[-1], sol.q[-1], sol.u[-1]
         self.quadcopter.set_solver(qi, ui)
         # update state
+        self.__nt += 1
         msg = QuadCopterState()
-        msg.t = ti
+        msg.t = self.__nt * 1 / fps
         msg.q = qi[body.qDOF]
         msg.u = ui[body.uDOF]
         self.publisher.publish(msg)

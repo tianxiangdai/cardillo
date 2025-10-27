@@ -68,7 +68,7 @@ class QuadMotor:
             @ u[3:]
         )
         # position control
-        B_la_sum, betad, gammad = position_control2(
+        B_la_sum, betad, gammad = position_control(
             alpha, r_OP, v_P, r_OP_des, v_P_des, a_P_des
         )
         anglesd = np.array([gammad, betad, 0])
@@ -106,19 +106,34 @@ class QuadMotor:
 
 
 def traj(t):
-    r0 = np.array([0, 0, 1])
-    r1 = np.array([1, 1, 2])
-    t_tran = 3
-    omega = np.pi / t_tran
-    if t >= t_tran:
-        return r1, r1 * 0, r1 * 0
-    r_OP = (r1 + r0) / 2 - (r1 - r0) / 2 * np.cos(omega * t)
-    v_P = (r1 - r0) / 2 * np.sin(omega * t) * omega
-    a_P = (r1 - r0) / 2 * np.cos(omega * t) * omega**2
+    t_trans = 3
+    t_trans2 = 10
+    if t <= t_trans:
+        r0 = r_OP0
+        r1 = r_OP0 + np.array([1, 0, 1])
+        s = min(1, t/t_trans)
+        r_OP = r0 + (r1 - r0) * (10 * s** 3 - 15 * s ** 4 + 6 * s **5)
+        v_P = (r1 - r0) / t_trans * (30 * s** 2 - 60 * s ** 3 + 30 * s **4)
+        a_P = (r1 - r0) / (t_trans ** 2) * (60 * s - 180 * s ** 2 + 120 * s **3)
+    elif t - t_trans <= t_trans2:
+        p0 = 0
+        p1 = np.pi * 2
+        s = min(1, (t-t_trans)/t_trans2)
+        phi = p0 + (p1 - p0) * (10 * s** 3 - 15 * s ** 4 + 6 * s **5)
+        phi_dot = (p1 - p0) / t_trans2 * (30 * s** 2 - 60 * s ** 3 + 30 * s **4)
+        phi_ddot = (p1 - p0) / (t_trans2 ** 2) * (60 * s - 180 * s ** 2 + 120 * s **3)
+        r_OP = r_OP0 + np.array([np.cos(phi), np.sin(phi), 1])
+        v_P = np.array([-np.sin(phi), np.cos(phi), 0]) * phi_dot
+        a_P = np.array([-np.sin(phi), np.cos(phi), 0]) * phi_ddot + np.array([-np.cos(phi), -np.sin(phi), 0]) * phi_dot**2
+    else:
+        r_OP = r_OP0 + np.array([1, 0, 1])
+        v_P = r_OP0 * 0
+        a_P = r_OP0 * 0
+        
     return r_OP, v_P, a_P
 
 
-def position_control2(alpha, r_OP, v_P, r_OP_des, v_P_des, a_P_des):
+def position_control(alpha, r_OP, v_P, r_OP_des, v_P_des, a_P_des):
     a_Px, a_Py, a_Pz = a_P_des + Kd_r * (v_P_des - v_P) + Kp_r * (r_OP_des - r_OP)
     B_la_sum = mass * g_accel + mass * a_Pz
     betad = 1 / g_accel * (a_Px * np.cos(alpha) + a_Py * np.sin(alpha))
@@ -152,7 +167,7 @@ system.add(gravity)
 system.add(quad_motor)
 system.assemble()
 
-solver = ScipyIVP(system, t1=10, dt=1e-2)
+solver = ScipyIVP(system, t1=15, dt=1e-2)
 sol = solver.solve()
 
 r_OP = sol.q[:, :3]
@@ -173,7 +188,7 @@ r_OP_des, v_P_des, a_P_des = np.swapaxes(np.stack([traj(ti) for ti in sol.t]), 0
 beta_des, gamma_des = np.rad2deg(
     np.stack(
         [
-            position_control2(al, r, v, rd, vd, ad)[1:]
+            position_control(al, r, v, rd, vd, ad)[1:]
             for al, r, v, rd, vd, ad in zip(
                 euler_angles[:, 2], r_OP, v_P, r_OP_des, v_P_des, a_P_des
             )
@@ -189,10 +204,10 @@ ax[1, 0].plot(sol.t, r_OP_des[:, 1], "-r", label="y_des")
 ax[1, 0].plot(sol.t, r_OP[:, 1], label="y")
 ax[2, 0].plot(sol.t, r_OP_des[:, 2], "-r", label="z_des")
 ax[2, 0].plot(sol.t, r_OP[:, 2], label="z")
-ax[0, 1].plot(sol.t, euler_angles[:, 0], label="pitch")
 ax[0, 1].plot(sol.t, gamma_des, "-r", label="pitch_des")
-ax[1, 1].plot(sol.t, euler_angles[:, 1], label="roll")
+ax[0, 1].plot(sol.t, euler_angles[:, 0], label="pitch")
 ax[1, 1].plot(sol.t, beta_des, "-r", label="roll_des")
+ax[1, 1].plot(sol.t, euler_angles[:, 1], label="roll")
 ax[2, 1].plot(sol.t, euler_angles[:, 2], label="yaw")
 # ax[2, 1].plot(sol.t, alpha_des, "-r", label='yaw_des')
 plt.show()
