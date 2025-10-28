@@ -17,6 +17,8 @@ from .discretization.mesh1D import Mesh1D
 eye3 = np.eye(3, dtype=np.float64)
 eye4 = np.eye(4, dtype=np.float64)
 
+from ..discrete._base import RigidBodyKinematics
+
 
 class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
     def __init__(
@@ -157,6 +159,8 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         # total number of nodes
         self.nnodes_r = self.mesh_r.nnodes
         self.nnodes_p = self.mesh_p.nnodes
+        assert self.nnodes_r == self.nnodes_p
+        self.rigid_nodes = [RigidBodyKinematics() for _ in range(self.nnodes_r)]
 
         # number of nodes per element
         self.nnodes_element_r = self.mesh_r.nnodes_per_element
@@ -385,6 +389,16 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
 
     def assembler_callback(self):
         self._M_coo()
+        # TODO: need to call this function than other assembler_callback of others, where rigid_node is used as subsystem
+        for i in range(self.nnodes_r):
+            node = self.rigid_nodes[i]
+            node.t0 = self.t0
+            nodal_qDOF = np.concatenate((self.nodalDOF_r[i], self.nodalDOF_p[i]))
+            nodal_uDOF = np.concatenate((self.nodalDOF_r_u[i], self.nodalDOF_p_u[i]))
+            node.q0 = self.q0[nodal_qDOF]
+            node.u0 = self.u0[nodal_uDOF]
+            node.qDOF = self.qDOF[nodal_qDOF]
+            node.uDOF = self.uDOF[nodal_uDOF]
 
     #####################
     # kinematic equations
