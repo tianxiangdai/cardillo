@@ -44,19 +44,6 @@ class RigidBodyKinematics:
         q_dot_u[3:, 3:] = T_SO3_inv_quat(q[3:], normalize=False)
         return q_dot_u
 
-    #####################################################
-    # stabilization conditions for the kinematic equation
-    #####################################################
-    def g_S(self, t, q):
-        P = q[3:]
-        return np.array([P @ P - 1.0], dtype=q.dtype)
-
-    def g_S_q(self, t, q):
-        P = q[3:]
-        g_S_q = np.zeros((1, 7), dtype=q.dtype)
-        g_S_q[0, 3:] = 2.0 * P
-        return g_S_q
-
     #####################
     # auxiliary functions
     #####################
