@@ -26,12 +26,13 @@ from ._base import (
     CosseratRodDisplacementBased,
     CosseratRodMixed,
     make_CosseratRodConstrained,
-    CosseratRodDisplacementBased_Element
+    CosseratRodDisplacementBased_Element,
 )
 from ._cross_section import CrossSectionInertias
 
 eye3 = np.eye(3, dtype=np.float64)
 eye4 = np.eye(4, dtype=np.float64)
+
 
 class Cosserat_Quat_Element(CosseratRodDisplacementBased_Element):
     def __init__(self, nnodes, nquadrature, nq_element, nu_element):
@@ -147,6 +148,7 @@ class Cosserat_Quat_Element(CosseratRodDisplacementBased_Element):
         # return approx_fprime(q, lambda q: self.A_IB(t, q, xi))
         N, N_xi = self.basis_functions_r(xi)
         return self._deval(qe, xi, N, N_xi)[5]
+
 
 def make_CosseratRod(
     *,
@@ -467,12 +469,45 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
             )
 
     class CosseratRod_Quat(CosseratRodBase):
-        def __init__(self, cross_section, material_model, nelement, polynomial_degree, nquadrature, Q, *, q0=None, u0=None, nquadrature_dyn=None, cross_section_inertias=CrossSectionInertias(), idx_impressed=None, name=None):
-            super().__init__(cross_section, material_model, nelement, polynomial_degree, nquadrature, Q, q0=q0, u0=u0, nquadrature_dyn=nquadrature_dyn, cross_section_inertias=cross_section_inertias, idx_impressed=idx_impressed, name=name)
+        def __init__(
+            self,
+            cross_section,
+            material_model,
+            nelement,
+            polynomial_degree,
+            nquadrature,
+            Q,
+            *,
+            q0=None,
+            u0=None,
+            nquadrature_dyn=None,
+            cross_section_inertias=CrossSectionInertias(),
+            idx_impressed=None,
+            name=None,
+        ):
+            super().__init__(
+                cross_section,
+                material_model,
+                nelement,
+                polynomial_degree,
+                nquadrature,
+                Q,
+                q0=q0,
+                u0=u0,
+                nquadrature_dyn=nquadrature_dyn,
+                cross_section_inertias=cross_section_inertias,
+                idx_impressed=idx_impressed,
+                name=name,
+            )
             self.rod_elements = []
             self.rod_nodes = []
-            for i in range(nelement):        
-                el = Cosserat_Quat_Element(self.nnodes_element_r, self.nquadrature, self.nq_element, self.nu_element)
+            for i in range(nelement):
+                el = Cosserat_Quat_Element(
+                    self.nnodes_element_r,
+                    self.nquadrature,
+                    self.nq_element,
+                    self.nu_element,
+                )
                 el.nu_element = self.nu_element
                 el.nq_element = self.nq_element
                 el.nquadrature = self.nquadrature
@@ -481,7 +516,7 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
                 # el.nu_element_r = self.nu_element_r
                 # el.nu_element_p = self.nu_element_p
                 el.nodalDOF_element_r = self.nodalDOF_element_r
-                el.nodalDOF_element_p = self.nodalDOF_element_p                
+                el.nodalDOF_element_p = self.nodalDOF_element_p
                 el.nodalDOF_element_r_u = self.nodalDOF_element_r_u
                 el.nodalDOF_element_p_u = self.nodalDOF_element_p_u
                 el.cross_section_inertias = self.cross_section_inertias
@@ -502,13 +537,13 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
                 el.N_p_dyn = self.N_p_dyn[i]
                 el.basis_functions_r = self.basis_functions_r
                 el.basis_functions_p = self.basis_functions_p
-                
+
                 self.rod_elements += [el]
                 self.rod_nodes += el.nodes
-                
+
             self.set_reference_strains(self.Q)
-            
-            for i in range(nelement):  
+
+            for i in range(nelement):
                 el.J = self.J[i]
                 el.J_dyn = self.J_dyn[i]
                 el.B_Gamma0 = self.B_Gamma0[i]
@@ -520,7 +555,9 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
                 node = self.rod_nodes[i]
                 node.t0 = self.t0
                 nodal_qDOF = np.concatenate((self.nodalDOF_r[i], self.nodalDOF_p[i]))
-                nodal_uDOF = np.concatenate((self.nodalDOF_r_u[i], self.nodalDOF_p_u[i]))
+                nodal_uDOF = np.concatenate(
+                    (self.nodalDOF_r_u[i], self.nodalDOF_p_u[i])
+                )
                 node.q0 = self.q0[nodal_qDOF]
                 node.u0 = self.u0[nodal_uDOF]
                 node.qDOF = self.qDOF[nodal_qDOF]

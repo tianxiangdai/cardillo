@@ -2,6 +2,7 @@ import numpy as np
 from vtk import VTK_VERTEX
 from ._base import PositionKinematics
 
+
 class PointMass(PositionKinematics):
     def __init__(
         self,
@@ -35,7 +36,6 @@ class PointMass(PositionKinematics):
         self.__M = mass * np.eye(3)
 
         self.name = name
-
 
     #####################
     # kinetic energy

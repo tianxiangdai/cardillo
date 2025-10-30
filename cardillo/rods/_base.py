@@ -19,6 +19,7 @@ eye4 = np.eye(4, dtype=np.float64)
 
 from ..discrete._base import PoseKinematics
 
+
 class RodNode(PoseKinematics):
     pass
 
@@ -111,7 +112,6 @@ class CosseratRod_PetrovGalerkin_Element(ABC):
 
         return f_gyr_el_ue
 
-        
     ##########################
     # r_OP / A_IB contribution
     ##########################
@@ -174,7 +174,7 @@ class CosseratRod_PetrovGalerkin_Element(ABC):
         J_P = self.__J_P
         J_P[:, self.nodalDOF_element_r.T] = N * eye3[..., None]
         r_CP_tilde = A_IB @ B_r_CP_tilde
-        J_P[:, self.nodalDOF_element_p_u.T] = - N * r_CP_tilde[..., None]
+        J_P[:, self.nodalDOF_element_p_u.T] = -N * r_CP_tilde[..., None]
         return J_P
 
     def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
@@ -278,7 +278,7 @@ class CosseratRodDisplacementBased_Element(CosseratRod_PetrovGalerkin_Element):
         f_int_el = self.__f_int_el
         f_int_el[:] = 0
         # interpoalte linear velocity
-        v_C_xis = self.N_r_xi@ ue[self.nodalDOF_element_r_u]
+        v_C_xis = self.N_r_xi @ ue[self.nodalDOF_element_r_u]
         # interpoalte angular velocity
         B_Omegas = self.N_p @ ue[self.nodalDOF_element_p_u]
         B_Omega_xis = self.N_p_xi @ ue[self.nodalDOF_element_p_u]
@@ -493,9 +493,7 @@ class CosseratRodDisplacementBased_Element(CosseratRod_PetrovGalerkin_Element):
             # virtual work contributions
             ############################
             f_int_el_qe[self.nodalDOF_element_r] -= (
-                self.N_r_xi[i][..., None, None]
-                * qwi
-                * (B_n @ A_IB_qe + A_IB @ B_n_qe)
+                self.N_r_xi[i][..., None, None] * qwi * (B_n @ A_IB_qe + A_IB @ B_n_qe)
             )
             f_int_el_qe[self.nodalDOF_element_p_u] += (
                 self.N_p[i][..., None, None]
@@ -1133,8 +1131,12 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            coo[elDOF_u, elDOF_u] = self.rod_elements[el].f_int_el_ue(q[elDOF], u[elDOF_u], el)
-            coo[elDOF_u, elDOF_u] = -self.rod_elements[el].f_gyr_el_ue(q[elDOF], u[elDOF_u], el)
+            coo[elDOF_u, elDOF_u] = self.rod_elements[el].f_int_el_ue(
+                q[elDOF], u[elDOF_u], el
+            )
+            coo[elDOF_u, elDOF_u] = -self.rod_elements[el].f_gyr_el_ue(
+                q[elDOF], u[elDOF_u], el
+            )
         return coo
 
     ###########################
@@ -1180,9 +1182,9 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            h[elDOF_u] += self.rod_elements[el].f_int_el(q[elDOF], u[elDOF_u], el) - self.rod_elements[el].f_gyr_el(
-                u[elDOF_u], el
-            )
+            h[elDOF_u] += self.rod_elements[el].f_int_el(
+                q[elDOF], u[elDOF_u], el
+            ) - self.rod_elements[el].f_gyr_el(u[elDOF_u], el)
         return h
 
     def h_q(self, t, q, u):
@@ -1190,7 +1192,9 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            coo[elDOF_u, elDOF] = self.rod_elements[el].f_int_el_qe(q[elDOF], u[elDOF_u], el)
+            coo[elDOF_u, elDOF] = self.rod_elements[el].f_int_el_qe(
+                q[elDOF], u[elDOF_u], el
+            )
         return coo
 
     # h_u is implmented in base class.

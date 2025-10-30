@@ -11,6 +11,7 @@ from ..math import (
 
 eye3 = np.eye(3, dtype=np.float64)
 
+
 class PositionKinematics:
     def __init__(self):
         self._nq = 3
@@ -66,7 +67,7 @@ class PositionKinematics:
 
     def a_P_u(self, t, q, u, u_dot, xi=None, B_r_CP=None):
         return np.zeros((3, self._nu), dtype=np.common_type(q, u, u_dot))
-    
+
 
 class PoseKinematics:
     def __init__(self):
@@ -172,7 +173,9 @@ class PoseKinematics:
         return J_P
 
     def J_P_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        self.__J_P_q[:, 3:, :] = np.einsum("ijk,jl->ilk", self.A_IB_q(t, q), -ax2skew(B_r_CP))
+        self.__J_P_q[:, 3:, :] = np.einsum(
+            "ijk,jl->ilk", self.A_IB_q(t, q), -ax2skew(B_r_CP)
+        )
         return self.__J_P_q
 
     def kappa_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):

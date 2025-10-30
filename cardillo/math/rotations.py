@@ -585,9 +585,8 @@ def Exp_SO3_quat_p(P, normalize=True):
         A_P[:, :, 0] += s2_p_tilde
         A_P[:, :, 1:] += s2 * p0 * p_tilde_p
         for i in range(3):
-            A_P[:, :, i + 1] += (
-                + p_tilde_p[:, :, i] @ s2_p_tilde
-                + (s2_p_tilde @ p_tilde_p[:, :, i])
+            A_P[:, :, i + 1] += +p_tilde_p[:, :, i] @ s2_p_tilde + (
+                s2_p_tilde @ p_tilde_p[:, :, i]
             )
     else:
         A_P = np.zeros((3, 3, 4), dtype=P.dtype)
