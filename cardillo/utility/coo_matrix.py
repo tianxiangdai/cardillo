@@ -181,6 +181,19 @@ class CooMatrix:
         """Convert container to 2D numpy array."""
         return self.tocoo(copy).toarray()
 
+    def toCooMatrix(self, copy=False):
+        """Keep CooMatrix."""
+        return self
+
+    def __add__(self, value):
+        if isinstance(value, CooMatrix):
+            self.data.extend(value.data)
+            self.row.extend(value.row)
+            self.col.extend(value.col)
+            return self
+        else:
+            raise Exception
+
 
 if __name__ == "__main__":
     from profilehooks import profile
