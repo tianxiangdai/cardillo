@@ -26,12 +26,127 @@ from ._base import (
     CosseratRodDisplacementBased,
     CosseratRodMixed,
     make_CosseratRodConstrained,
+    CosseratRodDisplacementBased_Element
 )
 from ._cross_section import CrossSectionInertias
 
 eye3 = np.eye(3, dtype=np.float64)
 eye4 = np.eye(4, dtype=np.float64)
 
+class Cosserat_Quat_Element(CosseratRodDisplacementBased_Element):
+    def __init__(self, nnodes, nquadrature, nq_element, nu_element):
+        super().__init__(nnodes, nq_element, nu_element)
+        self._eval_cache = LRUCache(maxsize=nquadrature + 10)
+        self._deval_cache = LRUCache(maxsize=nquadrature + 10)
+        self.__r_OP_qe = np.zeros((3, nq_element), dtype=np.float64)
+        self.__r_OP_xi_qe = np.zeros((3, nq_element), dtype=np.float64)
+
+        self.__p_qe = np.zeros((4, nq_element), dtype=np.float64)
+        self.__p_xi_qe = np.zeros((4, nq_element), dtype=np.float64)
+
+    @cachedmethod(
+        lambda self: self._eval_cache,
+        key=lambda self, qe, xi, N, N_xi: hashkey(*qe, xi),
+    )
+    def _eval(self, qe, xi, N, N_xi):
+        # evaluate shape functions
+        # N, N_xi = self.basis_functions_r(xi)
+
+        # interpolate
+        r_OP_nodes = qe[self.nodalDOF_element_r]
+        r_OP = N @ r_OP_nodes
+        r_OP_xi = N_xi @ r_OP_nodes
+
+        p_nodes = qe[self.nodalDOF_element_p]
+        p_xi = N_xi @ p_nodes
+        p = N @ p_nodes
+
+        # transformation matrix
+        A_IB = Exp_SO3_quat(p, normalize=True)
+
+        # dilatation and shear strains
+        B_Gamma_bar = A_IB.T @ r_OP_xi
+
+        # curvature, Rucker2018 (17)
+        B_Kappa_bar = T_SO3_quat(p, normalize=True) @ p_xi
+
+        return r_OP, A_IB, B_Gamma_bar, B_Kappa_bar
+
+    @cachedmethod(
+        lambda self: self._deval_cache,
+        key=lambda self, qe, xi, N, N_xi: hashkey(*qe, xi),
+    )
+    def _deval(self, qe, xi, N, N_xi):
+        # evaluate shape functions
+        # N, N_xi = self.basis_functions_r(xi)
+
+        # interpolate
+        r_OP_qe = self.__r_OP_qe
+        r_OP_xi_qe = self.__r_OP_xi_qe
+
+        p_qe = self.__p_qe
+        p_xi_qe = self.__p_xi_qe
+
+        r_OP_nodes = qe[self.nodalDOF_element_r]
+        r_OP = N @ r_OP_nodes
+        r_OP_qe[:, self.nodalDOF_element_r.T] = eye3[..., None] * N
+
+        r_OP_xi = N_xi @ r_OP_nodes
+        r_OP_xi_qe[:, self.nodalDOF_element_r.T] = eye3[..., None] * N_xi
+
+        p_nodes = qe[self.nodalDOF_element_p]
+        p = N @ p_nodes
+        p_qe[:, self.nodalDOF_element_p.T] = eye4[..., None] * N
+
+        p_xi = N_xi @ p_nodes
+        p_xi_qe[:, self.nodalDOF_element_p.T] = eye4[..., None] * N_xi
+
+        # transformation matrix
+        A_IB = Exp_SO3_quat(p, normalize=True)
+
+        # derivative w.r.t. generalized coordinates
+        A_IB_qe = Exp_SO3_quat_p(p, normalize=True) @ p_qe
+
+        # axial and shear strains
+        B_Gamma_bar = A_IB.T @ r_OP_xi
+        B_Gamma_bar_qe = (A_IB_qe.T @ r_OP_xi).T + A_IB.T @ r_OP_xi_qe
+        # curvature, Rucker2018 (17)
+        T = T_SO3_quat(p, normalize=True)
+        B_Kappa_bar = T @ p_xi
+
+        # B_Kappa_bar_qe = approx_fprime(qe, lambda qe: self._eval(qe, xi)[3])
+        B_Kappa_bar_qe = p_xi @ T_SO3_quat_P(p) @ p_qe + T @ p_xi_qe
+
+        return (
+            r_OP,
+            A_IB,
+            B_Gamma_bar,
+            B_Kappa_bar,
+            r_OP_qe,
+            A_IB_qe,
+            B_Gamma_bar_qe,
+            B_Kappa_bar_qe,
+        )
+
+    def A_IB(self, t, qe, xi):
+        N, N_xi = self.basis_functions_r(xi)
+        return self._eval(qe, xi, N, N_xi)[1]
+        # # evaluate shape functions
+        # N_p, _ = self.basis_functions_p(xi)
+
+        # # interpolate orientation
+        # A_IB = np.zeros((3, 3), dtype=np.float64)
+        # for node in range(self.nnodes_element_p):
+        #     A_IB += N_p[node] * self.Exp_SO3_quat(
+        #         q[self.nodalDOF_element_p[node]]
+        #     )
+
+        # return A_IB
+
+    def A_IB_q(self, t, qe, xi):
+        # return approx_fprime(q, lambda q: self.A_IB(t, q, xi))
+        N, N_xi = self.basis_functions_r(xi)
+        return self._deval(qe, xi, N, N_xi)[5]
 
 def make_CosseratRod(
     *,
@@ -352,109 +467,65 @@ def make_CosseratRod_Quat(mixed=True, constraints=None):
             )
 
     class CosseratRod_Quat(CosseratRodBase):
-        @cachedmethod(
-            lambda self: self._eval_cache,
-            key=lambda self, qe, xi, N, N_xi: hashkey(*qe, xi),
-        )
-        def _eval(self, qe, xi, N, N_xi):
-            # evaluate shape functions
-            # N, N_xi = self.basis_functions_r(xi)
+        def __init__(self, cross_section, material_model, nelement, polynomial_degree, nquadrature, Q, *, q0=None, u0=None, nquadrature_dyn=None, cross_section_inertias=CrossSectionInertias(), idx_impressed=None, name=None):
+            super().__init__(cross_section, material_model, nelement, polynomial_degree, nquadrature, Q, q0=q0, u0=u0, nquadrature_dyn=nquadrature_dyn, cross_section_inertias=cross_section_inertias, idx_impressed=idx_impressed, name=name)
+            self.rod_elements = []
+            self.rod_nodes = []
+            for i in range(nelement):        
+                el = Cosserat_Quat_Element(self.nnodes_element_r, self.nquadrature, self.nq_element, self.nu_element)
+                el.nu_element = self.nu_element
+                el.nq_element = self.nq_element
+                el.nquadrature = self.nquadrature
+                el.nquadrature_dyn = self.nquadrature_dyn
+                el.nnodes_element_p = self.nnodes_element_p
+                # el.nu_element_r = self.nu_element_r
+                # el.nu_element_p = self.nu_element_p
+                el.nodalDOF_element_r = self.nodalDOF_element_r
+                el.nodalDOF_element_p = self.nodalDOF_element_p                
+                el.nodalDOF_element_r_u = self.nodalDOF_element_r_u
+                el.nodalDOF_element_p_u = self.nodalDOF_element_p_u
+                el.cross_section_inertias = self.cross_section_inertias
+                el.elDOF_r = self.elDOF_r[i]
+                el.elDOF_p = self.elDOF_p[i]
+                el.elDOF = np.concatenate((self.elDOF_r[i], self.elDOF_p[i]))
+                el.elDOF_r_u = self.elDOF_r_u[i]
+                el.elDOF_p_u = self.elDOF_p_u[i]
+                el.elDOF_u = np.concatenate((self.elDOF_r_u[i], self.elDOF_p_u[i]))
+                el.qp = self.qp[i]
+                el.qw = self.qw[i]
+                el.qw_dyn = self.qw_dyn[i]
+                el.material_model = self.material_model
+                el.N_r = self.N_r[i]
+                el.N_r_xi = self.N_r_xi[i]
+                el.N_p = self.N_p[i]
+                el.N_p_xi = self.N_p_xi[i]
+                el.N_p_dyn = self.N_p_dyn[i]
+                el.basis_functions_r = self.basis_functions_r
+                el.basis_functions_p = self.basis_functions_p
+                
+                self.rod_elements += [el]
+                self.rod_nodes += el.nodes
+                
+            self.set_reference_strains(self.Q)
+            
+            for i in range(nelement):  
+                el.J = self.J[i]
+                el.J_dyn = self.J_dyn[i]
+                el.B_Gamma0 = self.B_Gamma0[i]
+                el.B_Kappa0 = self.B_Kappa0[i]
 
-            # interpolate
-            r_OP_nodes = qe[self.nodalDOF_element_r]
-            r_OP = N @ r_OP_nodes
-            r_OP_xi = N_xi @ r_OP_nodes
-
-            p_nodes = qe[self.nodalDOF_element_p]
-            p_xi = N_xi @ p_nodes
-            p = N @ p_nodes
-
-            # transformation matrix
-            A_IB = Exp_SO3_quat(p, normalize=True)
-
-            # dilatation and shear strains
-            B_Gamma_bar = A_IB.T @ r_OP_xi
-
-            # curvature, Rucker2018 (17)
-            B_Kappa_bar = T_SO3_quat(p, normalize=True) @ p_xi
-
-            return r_OP, A_IB, B_Gamma_bar, B_Kappa_bar
-
-        @cachedmethod(
-            lambda self: self._deval_cache,
-            key=lambda self, qe, xi, N, N_xi: hashkey(*qe, xi),
-        )
-        def _deval(self, qe, xi, N, N_xi):
-            # evaluate shape functions
-            # N, N_xi = self.basis_functions_r(xi)
-
-            # interpolate
-            r_OP_qe = np.zeros((3, self.nq_element), dtype=np.float64)
-            r_OP_xi_qe = np.zeros((3, self.nq_element), dtype=np.float64)
-
-            p_qe = np.zeros((4, self.nq_element), dtype=np.float64)
-            p_xi_qe = np.zeros((4, self.nq_element), dtype=np.float64)
-
-            r_OP_nodes = qe[self.nodalDOF_element_r]
-            r_OP = N @ r_OP_nodes
-            r_OP_qe[:, self.nodalDOF_element_r.T] = eye3[..., None] * N
-
-            r_OP_xi = N_xi @ r_OP_nodes
-            r_OP_xi_qe[:, self.nodalDOF_element_r.T] = eye3[..., None] * N_xi
-
-            p_nodes = qe[self.nodalDOF_element_p]
-            p = N @ p_nodes
-            p_qe[:, self.nodalDOF_element_p.T] = eye4[..., None] * N
-
-            p_xi = N_xi @ p_nodes
-            p_xi_qe[:, self.nodalDOF_element_p.T] = eye4[..., None] * N_xi
-
-            # transformation matrix
-            A_IB = Exp_SO3_quat(p, normalize=True)
-
-            # derivative w.r.t. generalized coordinates
-            A_IB_qe = Exp_SO3_quat_p(p, normalize=True) @ p_qe
-
-            # axial and shear strains
-            B_Gamma_bar = A_IB.T @ r_OP_xi
-            B_Gamma_bar_qe = (A_IB_qe.T @ r_OP_xi).T + A_IB.T @ r_OP_xi_qe
-            # curvature, Rucker2018 (17)
-            T = T_SO3_quat(p, normalize=True)
-            B_Kappa_bar = T @ p_xi
-
-            # B_Kappa_bar_qe = approx_fprime(qe, lambda qe: self._eval(qe, xi)[3])
-            B_Kappa_bar_qe = p_xi @ T_SO3_quat_P(p) @ p_qe + T @ p_xi_qe
-
-            return (
-                r_OP,
-                A_IB,
-                B_Gamma_bar,
-                B_Kappa_bar,
-                r_OP_qe,
-                A_IB_qe,
-                B_Gamma_bar_qe,
-                B_Kappa_bar_qe,
-            )
-
-        def A_IB(self, t, qe, xi):
-            N, N_xi = self.basis_functions_r(xi)
-            return self._eval(qe, xi, N, N_xi)[1]
-            # # evaluate shape functions
-            # N_p, _ = self.basis_functions_p(xi)
-
-            # # interpolate orientation
-            # A_IB = np.zeros((3, 3), dtype=np.float64)
-            # for node in range(self.nnodes_element_p):
-            #     A_IB += N_p[node] * self.Exp_SO3_quat(
-            #         q[self.nodalDOF_element_p[node]]
-            #     )
-
-            # return A_IB
-
-        def A_IB_q(self, t, qe, xi):
-            # return approx_fprime(q, lambda q: self.A_IB(t, q, xi))
-            N, N_xi = self.basis_functions_r(xi)
-            return self._deval(qe, xi, N, N_xi)[5]
+        def assembler_callback(self):
+            # TODO: need to call this function than other assembler_callback of others, where rigid_node is used as subsystem
+            for i in range(self.nnodes_r):
+                node = self.rod_nodes[i]
+                node.t0 = self.t0
+                nodal_qDOF = np.concatenate((self.nodalDOF_r[i], self.nodalDOF_p[i]))
+                nodal_uDOF = np.concatenate((self.nodalDOF_r_u[i], self.nodalDOF_p_u[i]))
+                node.q0 = self.q0[nodal_qDOF]
+                node.u0 = self.u0[nodal_uDOF]
+                node.qDOF = self.qDOF[nodal_qDOF]
+                node.uDOF = self.uDOF[nodal_uDOF]
+            return super().assembler_callback()
 
     return CosseratRod_Quat
 

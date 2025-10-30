@@ -17,7 +17,497 @@ from .discretization.mesh1D import Mesh1D
 eye3 = np.eye(3, dtype=np.float64)
 eye4 = np.eye(4, dtype=np.float64)
 
-from ..discrete._base import RigidBodyKinematics
+from ..discrete._base import PoseKinematics
+
+class RodNode(PoseKinematics):
+    pass
+
+
+class CosseratRod_PetrovGalerkin_Element(ABC):
+    def __init__(self, nnodes, nq_element, nu_element):
+        self.nodes = [RodNode() for _ in range(nnodes)]
+        self.__f_gyr_el = np.zeros(nu_element, dtype=np.float64)
+        self.__f_gyr_el_ue = np.zeros((nu_element, nu_element), dtype=np.float64)
+        self.__J_P = np.zeros((3, nu_element), dtype=np.float64)
+        self.__J_P_q = np.zeros((3, nu_element, nq_element), dtype=np.float64)
+        self.__a_P_u = np.zeros((3, nu_element), dtype=np.float64)
+        self.__B_Omega_q = np.zeros((3, nq_element), dtype=np.float64)
+        self.__B_J_R = np.zeros((3, nu_element), dtype=np.float64)
+        self.__B_J_R_q = np.zeros((3, nu_element, nq_element), dtype=np.float64)
+        self.__B_Psi_q = np.zeros((3, nq_element), dtype=np.float64)
+        self.__B_Psi_u = np.zeros((3, nu_element), dtype=np.float64)
+
+    ##################
+    # abstract methods
+    ##################
+    @abstractmethod
+    def _eval(self, qe, xi, N, N_xi):
+        """Compute (r_OP, A_IB, B_Gamma_bar, B_Kappa_bar)."""
+        ...
+
+    @abstractmethod
+    def _deval(self, qe, xi, N, N_xi):
+        """Compute
+        * r_OP
+        * A_IB
+        * B_Gamma_bar
+        * B_Kappa_bar
+        * r_OP_qe
+        * A_IB_qe
+        * B_Gamma_bar_qe
+        * B_Kappa_bar_qe
+        """
+        ...
+
+    @abstractmethod
+    def A_IB(self, t, qe, xi): ...
+
+    @abstractmethod
+    def A_IB_q(self, t, qe, xi): ...
+
+    def f_gyr_el(self, ue, el):
+        f_gyr_el = self.__f_gyr_el
+        # interpoalte angular velocity
+        B_Omegas = self.N_p_dyn @ ue[self.nodalDOF_element_p_u]
+        # gyroscopic forces
+        f_gyr_el_ps = (
+            np.cross(B_Omegas, (B_Omegas @ self.cross_section_inertias.B_I_rho0.T))
+            * (self.J_dyn * self.qw_dyn[el])[:, None]
+        )
+        # multiply vector of gyroscopic forces with nodal virtual rotations
+        f_gyr_el[self.nodalDOF_element_p_u] = np.sum(
+            (self.N_p_dyn[..., None] * f_gyr_el_ps[:, None, :]), axis=0
+        )
+        return f_gyr_el
+
+    def f_gyr_el_ue(self, qe, ue, el):
+        f_gyr_el_ue = self.__f_gyr_el_ue
+        f_gyr_el_ue[:] = 0
+
+        for i in range(self.nquadrature_dyn):
+            # interpoalte angular velocity
+            B_Omega = self.N_p_dyn[i] @ ue[self.nodalDOF_element_p_u]
+
+            # derivative of vector of gyroscopic forces
+            f_gyr_u_el_p = (
+                (
+                    (
+                        ax2skew(B_Omega) @ self.cross_section_inertias.B_I_rho0
+                        - ax2skew(self.cross_section_inertias.B_I_rho0 @ B_Omega)
+                    )
+                )
+                * self.J_dyn[i]
+                * self.qw_dyn[i]
+            )
+
+            # multiply derivative of gyroscopic force vector with nodal virtual rotations
+            for node_a in range(self.nnodes_element_p):
+                nodalDOF_a = self.nodalDOF_element_p_u[node_a]
+                for node_b in range(self.nnodes_element_p):
+                    nodalDOF_b = self.nodalDOF_element_p_u[node_b]
+                    f_gyr_el_ue[nodalDOF_a[:, None], nodalDOF_b] += f_gyr_u_el_p * (
+                        self.N_p_dyn[i, node_a] * self.N_p_dyn[i, node_b]
+                    )
+
+        return f_gyr_el_ue
+
+        
+    ##########################
+    # r_OP / A_IB contribution
+    ##########################
+    def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
+        N, N_xi = self.basis_functions_r(xi)
+        r_OC, A_IB, _, _ = self._eval(qe, xi, N, N_xi)
+        return r_OC + A_IB @ B_r_CP
+
+    # TODO: Think of a faster version than using _deval
+    def r_OP_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
+        # evaluate required quantities
+        N, N_xi = self.basis_functions_r(xi)
+        (
+            r_OC,
+            A_IB,
+            _,
+            _,
+            r_OC_q,
+            A_IB_q,
+            _,
+            _,
+        ) = self._deval(qe, xi, N, N_xi)
+
+        return r_OC_q + B_r_CP @ A_IB_q
+
+    def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
+        N, _ = self.basis_functions_r(xi)
+
+        # interpolate A_IB and angular velocity in B-frame
+        A_IB = self.A_IB(t, qe, xi)
+        B_Omega = N @ ue[self.nodalDOF_element_p_u]
+
+        # centerline velocity
+        v_C = N @ ue[self.nodalDOF_element_r]
+
+        return v_C + A_IB @ cross3(B_Omega, B_r_CP)
+
+    def v_P_q(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
+        # evaluate shape functions
+        N, _ = self.basis_functions_r(xi)
+
+        # interpolate derivative of A_IB and angular velocity in B-frame
+        A_IB_q = self.A_IB_q(t, qe, xi)
+        B_Omega = N @ ue[self.nodalDOF_element_p_u]
+
+        v_P_q = cross3(B_Omega, B_r_CP) @ A_IB_q
+        return v_P_q
+
+    def J_P(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
+        # evaluate required nodal shape functions
+        N, _ = self.basis_functions_r(xi)
+
+        # transformation matrix
+        A_IB = self.A_IB(t, qe, xi)
+
+        # skew symmetric matrix of B_r_CP
+        B_r_CP_tilde = ax2skew(B_r_CP)
+
+        # interpolate centerline and axis angle contributions
+        J_P = self.__J_P
+        J_P[:, self.nodalDOF_element_r.T] = N * eye3[..., None]
+        r_CP_tilde = A_IB @ B_r_CP_tilde
+        J_P[:, self.nodalDOF_element_p_u.T] = - N * r_CP_tilde[..., None]
+        return J_P
+
+    def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
+        # evaluate required nodal shape functions
+        N, _ = self.basis_functions_r(xi)
+
+        B_r_CP_tilde = ax2skew(B_r_CP)
+        A_IB_q = self.A_IB_q(t, qe, xi)
+        prod = B_r_CP_tilde.T @ A_IB_q
+
+        # interpolate axis angle contributions since centerline contributon is
+        # zero
+        J_P_q = self.__J_P_q
+        J_P_q[:, self.nodalDOF_element_p_u] = -N[..., None, None] * prod[:, None, ...]
+        return J_P_q
+
+    def a_P(self, t, qe, ue, ue_dot, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
+        N, _ = self.basis_functions_r(xi)
+
+        # interpolate orientation
+        A_IB = self.A_IB(t, qe, xi)
+
+        # centerline acceleration
+        a_C = N @ ue_dot[self.nodalDOF_element_r]
+
+        # angular velocity and acceleration in B-frame
+        B_Omega = self.B_Omega(t, qe, ue, xi)
+        B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
+
+        # rigid body formular
+        return a_C + A_IB @ (
+            cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP))
+        )
+
+    def a_P_q(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
+        B_Omega = self.B_Omega(t, qe, ue, xi)
+        B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
+        a_P_q = (
+            cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP))
+        ) @ self.A_IB_q(t, qe, xi)
+        return a_P_q
+
+    def a_P_u(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
+        B_Omega = self.B_Omega(t, qe, ue, xi)
+        local = -self.A_IB(t, qe, xi) @ (
+            ax2skew(cross3(B_Omega, B_r_CP)) + ax2skew(B_Omega) @ ax2skew(B_r_CP)
+        )
+
+        N, _ = self.basis_functions_r(xi)
+        a_P_u = self.__a_P_u
+        a_P_u[:, self.nodalDOF_element_p_u.T] = N * local[..., None]
+
+        return a_P_u
+
+    def B_Omega(self, t, qe, ue, xi):
+        """Since we use Petrov-Galerkin method we only interpolate the nodal
+        angular velocities in the B-frame.
+        """
+        N_p, _ = self.basis_functions_p(xi)
+        B_Omega = N_p @ ue[self.nodalDOF_element_p_u]
+        return B_Omega
+
+    def B_Omega_q(self, t, qe, ue, xi):
+        return self.__B_Omega_q
+
+    def B_J_R(self, t, qe, xi):
+        N_p, _ = self.basis_functions_p(xi)
+        B_J_R = self.__B_J_R
+        B_J_R[:, self.nodalDOF_element_p_u.T] = N_p * eye3[..., None]
+        return B_J_R
+
+    def B_J_R_q(self, t, qe, xi):
+        return self.__B_J_R_q
+
+    def B_Psi(self, t, qe, ue, ue_dot, xi):
+        """Since we use Petrov-Galerkin method we only interpolate the nodal
+        time derivative of the angular velocities in the B-frame.
+        """
+        N, _ = self.basis_functions_p(xi)
+        B_Psi = N @ ue_dot[self.nodalDOF_element_p_u]
+        return B_Psi
+
+    def B_Psi_q(self, t, qe, ue, ue_dot, xi):
+        return self.__B_Psi_q
+
+    def B_Psi_u(self, t, qe, ue, ue_dot, xi):
+        return self.__B_Psi_u
+
+
+class CosseratRodDisplacementBased_Element(CosseratRod_PetrovGalerkin_Element):
+    def __init__(self, nnodes, nq_element, nu_element):
+        super().__init__(nnodes, nq_element, nu_element)
+        self.__f_int_el = np.zeros(nu_element, dtype=np.float64)
+        self.__f_int_el_ue = np.zeros((nu_element, nu_element), dtype=np.float64)
+        self.__f_int_el_qe = np.zeros((nu_element, nq_element), dtype=np.float64)
+        self.__v_C_xi_ue = np.zeros((3, nu_element), dtype=np.float64)
+        self.__B_Omega_ue = np.zeros((3, nu_element), dtype=np.float64)
+        self.__B_Omega_xi_ue = np.zeros((3, nu_element), dtype=np.float64)
+
+    def f_int_el(self, qe, ue, el):
+        f_int_el = self.__f_int_el
+        f_int_el[:] = 0
+        # interpoalte linear velocity
+        v_C_xis = self.N_r_xi@ ue[self.nodalDOF_element_r_u]
+        # interpoalte angular velocity
+        B_Omegas = self.N_p @ ue[self.nodalDOF_element_p_u]
+        B_Omega_xis = self.N_p_xi @ ue[self.nodalDOF_element_p_u]
+
+        for i in range(self.nquadrature):
+            # extract reference state variables
+            qpi = self.qp[i]
+            qwi = self.qw[i]
+            J = self.J[i]
+            B_Gamma0 = self.B_Gamma0[i]
+            B_Kappa0 = self.B_Kappa0[i]
+
+            # evaluate required quantities
+            _, A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
+                qe, qpi, N=self.N_r[i], N_xi=self.N_r_xi[i]
+            )
+
+            # axial and shear strains
+            B_Gamma = B_Gamma_bar / J
+            B_Gamma_dot = (A_IB.T @ v_C_xis[i] - cross3(B_Omegas[i], B_Gamma_bar)) / J
+
+            # torsional and flexural strains
+            B_Kappa = B_Kappa_bar / J
+            B_Kappa_dot = (B_Omega_xis[i] - cross3(B_Omegas[i], B_Kappa_bar)) / J
+
+            # compute contact forces and couples from partial derivatives of
+            # the strain energy function w.r.t. strain measures
+            B_n = self.material_model.B_n(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m = self.material_model.B_m(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+
+            ############################
+            # virtual work contributions
+            ############################
+            f_int_el[self.nodalDOF_element_r_u] -= np.outer(
+                self.N_r_xi[i], A_IB @ B_n * qwi
+            )
+            f_int_el[self.nodalDOF_element_p_u] += np.outer(
+                -self.N_p_xi[i], B_m * qwi
+            ) + np.outer(
+                self.N_p[i],
+                (cross3(B_Gamma_bar, B_n) + cross3(B_Kappa_bar, B_m)) * qwi,
+            )
+        return f_int_el
+
+    def f_int_el_ue(self, qe, ue, el):
+        f_int_el_ue = self.__f_int_el_ue
+        f_int_el_ue[:] = 0
+        # interpoalte linear velocity
+        v_C_xis = self.N_r_xi @ ue[self.nodalDOF_element_r_u]
+        # interpoalte angular velocity
+        B_Omegas = self.N_p @ ue[self.nodalDOF_element_p_u]
+        B_Omega_xis = self.N_p_xi @ ue[self.nodalDOF_element_p_u]
+
+        for i in range(self.nquadrature):
+            # extract reference state variables
+            qpi = self.qp[i]
+            qwi = self.qw[i]
+            Ji = self.J[i]
+            B_Gamma0 = self.B_Gamma0[i]
+            B_Kappa0 = self.B_Kappa0[i]
+
+            # evaluate required quantities
+            _, A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
+                qe, qpi, N=self.N_r[i], N_xi=self.N_r_xi[i]
+            )
+
+            # axial and shear strains
+            v_C_xi_ue = self.__v_C_xi_ue
+            B_Omega_ue = self.__B_Omega_ue
+            B_Omega_xi_ue = self.__B_Omega_xi_ue
+            for j in range(3):
+                v_C_xi_ue[j, self.nodalDOF_element_r_u[:, j]] = self.N_r_xi[i]
+                B_Omega_ue[j, self.nodalDOF_element_p_u[:, j]] = self.N_p[i]
+                B_Omega_xi_ue[j, self.nodalDOF_element_p_u[:, j]] = self.N_p_xi[i]
+            B_Gamma = B_Gamma_bar / Ji
+            B_Gamma_dot = (A_IB.T @ v_C_xis[i] - cross3(B_Omegas[i], B_Gamma_bar)) / Ji
+            B_Gamma_dot_ue = (
+                A_IB.T @ v_C_xi_ue + ax2skew(B_Gamma_bar) @ B_Omega_ue
+            ) / Ji
+
+            # torsional and flexural strains
+            B_Kappa = B_Kappa_bar / Ji
+            B_Kappa_dot = (B_Omega_xis[i] - cross3(B_Omegas[i], B_Kappa_bar)) / Ji
+            B_Kappa_dot_ue = (B_Omega_xi_ue + ax2skew(B_Kappa_bar) @ B_Omega_ue) / Ji
+
+            # compute contact forces and couples from partial derivatives of
+            # the strain energy function w.r.t. strain measures
+            B_n_B_Gamma_dot = self.material_model.B_n_B_Gamma_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_B_Kappa_dot = self.material_model.B_n_B_Kappa_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_ue = B_n_B_Gamma_dot @ B_Gamma_dot_ue + B_n_B_Kappa_dot @ B_Kappa_dot_ue
+
+            B_m_B_Gamma_dot = self.material_model.B_m_B_Gamma_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_B_Kappa_dot = self.material_model.B_m_B_Kappa_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_ue = B_m_B_Gamma_dot @ B_Gamma_dot_ue + B_m_B_Kappa_dot @ B_Kappa_dot_ue
+
+            ############################
+            # virtual work contributions
+            ############################
+            f_int_el_ue[self.nodalDOF_element_r] -= (
+                self.N_r_xi[i][..., None, None] * qwi * A_IB @ B_n_ue
+            )
+            f_int_el_ue[self.nodalDOF_element_p_u] += (
+                self.N_p[i][..., None, None] * qwi * ax2skew(B_Gamma_bar) @ B_n_ue
+                - self.N_p_xi[i][..., None, None] * qwi * B_m_ue
+                + self.N_p[i][..., None, None] * qwi * ax2skew(B_Kappa_bar) @ B_m_ue
+            )
+        # np.allclose(approx_fprime(ue, lambda ue: self.f_int_el(qe, ue, el)), f_int_el_ue)
+        return f_int_el_ue
+
+    def f_int_el_qe(self, qe, ue, el):
+        f_int_el_qe = self.__f_int_el_qe
+        f_int_el_qe[:] = 0
+        # interpoalte linear velocity
+        v_C_xis = self.N_r_xi @ ue[self.nodalDOF_element_r_u]
+        # interpoalte angular velocity
+        B_Omegas = self.N_p @ ue[self.nodalDOF_element_p_u]
+        B_Omega_xis = self.N_p_xi @ ue[self.nodalDOF_element_p_u]
+
+        for i in range(self.nquadrature):
+            # extract reference state variables
+            qpi = self.qp[i]
+            qwi = self.qw[i]
+            Ji = self.J[i]
+            B_Gamma0 = self.B_Gamma0[i]
+            B_Kappa0 = self.B_Kappa0[i]
+
+            # evaluate required quantities
+            (
+                r_OP,
+                A_IB,
+                B_Gamma_bar,
+                B_Kappa_bar,
+                r_OP_qe,
+                A_IB_qe,
+                B_Gamma_bar_qe,
+                B_Kappa_bar_qe,
+            ) = self._deval(qe, qpi, N=self.N_r[i], N_xi=self.N_r_xi[i])
+
+            # axial and shear strains
+            B_Gamma = B_Gamma_bar / Ji
+            B_Gamma_qe = B_Gamma_bar_qe / Ji
+            B_Gamma_dot = (A_IB.T @ v_C_xis[i] - cross3(B_Omegas[i], B_Gamma_bar)) / Ji
+            B_Gamma_dot_qe = (
+                (A_IB_qe.T @ v_C_xis[i]).T - ax2skew(B_Omegas[i]) @ B_Gamma_bar_qe
+            ) / Ji
+
+            # torsional and flexural strains
+            B_Kappa = B_Kappa_bar / Ji
+            B_Kappa_qe = B_Kappa_bar_qe / Ji
+            B_Kappa_dot = (B_Omega_xis[i] - cross3(B_Omegas[i], B_Kappa_bar)) / Ji
+            B_Kappa_dot_qe = -ax2skew(B_Omegas[i]) @ B_Kappa_bar_qe / Ji
+
+            # compute contact forces and couples from partial derivatives of
+            # the strain energy function w.r.t. strain measures
+            B_n = self.material_model.B_n(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_B_Gamma = self.material_model.B_n_B_Gamma(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_B_Gamma_dot = self.material_model.B_n_B_Gamma_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_B_Kappa = self.material_model.B_n_B_Kappa(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_B_Kappa_dot = self.material_model.B_n_B_Kappa_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_n_qe = (
+                B_n_B_Gamma @ B_Gamma_qe
+                + B_n_B_Kappa @ B_Kappa_qe
+                + B_n_B_Gamma_dot @ B_Gamma_dot_qe
+                + B_n_B_Kappa_dot @ B_Kappa_dot_qe
+            )
+
+            B_m = self.material_model.B_m(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_B_Gamma = self.material_model.B_m_B_Gamma(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_B_Gamma_dot = self.material_model.B_m_B_Gamma_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_B_Kappa = self.material_model.B_m_B_Kappa(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_B_Kappa_dot = self.material_model.B_m_B_Kappa_dot(
+                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
+            )
+            B_m_qe = (
+                B_m_B_Gamma @ B_Gamma_qe
+                + B_m_B_Kappa @ B_Kappa_qe
+                + B_m_B_Gamma_dot @ B_Gamma_dot_qe
+                + B_m_B_Kappa_dot @ B_Kappa_dot_qe
+            )
+
+            ############################
+            # virtual work contributions
+            ############################
+            f_int_el_qe[self.nodalDOF_element_r] -= (
+                self.N_r_xi[i][..., None, None]
+                * qwi
+                * (B_n @ A_IB_qe + A_IB @ B_n_qe)
+            )
+            f_int_el_qe[self.nodalDOF_element_p_u] += (
+                self.N_p[i][..., None, None]
+                * qwi
+                * (ax2skew(B_Gamma_bar) @ B_n_qe - ax2skew(B_n) @ B_Gamma_bar_qe)
+                - self.N_p_xi[i][..., None, None] * qwi * B_m_qe
+                + self.N_p[i][..., None, None]
+                * qwi
+                * (ax2skew(B_Kappa_bar) @ B_m_qe - ax2skew(B_m) @ B_Kappa_bar_qe)
+            )
+        # np.allclose(approx_fprime(qe, lambda qe: self.f_int_el(qe, ue, el)), f_int_el_qe)
+        return f_int_el_qe
 
 
 class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
@@ -159,8 +649,6 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         # total number of nodes
         self.nnodes_r = self.mesh_r.nnodes
         self.nnodes_p = self.mesh_p.nnodes
-        assert self.nnodes_r == self.nnodes_p
-        self.rigid_nodes = [RigidBodyKinematics() for _ in range(self.nnodes_r)]
 
         # number of nodes per element
         self.nnodes_element_r = self.mesh_r.nnodes_per_element
@@ -256,8 +744,6 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         self.nodalDOF_la_S = np.arange(self.nla_S).reshape(self.nnodes_p, dim_g_S)
         self.la_S0 = np.zeros(self.nla_S, dtype=np.float64)
 
-        self.set_reference_strains(self.Q)
-
     def set_reference_strains(self, Q):
         self.Q = Q.copy()
 
@@ -273,13 +759,14 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         for el in range(self.nelement):
             qe = self.Q[self.elDOF[el]]
 
+            elment = self.rod_elements[el]
             for i in range(self.nquadrature):
                 # current quadrature point
                 qpi = self.qp[el, i]
 
                 # evaluate required quantities
-                _, _, B_Gamma_bar, B_Kappa_bar = self._eval(
-                    qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
+                _, _, B_Gamma_bar, B_Kappa_bar = elment._eval(
+                    qe, qpi, N=elment.N_r[i], N_xi=elment.N_r_xi[i]
                 )
 
                 # length of reference tangential vector
@@ -301,7 +788,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
                 qpi = self.qp_dyn[el, i]
                 N, N_xi = self.basis_functions_r(qpi, el)
                 # evaluate required quantities
-                _, _, B_Gamma_bar, B_Kappa_bar = self._eval(qe, qpi, N, N_xi)
+                _, _, B_Gamma_bar, B_Kappa_bar = elment._eval(qe, qpi, N, N_xi)
 
                 # length of reference tangential vector
                 self.J_dyn[el, i] = norm(B_Gamma_bar)
@@ -359,46 +846,36 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
             )
             return r, A_IB[:, :, 0], A_IB[:, :, 1], A_IB[:, :, 2]
 
-    ##################
-    # abstract methods
-    ##################
-    @abstractmethod
-    def _eval(self, qe, xi, N, N_xi):
-        """Compute (r_OP, A_IB, B_Gamma_bar, B_Kappa_bar)."""
-        ...
+    # ##################
+    # # abstract methods
+    # ##################
+    # @abstractmethod
+    # def _eval(self, qe, xi, N, N_xi):
+    #     """Compute (r_OP, A_IB, B_Gamma_bar, B_Kappa_bar)."""
+    #     ...
 
-    @abstractmethod
-    def _deval(self, qe, xi, N, N_xi):
-        """Compute
-        * r_OP
-        * A_IB
-        * B_Gamma_bar
-        * B_Kappa_bar
-        * r_OP_qe
-        * A_IB_qe
-        * B_Gamma_bar_qe
-        * B_Kappa_bar_qe
-        """
-        ...
+    # @abstractmethod
+    # def _deval(self, qe, xi, N, N_xi):
+    #     """Compute
+    #     * r_OP
+    #     * A_IB
+    #     * B_Gamma_bar
+    #     * B_Kappa_bar
+    #     * r_OP_qe
+    #     * A_IB_qe
+    #     * B_Gamma_bar_qe
+    #     * B_Kappa_bar_qe
+    #     """
+    #     ...
 
-    @abstractmethod
-    def A_IB(self, t, qe, xi): ...
+    # @abstractmethod
+    # def A_IB(self, t, qe, xi): ...
 
-    @abstractmethod
-    def A_IB_q(self, t, qe, xi): ...
+    # @abstractmethod
+    # def A_IB_q(self, t, qe, xi): ...
 
     def assembler_callback(self):
         self._M_coo()
-        # TODO: need to call this function than other assembler_callback of others, where rigid_node is used as subsystem
-        for i in range(self.nnodes_r):
-            node = self.rigid_nodes[i]
-            node.t0 = self.t0
-            nodal_qDOF = np.concatenate((self.nodalDOF_r[i], self.nodalDOF_p[i]))
-            nodal_uDOF = np.concatenate((self.nodalDOF_r_u[i], self.nodalDOF_p_u[i]))
-            node.q0 = self.q0[nodal_qDOF]
-            node.u0 = self.u0[nodal_uDOF]
-            node.qDOF = self.qDOF[nodal_qDOF]
-            node.uDOF = self.uDOF[nodal_uDOF]
 
     #####################
     # kinematic equations
@@ -656,54 +1133,9 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            coo[elDOF_u, elDOF_u] = self.f_int_el_ue(q[elDOF], u[elDOF_u], el)
-            coo[elDOF_u, elDOF_u] = -self.f_gyr_el_ue(q[elDOF], u[elDOF_u], el)
+            coo[elDOF_u, elDOF_u] = self.rod_elements[el].f_int_el_ue(q[elDOF], u[elDOF_u], el)
+            coo[elDOF_u, elDOF_u] = -self.rod_elements[el].f_gyr_el_ue(q[elDOF], u[elDOF_u], el)
         return coo
-
-    def f_gyr_el(self, ue, el):
-        f_gyr_el = np.zeros(self.nu_element, dtype=np.float64)
-        # interpoalte angular velocity
-        B_Omegas = self.N_p_dyn[el] @ ue[self.nodalDOF_element_p_u]
-        # gyroscopic forces
-        f_gyr_el_ps = (
-            np.cross(B_Omegas, (B_Omegas @ self.cross_section_inertias.B_I_rho0.T))
-            * (self.J_dyn[el] * self.qw_dyn[el])[:, None]
-        )
-        # multiply vector of gyroscopic forces with nodal virtual rotations
-        f_gyr_el[self.nodalDOF_element_p_u] = np.sum(
-            (self.N_p_dyn[el][..., None] * f_gyr_el_ps[:, None, :]), axis=0
-        )
-        return f_gyr_el
-
-    def f_gyr_el_ue(self, qe, ue, el):
-        f_gyr_el_ue = np.zeros((self.nu_element, self.nu_element), dtype=np.float64)
-
-        for i in range(self.nquadrature_dyn):
-            # interpoalte angular velocity
-            B_Omega = self.N_p_dyn[el, i] @ ue[self.nodalDOF_element_p_u]
-
-            # derivative of vector of gyroscopic forces
-            f_gyr_u_el_p = (
-                (
-                    (
-                        ax2skew(B_Omega) @ self.cross_section_inertias.B_I_rho0
-                        - ax2skew(self.cross_section_inertias.B_I_rho0 @ B_Omega)
-                    )
-                )
-                * self.J_dyn[el, i]
-                * self.qw_dyn[el, i]
-            )
-
-            # multiply derivative of gyroscopic force vector with nodal virtual rotations
-            for node_a in range(self.nnodes_element_p):
-                nodalDOF_a = self.nodalDOF_element_p_u[node_a]
-                for node_b in range(self.nnodes_element_p):
-                    nodalDOF_b = self.nodalDOF_element_p_u[node_b]
-                    f_gyr_el_ue[nodalDOF_a[:, None], nodalDOF_b] += f_gyr_u_el_p * (
-                        self.N_p_dyn[el, i, node_a] * self.N_p_dyn[el, i, node_b]
-                    )
-
-        return f_gyr_el_ue
 
     ###########################
     # unit-quaternion condition
@@ -738,157 +1170,6 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
     def local_uDOF_P(self, xi):
         return self.elDOF_P_u(xi)
 
-    ##########################
-    # r_OP / A_IB contribution
-    ##########################
-    def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
-        N, N_xi = self.basis_functions_r(xi)
-        r_OC, A_IB, _, _ = self._eval(qe, xi, N, N_xi)
-        return r_OC + A_IB @ B_r_CP
-
-    # TODO: Think of a faster version than using _deval
-    def r_OP_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
-        # evaluate required quantities
-        N, N_xi = self.basis_functions_r(xi)
-        (
-            r_OC,
-            A_IB,
-            _,
-            _,
-            r_OC_q,
-            A_IB_q,
-            _,
-            _,
-        ) = self._deval(qe, xi, N, N_xi)
-
-        return r_OC_q + B_r_CP @ A_IB_q
-
-    def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
-        N, _ = self.basis_functions_r(xi)
-
-        # interpolate A_IB and angular velocity in B-frame
-        A_IB = self.A_IB(t, qe, xi)
-        B_Omega = N @ ue[self.nodalDOF_element_p_u]
-
-        # centerline velocity
-        v_C = N @ ue[self.nodalDOF_element_r]
-
-        return v_C + A_IB @ cross3(B_Omega, B_r_CP)
-
-    def v_P_q(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
-        # evaluate shape functions
-        N, _ = self.basis_functions_r(xi)
-
-        # interpolate derivative of A_IB and angular velocity in B-frame
-        A_IB_q = self.A_IB_q(t, qe, xi)
-        B_Omega = N @ ue[self.nodalDOF_element_p_u]
-
-        v_P_q = cross3(B_Omega, B_r_CP) @ A_IB_q
-        return v_P_q
-
-    def J_P(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
-        # evaluate required nodal shape functions
-        N, _ = self.basis_functions_r(xi)
-
-        # transformation matrix
-        A_IB = self.A_IB(t, qe, xi)
-
-        # skew symmetric matrix of B_r_CP
-        B_r_CP_tilde = ax2skew(B_r_CP)
-
-        # interpolate centerline and axis angle contributions
-        J_P = np.zeros((3, self.nu_element), dtype=np.float64)
-        J_P[:, self.nodalDOF_element_r.T] += N * eye3[..., None]
-        r_CP_tilde = A_IB @ B_r_CP_tilde
-        J_P[:, self.nodalDOF_element_p_u.T] -= N * r_CP_tilde[..., None]
-        return J_P
-
-    def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
-        # evaluate required nodal shape functions
-        N, _ = self.basis_functions_r(xi)
-
-        B_r_CP_tilde = ax2skew(B_r_CP)
-        A_IB_q = self.A_IB_q(t, qe, xi)
-        prod = B_r_CP_tilde.T @ A_IB_q
-
-        # interpolate axis angle contributions since centerline contributon is
-        # zero
-        J_P_q = np.zeros((3, self.nu_element, self.nq_element), dtype=np.float64)
-        J_P_q[:, self.nodalDOF_element_p_u] = -N[..., None, None] * prod[:, None, ...]
-        return J_P_q
-
-    def a_P(self, t, qe, ue, ue_dot, xi, B_r_CP=np.zeros(3, dtype=np.float64)):
-        N, _ = self.basis_functions_r(xi)
-
-        # interpolate orientation
-        A_IB = self.A_IB(t, qe, xi)
-
-        # centerline acceleration
-        a_C = N @ ue_dot[self.nodalDOF_element_r]
-
-        # angular velocity and acceleration in B-frame
-        B_Omega = self.B_Omega(t, qe, ue, xi)
-        B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
-
-        # rigid body formular
-        return a_C + A_IB @ (
-            cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP))
-        )
-
-    def a_P_q(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
-        B_Omega = self.B_Omega(t, qe, ue, xi)
-        B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
-        a_P_q = (
-            cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP))
-        ) @ self.A_IB_q(t, qe, xi)
-        return a_P_q
-
-    def a_P_u(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
-        B_Omega = self.B_Omega(t, qe, ue, xi)
-        local = -self.A_IB(t, qe, xi) @ (
-            ax2skew(cross3(B_Omega, B_r_CP)) + ax2skew(B_Omega) @ ax2skew(B_r_CP)
-        )
-
-        N, _ = self.basis_functions_r(xi)
-        a_P_u = np.zeros((3, self.nu_element), dtype=np.float64)
-        a_P_u[:, self.nodalDOF_element_p_u.T] = N * local[..., None]
-
-        return a_P_u
-
-    def B_Omega(self, t, qe, ue, xi):
-        """Since we use Petrov-Galerkin method we only interpolate the nodal
-        angular velocities in the B-frame.
-        """
-        N_p, _ = self.basis_functions_p(xi)
-        B_Omega = N_p @ ue[self.nodalDOF_element_p_u]
-        return B_Omega
-
-    def B_Omega_q(self, t, qe, ue, xi):
-        return np.zeros((3, self.nq_element), dtype=np.float64)
-
-    def B_J_R(self, t, qe, xi):
-        N_p, _ = self.basis_functions_p(xi)
-        B_J_R = np.zeros((3, self.nu_element), dtype=np.float64)
-        B_J_R[:, self.nodalDOF_element_p_u.T] = N_p * eye3[..., None]
-        return B_J_R
-
-    def B_J_R_q(self, t, qe, xi):
-        return np.zeros((3, self.nu_element, self.nq_element), dtype=np.float64)
-
-    def B_Psi(self, t, qe, ue, ue_dot, xi):
-        """Since we use Petrov-Galerkin method we only interpolate the nodal
-        time derivative of the angular velocities in the B-frame.
-        """
-        N, _ = self.basis_functions_p(xi)
-        B_Psi = N @ ue_dot[self.nodalDOF_element_p_u]
-        return B_Psi
-
-    def B_Psi_q(self, t, qe, ue, ue_dot, xi):
-        return np.zeros((3, self.nq_element), dtype=np.float64)
-
-    def B_Psi_u(self, t, qe, ue, ue_dot, xi):
-        return np.zeros((3, self.nu_element), dtype=np.float64)
-
 
 class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
     #########################################
@@ -899,7 +1180,7 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            h[elDOF_u] += self.f_int_el(q[elDOF], u[elDOF_u], el) - self.f_gyr_el(
+            h[elDOF_u] += self.rod_elements[el].f_int_el(q[elDOF], u[elDOF_u], el) - self.rod_elements[el].f_gyr_el(
                 u[elDOF_u], el
             )
         return h
@@ -909,243 +1190,10 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
-            coo[elDOF_u, elDOF] = self.f_int_el_qe(q[elDOF], u[elDOF_u], el)
+            coo[elDOF_u, elDOF] = self.rod_elements[el].f_int_el_qe(q[elDOF], u[elDOF_u], el)
         return coo
 
     # h_u is implmented in base class.
-
-    def f_int_el(self, qe, ue, el):
-        f_int_el = np.zeros(self.nu_element, dtype=np.float64)
-        # interpoalte linear velocity
-        v_C_xis = self.N_r_xi[el] @ ue[self.nodalDOF_element_r_u]
-        # interpoalte angular velocity
-        B_Omegas = self.N_p[el] @ ue[self.nodalDOF_element_p_u]
-        B_Omega_xis = self.N_p_xi[el] @ ue[self.nodalDOF_element_p_u]
-
-        for i in range(self.nquadrature):
-            # extract reference state variables
-            qpi = self.qp[el, i]
-            qwi = self.qw[el, i]
-            J = self.J[el, i]
-            B_Gamma0 = self.B_Gamma0[el, i]
-            B_Kappa0 = self.B_Kappa0[el, i]
-
-            # evaluate required quantities
-            _, A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
-                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
-            )
-
-            # axial and shear strains
-            B_Gamma = B_Gamma_bar / J
-            B_Gamma_dot = (A_IB.T @ v_C_xis[i] - cross3(B_Omegas[i], B_Gamma_bar)) / J
-
-            # torsional and flexural strains
-            B_Kappa = B_Kappa_bar / J
-            B_Kappa_dot = (B_Omega_xis[i] - cross3(B_Omegas[i], B_Kappa_bar)) / J
-
-            # compute contact forces and couples from partial derivatives of
-            # the strain energy function w.r.t. strain measures
-            B_n = self.material_model.B_n(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_m = self.material_model.B_m(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-
-            ############################
-            # virtual work contributions
-            ############################
-            f_int_el[self.nodalDOF_element_r_u] -= np.outer(
-                self.N_r_xi[el, i], A_IB @ B_n * qwi
-            )
-            f_int_el[self.nodalDOF_element_p_u] += np.outer(
-                -self.N_p_xi[el, i], B_m * qwi
-            ) + np.outer(
-                self.N_p[el, i],
-                (cross3(B_Gamma_bar, B_n) + cross3(B_Kappa_bar, B_m)) * qwi,
-            )
-
-        return f_int_el
-
-    def f_int_el_ue(self, qe, ue, el):
-        f_int_el_ue = np.zeros((self.nu_element, self.nu_element), dtype=np.float64)
-        # interpoalte linear velocity
-        v_C_xis = self.N_r_xi[el] @ ue[self.nodalDOF_element_r_u]
-        # interpoalte angular velocity
-        B_Omegas = self.N_p[el] @ ue[self.nodalDOF_element_p_u]
-        B_Omega_xis = self.N_p_xi[el] @ ue[self.nodalDOF_element_p_u]
-
-        for i in range(self.nquadrature):
-            # extract reference state variables
-            qpi = self.qp[el, i]
-            qwi = self.qw[el, i]
-            Ji = self.J[el, i]
-            B_Gamma0 = self.B_Gamma0[el, i]
-            B_Kappa0 = self.B_Kappa0[el, i]
-
-            # evaluate required quantities
-            _, A_IB, B_Gamma_bar, B_Kappa_bar = self._eval(
-                qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i]
-            )
-
-            # axial and shear strains
-            v_C_xi_ue = np.zeros((3, self.nu_element), dtype=np.float64)
-            B_Omega_ue = np.zeros((3, self.nu_element), dtype=np.float64)
-            B_Omega_xi_ue = np.zeros((3, self.nu_element), dtype=np.float64)
-            for j in range(3):
-                v_C_xi_ue[j, self.nodalDOF_element_r_u[:, j]] = self.N_r_xi[el, i]
-                B_Omega_ue[j, self.nodalDOF_element_p_u[:, j]] = self.N_p[el, i]
-                B_Omega_xi_ue[j, self.nodalDOF_element_p_u[:, j]] = self.N_p_xi[el, i]
-            B_Gamma = B_Gamma_bar / Ji
-            B_Gamma_dot = (A_IB.T @ v_C_xis[i] - cross3(B_Omegas[i], B_Gamma_bar)) / Ji
-            B_Gamma_dot_ue = (
-                A_IB.T @ v_C_xi_ue + ax2skew(B_Gamma_bar) @ B_Omega_ue
-            ) / Ji
-
-            # torsional and flexural strains
-            B_Kappa = B_Kappa_bar / Ji
-            B_Kappa_dot = (B_Omega_xis[i] - cross3(B_Omegas[i], B_Kappa_bar)) / Ji
-            B_Kappa_dot_ue = (B_Omega_xi_ue + ax2skew(B_Kappa_bar) @ B_Omega_ue) / Ji
-
-            # compute contact forces and couples from partial derivatives of
-            # the strain energy function w.r.t. strain measures
-            B_n_B_Gamma_dot = self.material_model.B_n_B_Gamma_dot(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_n_B_Kappa_dot = self.material_model.B_n_B_Kappa_dot(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_n_ue = B_n_B_Gamma_dot @ B_Gamma_dot_ue + B_n_B_Kappa_dot @ B_Kappa_dot_ue
-
-            B_m_B_Gamma_dot = self.material_model.B_m_B_Gamma_dot(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_m_B_Kappa_dot = self.material_model.B_m_B_Kappa_dot(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_m_ue = B_m_B_Gamma_dot @ B_Gamma_dot_ue + B_m_B_Kappa_dot @ B_Kappa_dot_ue
-
-            ############################
-            # virtual work contributions
-            ############################
-            f_int_el_ue[self.nodalDOF_element_r] -= (
-                self.N_r_xi[el, i][..., None, None] * qwi * A_IB @ B_n_ue
-            )
-            f_int_el_ue[self.nodalDOF_element_p_u] += (
-                self.N_p[el, i][..., None, None] * qwi * ax2skew(B_Gamma_bar) @ B_n_ue
-                - self.N_p_xi[el, i][..., None, None] * qwi * B_m_ue
-                + self.N_p[el, i][..., None, None] * qwi * ax2skew(B_Kappa_bar) @ B_m_ue
-            )
-        # np.allclose(approx_fprime(ue, lambda ue: self.f_int_el(qe, ue, el)), f_int_el_ue)
-        return f_int_el_ue
-
-    def f_int_el_qe(self, qe, ue, el):
-        f_int_el_qe = np.zeros((self.nu_element, self.nq_element), dtype=np.float64)
-        # interpoalte linear velocity
-        v_C_xis = self.N_r_xi[el] @ ue[self.nodalDOF_element_r_u]
-        # interpoalte angular velocity
-        B_Omegas = self.N_p[el] @ ue[self.nodalDOF_element_p_u]
-        B_Omega_xis = self.N_p_xi[el] @ ue[self.nodalDOF_element_p_u]
-
-        for i in range(self.nquadrature):
-            # extract reference state variables
-            qpi = self.qp[el, i]
-            qwi = self.qw[el, i]
-            Ji = self.J[el, i]
-            B_Gamma0 = self.B_Gamma0[el, i]
-            B_Kappa0 = self.B_Kappa0[el, i]
-
-            # evaluate required quantities
-            (
-                r_OP,
-                A_IB,
-                B_Gamma_bar,
-                B_Kappa_bar,
-                r_OP_qe,
-                A_IB_qe,
-                B_Gamma_bar_qe,
-                B_Kappa_bar_qe,
-            ) = self._deval(qe, qpi, N=self.N_r[el, i], N_xi=self.N_r_xi[el, i])
-
-            # axial and shear strains
-            B_Gamma = B_Gamma_bar / Ji
-            B_Gamma_qe = B_Gamma_bar_qe / Ji
-            B_Gamma_dot = (A_IB.T @ v_C_xis[i] - cross3(B_Omegas[i], B_Gamma_bar)) / Ji
-            B_Gamma_dot_qe = (
-                (A_IB_qe.T @ v_C_xis[i]).T - ax2skew(B_Omegas[i]) @ B_Gamma_bar_qe
-            ) / Ji
-
-            # torsional and flexural strains
-            B_Kappa = B_Kappa_bar / Ji
-            B_Kappa_qe = B_Kappa_bar_qe / Ji
-            B_Kappa_dot = (B_Omega_xis[i] - cross3(B_Omegas[i], B_Kappa_bar)) / Ji
-            B_Kappa_dot_qe = -ax2skew(B_Omegas[i]) @ B_Kappa_bar_qe / Ji
-
-            # compute contact forces and couples from partial derivatives of
-            # the strain energy function w.r.t. strain measures
-            B_n = self.material_model.B_n(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_n_B_Gamma = self.material_model.B_n_B_Gamma(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_n_B_Gamma_dot = self.material_model.B_n_B_Gamma_dot(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_n_B_Kappa = self.material_model.B_n_B_Kappa(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_n_B_Kappa_dot = self.material_model.B_n_B_Kappa_dot(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_n_qe = (
-                B_n_B_Gamma @ B_Gamma_qe
-                + B_n_B_Kappa @ B_Kappa_qe
-                + B_n_B_Gamma_dot @ B_Gamma_dot_qe
-                + B_n_B_Kappa_dot @ B_Kappa_dot_qe
-            )
-
-            B_m = self.material_model.B_m(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_m_B_Gamma = self.material_model.B_m_B_Gamma(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_m_B_Gamma_dot = self.material_model.B_m_B_Gamma_dot(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_m_B_Kappa = self.material_model.B_m_B_Kappa(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_m_B_Kappa_dot = self.material_model.B_m_B_Kappa_dot(
-                B_Gamma, B_Gamma0, B_Kappa, B_Kappa0, B_Gamma_dot, B_Kappa_dot
-            )
-            B_m_qe = (
-                B_m_B_Gamma @ B_Gamma_qe
-                + B_m_B_Kappa @ B_Kappa_qe
-                + B_m_B_Gamma_dot @ B_Gamma_dot_qe
-                + B_m_B_Kappa_dot @ B_Kappa_dot_qe
-            )
-
-            ############################
-            # virtual work contributions
-            ############################
-            f_int_el_qe[self.nodalDOF_element_r] -= (
-                self.N_r_xi[el, i][..., None, None]
-                * qwi
-                * (B_n @ A_IB_qe + A_IB @ B_n_qe)
-            )
-            f_int_el_qe[self.nodalDOF_element_p_u] += (
-                self.N_p[el, i][..., None, None]
-                * qwi
-                * (ax2skew(B_Gamma_bar) @ B_n_qe - ax2skew(B_n) @ B_Gamma_bar_qe)
-                - self.N_p_xi[el, i][..., None, None] * qwi * B_m_qe
-                + self.N_p[el, i][..., None, None]
-                * qwi
-                * (ax2skew(B_Kappa_bar) @ B_m_qe - ax2skew(B_m) @ B_Kappa_bar_qe)
-            )
-        # np.allclose(approx_fprime(qe, lambda qe: self.f_int_el(qe, ue, el)), f_int_el_qe)
-        return f_int_el_qe
 
     ##############################
     # stress and strain evaluation

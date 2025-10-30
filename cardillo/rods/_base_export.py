@@ -70,11 +70,11 @@ class RodExportBase(ABC):
 
         self.preprocessed_export = False
 
-    @abstractmethod
-    def r_OP(self, t, q, xi, B_r_CP): ...
+    # @abstractmethod
+    # def r_OP(self, t, q, xi, B_r_CP): ...
 
-    @abstractmethod
-    def A_IB(self, t, q, xi): ...
+    # @abstractmethod
+    # def A_IB(self, t, q, xi): ...
 
     def centerline(self, q, num=100):
         q_body = q[self.qDOF]

@@ -7,15 +7,12 @@ from cardillo.math import (
     cross3,
     ax2skew,
     norm,
-    Exp_SO3_quat,
-    Exp_SO3_quat_p,
-    T_SO3_inv_quat,
-    T_SO3_inv_quat_P,
     Spurrier,
 )
+from ._base import PoseKinematics
 
 
-class RigidBody:
+class RigidBody(PoseKinematics):
     def __init__(self, mass, B_Theta_C, q0=None, u0=None, name="rigid_body"):
         """Rigid body parametrized by center of mass in inertial basis I_r_OP in
         R^3 and non-unit quaternions p in R^4 for rotation, i.e., the 
@@ -88,28 +85,6 @@ class RigidBody:
     def pose2q(r_OC, A_IB):
         return np.concatenate([r_OC, Spurrier(A_IB)])
 
-    #####################
-    # kinematic equations
-    #####################
-    def q_dot(self, t, q, u):
-        q_dot = np.zeros(self.nq, dtype=np.common_type(q, u))
-        q_dot[:3] = u[:3]
-        q_dot[3:] = T_SO3_inv_quat(q[3:], normalize=False) @ u[3:]
-        return q_dot
-
-    def q_dot_q(self, t, q, u):
-        q_dot_q = np.zeros((self.nq, self.nq), dtype=np.common_type(q, u))
-        q_dot_q[3:, 3:] = np.einsum(
-            "ijk,j->ik", T_SO3_inv_quat_P(q[3:], normalize=False), u[3:]
-        )
-        return q_dot_q
-
-    def q_dot_u(self, t, q):
-        q_dot_u = np.zeros((self.nq, self.nu), dtype=q.dtype)
-        q_dot_u[:3, :3] = np.eye(3, dtype=q.dtype)
-        q_dot_u[3:, 3:] = T_SO3_inv_quat(q[3:], normalize=False)
-        return q_dot_u
-
     def step_callback(self, t, q, u):
         q[3:] = q[3:] / norm(q[3:])
         return q, u
@@ -159,16 +134,14 @@ class RigidBody:
         key=lambda self, t, q, xi=None: hashkey(t, *q),
     )
     def A_IB(self, t, q, xi=None):
-        return Exp_SO3_quat(q[3:])
+        return super().A_IB(self, t, q, xi=None)
 
     @cachedmethod(
         lambda self: self.A_IB_q_cache,
         key=lambda self, t, q, xi=None: hashkey(t, *q),
     )
     def A_IB_q(self, t, q, xi=None):
-        A_IB_q = np.zeros((3, 3, self.nq), dtype=q.dtype)
-        A_IB_q[:, :, 3:] = Exp_SO3_quat_p(q[3:])
-        return A_IB_q
+        return super().A_IB_q(self, t, q, xi=None)
 
     @cachedmethod(
         lambda self: self.r_OP_cache,
@@ -177,13 +150,7 @@ class RigidBody:
         ),
     )
     def r_OP(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return q[:3] + self.A_IB(t, q) @ B_r_CP
-
-    def r_OP_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        r_OP_q = np.zeros((3, self.nq), dtype=q.dtype)
-        r_OP_q[:, :3] = np.eye(3)
-        r_OP_q[:, :] += np.einsum("ijk,j->ik", self.A_IB_q(t, q), B_r_CP)
-        return r_OP_q
+        return super().r_OP(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float))
 
     @cachedmethod(
         lambda self: self.v_P_cache,
@@ -192,29 +159,7 @@ class RigidBody:
         ),
     )
     def v_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return u[:3] + self.A_IB(t, q) @ cross3(u[3:], B_r_CP)
-
-    def v_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return np.einsum("ijk,j->ik", self.A_IB_q(t, q), cross3(u[3:], B_r_CP))
-
-    def a_P(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return u_dot[:3] + self.A_IB(t, q) @ (
-            cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP))
-        )
-
-    def a_P_q(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return np.einsum(
-            "ijk,j->ik",
-            self.A_IB_q(t, q),
-            cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP)),
-        )
-
-    def a_P_u(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        a_P_u = np.zeros((3, self.nu), dtype=float)
-        a_P_u[:, 3:] = -self.A_IB(t, q) @ (
-            ax2skew(cross3(u[3:], B_r_CP)) + ax2skew(u[3:]) @ ax2skew(B_r_CP)
-        )
-        return a_P_u
+        return super().v_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float))
 
     @cachedmethod(
         lambda self: self.J_P_cache,
@@ -223,62 +168,7 @@ class RigidBody:
         ),
     )
     def J_P(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        J_P = np.zeros((3, self.nu), dtype=q.dtype)
-        J_P[:, :3] = np.eye(3)
-        J_P[:, 3:] = -self.A_IB(t, q) @ ax2skew(B_r_CP)
-        return J_P
-
-    def J_P_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        J_P_q = np.zeros((3, self.nu, self.nq), dtype=q.dtype)
-        J_P_q[:, 3:, :] = np.einsum("ijk,jl->ilk", self.A_IB_q(t, q), -ax2skew(B_r_CP))
-        return J_P_q
-
-    def kappa_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
-        return self.A_IB(t, q) @ (cross3(u[3:], cross3(u[3:], B_r_CP)))
-
-    def kappa_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
-        return np.einsum(
-            "ijk,j->ik", self.A_IB_q(t, q), cross3(u[3:], cross3(u[3:], B_r_CP))
-        )
-
-    def kappa_P_u(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
-        kappa_P_u = np.zeros((3, self.nu))
-        kappa_P_u[:, 3:] = -self.A_IB(t, q) @ (
-            ax2skew(cross3(u[3:], B_r_CP)) + ax2skew(u[3:]) @ ax2skew(B_r_CP)
-        )
-        return kappa_P_u
-
-    def B_Omega(self, t, q, u, xi=None):
-        return u[3:]
-
-    def B_Omega_q(self, t, q, u, xi=None):
-        return np.zeros((3, self.nq), dtype=np.common_type(q, u))
-
-    def B_Psi(self, t, q, u, u_dot, xi=None):
-        return u_dot[3:]
-
-    def B_Psi_q(self, t, q, u, u_dot, xi=None):
-        return np.zeros((3, self.nq), dtype=np.common_type(q, u, u_dot))
-
-    def B_Psi_u(self, t, q, u, u_dot, xi=None):
-        return np.zeros((3, self.nu), dtype=np.common_type(q, u, u_dot))
-
-    def B_kappa_R(self, t, q, u, xi=None):
-        return np.zeros(3, dtype=np.common_type(q, u))
-
-    def B_kappa_R_q(self, t, q, u, xi=None):
-        return np.zeros((3, self.nq), dtype=np.common_type(q, u))
-
-    def B_kappa_R_u(self, t, q, u, xi=None):
-        return np.zeros((3, self.nu), dtype=np.common_type(q, u))
-
-    def B_J_R(self, t, q, xi=None):
-        B_J_R = np.zeros((3, self.nu), dtype=q.dtype)
-        B_J_R[:, 3:] = np.eye(3)
-        return B_J_R
-
-    def B_J_R_q(self, t, q, xi=None):
-        return np.zeros((3, self.nu, self.nq), dtype=q.dtype)
+        return super().J_P(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float))
 
     ########
     # export
