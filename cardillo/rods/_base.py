@@ -741,6 +741,15 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         self.nla_S = self.nnodes_p * dim_g_S
         self.nodalDOF_la_S = np.arange(self.nla_S).reshape(self.nnodes_p, dim_g_S)
         self.la_S0 = np.zeros(self.nla_S, dtype=np.float64)
+        
+        self.__M_el = np.zeros((self.nu_element, self.nu_element), dtype=np.float64)
+        self.__q_dot = np.zeros(self.nq, dtype=np.float64)
+        self.__q_dot_q = CooMatrix((self.nq, self.nq))
+        self.__q_dot_u = CooMatrix((self.nq, self.nu))
+        self.__h_u = CooMatrix((self.nu, self.nu))
+        self.__g_S_q = CooMatrix((self.nla_S, self.nq))
+        self.__g_S_q.row = np.tile(np.arange(self.nla_S), 4)
+        self.__g_S_q.col = np.arange(self.nq_r, self.nq)
 
     def set_reference_strains(self, Q):
         self.Q = Q.copy()
@@ -880,7 +889,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
     #####################
     def q_dot(self, t, q, u):
         # centerline part
-        q_dot = np.zeros_like(q, dtype=np.float64)
+        q_dot = self.__q_dot
 
         # centerline time derivative from centerline velocities
         q_dot[self.nodalDOF_r] = u[self.nodalDOF_r]
@@ -896,7 +905,8 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return q_dot
 
     def q_dot_q(self, t, q, u):
-        coo = CooMatrix((self.nq, self.nq))
+        coo = self.__q_dot_q
+        coo.clear()
 
         # orientation part
         for node in range(self.nnodes_p):
@@ -912,7 +922,8 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return coo
 
     def q_dot_u(self, t, q):
-        coo = CooMatrix((self.nq, self.nu))
+        coo = self.__q_dot_u
+        coo.clear()
 
         # centerline part
         coo[range(self.nq_r), range(self.nu_r)] = np.eye(self.nq_r)
@@ -1097,7 +1108,8 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
             self.__M[elDOF_u, elDOF_u] = self.M_el(el)
 
     def M_el(self, el):
-        M_el = np.zeros((self.nu_element, self.nu_element), dtype=np.float64)
+        M_el = self.__M_el
+        M_el[:] = 0
 
         for i in range(self.nquadrature_dyn):
             # extract reference state variables
@@ -1127,7 +1139,8 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return M_el
 
     def h_u(self, t, q, u):
-        coo = CooMatrix((self.nu, self.nu))
+        coo = self.__h_u
+        coo.clear()
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
@@ -1147,10 +1160,8 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
         return np.sum(P**2, axis=0) - 1
 
     def g_S_q(self, t, q):
-        coo = CooMatrix((self.nla_S, self.nq))
+        coo = self.__g_S_q
         coo.data = 2 * q[self.nq_r :]
-        coo.row = np.tile(np.arange(self.nla_S), 4)
-        coo.col = np.arange(self.nq_r, self.nq)
         return coo
 
     ####################################################
@@ -1174,11 +1185,17 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
 
 
 class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
+    def __init__(self, cross_section, material_model, nelement, polynomial_degree, nquadrature, Q, *, q0=None, u0=None, nquadrature_dyn=None, cross_section_inertias=CrossSectionInertias(), idx_impressed=None, name=None):
+        super().__init__(cross_section, material_model, nelement, polynomial_degree, nquadrature, Q, q0=q0, u0=u0, nquadrature_dyn=nquadrature_dyn, cross_section_inertias=cross_section_inertias, idx_impressed=idx_impressed, name=name)
+        self.__h_q = CooMatrix((self.nu, self.nq))
+        self.__h = np.zeros(self.nu, dtype=np.float64)
+
     #########################################
     # equations of motion
     #########################################
     def h(self, t, q, u):
-        h = np.zeros(self.nu, dtype=np.float64)
+        h = self.__h
+        h[:] = 0
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]
@@ -1188,7 +1205,8 @@ class CosseratRodDisplacementBased(CosseratRod_PetrovGalerkin):
         return h
 
     def h_q(self, t, q, u):
-        coo = CooMatrix((self.nu, self.nq))
+        coo = self.__h_q
+        coo.clear()
         for el in range(self.nelement):
             elDOF = self.elDOF[el]
             elDOF_u = self.elDOF_u[el]

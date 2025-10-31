@@ -194,6 +194,9 @@ class CooMatrix:
         else:
             raise Exception
 
+    def clear(self):
+        del self.row[:], self.col[:], self.data[:]
+
 
 if __name__ == "__main__":
     from profilehooks import profile
