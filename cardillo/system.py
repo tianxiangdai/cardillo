@@ -287,12 +287,12 @@ class System:
         self.e_N = np.array(e_N)
         self.e_F = np.array(e_F)
 
-        # call assembler callback: call methods that require first an assembly of the system
-        self.assembler_callback()
-
         # compute consisten initial conditions
         self.q0 = np.array(q0)
         self.u0 = np.array(u0)
+
+        # call assembler callback: call methods that require first an assembly of the system
+        self.assembler_callback()
 
         # compute constant system parts
         # - parts of the mass matrix
@@ -338,6 +338,39 @@ class System:
     def assembler_callback(self):
         for contr in self.__assembler_callback_contr:
             contr.assembler_callback()
+        t0 = self.t0
+        q0 = self.q0
+        u0 = self.u0
+        # c_q
+        self._c_q_coo = CooMatrix((self.nla_c, self.nq))
+        for contr in self.__c_q_contr:
+            value = contr.c_q(t0, q0[contr.qDOF], u0[contr.uDOF], np.zeros(contr.nla_c))
+            self._c_q_coo.allocate(contr.la_cDOF, contr.qDOF, value)
+        self._c_q_coo.fix_size()
+        # W_c
+        self._W_c_coo = CooMatrix((self.nu, self.nla_c))
+        for contr in self.__c_contr:
+            value = contr.W_c(t0, q0[contr.qDOF])
+            self._W_c_coo.allocate(contr.uDOF, contr.la_cDOF, value)
+        self._W_c_coo.fix_size()
+        # Wla_c_q
+        self._Wla_c_q_coo = CooMatrix((self.nu, self.nq))
+        for contr in self.__c_q_contr:
+            value = contr.Wla_c_q(t0, q0[contr.qDOF], np.zeros(contr.nla_c))
+            self._Wla_c_q_coo.allocate(contr.uDOF, contr.qDOF, value)
+        self._Wla_c_q_coo.fix_size()
+        # W_g
+        self._W_g_coo = CooMatrix((self.nu, self.nla_g))
+        for contr in self.__g_contr:
+            value = contr.W_g(t0, q0[contr.qDOF])
+            self._W_g_coo.allocate(contr.uDOF, contr.la_gDOF, value)
+        self._W_g_coo.fix_size()
+        # g_S
+        self._g_S_q_coo = CooMatrix((self.nla_S, self.nq))
+        for contr in self.__g_S_contr:
+            value = contr.g_S_q(t0, q0[contr.qDOF])
+            self._g_S_q_coo.allocate(contr.la_SDOF, contr.qDOF, value)
+        self._g_S_q_coo.fix_size()
 
     #####################
     # kinematic equations
@@ -438,12 +471,11 @@ class System:
         return c
 
     def c_q(self, t, q, u, la_c, format="coo"):
-        coo = CooMatrix((self.nla_c, self.nq))
-        for contr in self.__c_q_contr:
-            coo[contr.la_cDOF, contr.qDOF] = contr.c_q(
-                t, q[contr.qDOF], u[contr.uDOF], la_c[contr.la_cDOF]
+        for i, contr in enumerate(self.__c_q_contr):
+            self._c_q_coo.set_allocated(
+                i, contr.c_q(t, q[contr.qDOF], u[contr.uDOF], la_c[contr.la_cDOF])
             )
-        return coo.asformat(format)
+        return self._c_q_coo.asformat(format)
 
     def c_u(self, t, q, u, la_c, format="coo"):
         coo = CooMatrix((self.nla_c, self.nu))
@@ -457,18 +489,16 @@ class System:
         return self._c_la_c0.asformat(format)
 
     def W_c(self, t, q, format="coo"):
-        coo = CooMatrix((self.nu, self.nla_c))
-        for contr in self.__c_contr:
-            coo[contr.uDOF, contr.la_cDOF] = contr.W_c(t, q[contr.qDOF])
-        return coo.asformat(format)
+        for i, contr in enumerate(self.__c_contr):
+            self._W_c_coo.set_allocated(i, contr.W_c(t, q[contr.qDOF]))
+        return self._W_c_coo.asformat(format)
 
     def Wla_c_q(self, t, q, la_c, format="coo"):
-        coo = CooMatrix((self.nu, self.nq))
-        for contr in self.__c_q_contr:
-            coo[contr.uDOF, contr.qDOF] = contr.Wla_c_q(
-                t, q[contr.qDOF], la_c[contr.la_cDOF]
+        for i, contr in enumerate(self.__c_q_contr):
+            self._Wla_c_q_coo.set_allocated(
+                i, contr.Wla_c_q(t, q[contr.qDOF], la_c[contr.la_cDOF])
             )
-        return coo.asformat(format)
+        return self._Wla_c_q_coo.asformat(format)
 
     ###########
     # actuators
@@ -549,10 +579,9 @@ class System:
         return coo.asformat(format)
 
     def W_g(self, t, q, format="coo"):
-        coo = CooMatrix((self.nu, self.nla_g))
-        for contr in self.__g_contr:
-            coo[contr.uDOF, contr.la_gDOF] = contr.W_g(t, q[contr.qDOF])
-        return coo.asformat(format)
+        for i, contr in enumerate(self.__g_contr):
+            self._W_g_coo.set_allocated(i, contr.W_g(t, q[contr.qDOF]))
+        return self._W_g_coo.asformat(format)
 
     def Wla_g_q(self, t, q, la_g, format="coo"):
         coo = CooMatrix((self.nu, self.nq))
@@ -677,10 +706,9 @@ class System:
         return g_S
 
     def g_S_q(self, t, q, format="coo"):
-        coo = CooMatrix((self.nla_S, self.nq))
-        for contr in self.__g_S_contr:
-            coo[contr.la_SDOF, contr.qDOF] = contr.g_S_q(t, q[contr.qDOF])
-        return coo.asformat(format)
+        for i, contr in enumerate(self.__g_S_contr):
+            self._g_S_q_coo.set_allocated(i, contr.g_S_q(t, q[contr.qDOF]))
+        return self._g_S_q_coo.asformat(format)
 
     #################
     # normal contacts
