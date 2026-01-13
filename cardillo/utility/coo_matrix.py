@@ -216,24 +216,50 @@ class CooMatrix(_CooMatrix):
         elif isinstance(target, CooMatrix):
             _rows = rows[target.row]
             _cols = cols[target.col]
+        elif isinstance(target, sparray):
+            coo = target.tocoo()
+            _rows = rows[coo.row]
+            _cols = cols[coo.col]
         else:
             raise NotImplementedError
         return self._allocate(_rows, _cols)
 
-    def set_allocated(self, allocation_id, value):
-        idx1, idx2 = self._data_index[allocation_id]
-        if isinstance(value, CooMatrix):
-            self.data[idx1:idx2] = value.data
-        elif isinstance(value, np.ndarray):
-            self.data[idx1:idx2] = value.reshape(-1)
+    def set_allocated(self, allocation_id, target):
+        if isinstance(target, np.ndarray):
+            data = target.reshape(-1)
+        elif isinstance(target, CooMatrix):
+            data = target.data
+        elif isinstance(target, sparray):
+            data = target.tocoo().data if len(target.data) else target.data
         else:
             raise NotImplementedError
+        idx1, idx2 = self._data_index[allocation_id]
+        self.data[idx1:idx2] = data
 
     def asformat(self, format, copy=False):
-        if self._coo is not None:
+        if format == "CooMatrix":
+            return self
+        elif self._coo is not None:
             return self._coo.asformat(format, copy=copy)
         else:
             return super().asformat(format, copy=copy)
+
+    # def __add__(self, other):
+    #     """ (A + B)"""
+    #     if self.shape != other.shape:
+    #         raise ValueError(f"Matrices shapes {self.shape} and {other.shape} do not match.")
+
+    #     result = CooMatrix(self.shape)
+
+    #     result._CooMatrix__data.extend(self._CooMatrix__data)
+    #     result._CooMatrix__row.extend(self._CooMatrix__row)
+    #     result._CooMatrix__col.extend(self._CooMatrix__col)
+
+    #     result._CooMatrix__data.extend(other._CooMatrix__data)
+    #     result._CooMatrix__row.extend(other._CooMatrix__row)
+    #     result._CooMatrix__col.extend(other._CooMatrix__col)
+
+    #     return result
 
     def __repr__(self):
         print("nrow:", len(self.row))
