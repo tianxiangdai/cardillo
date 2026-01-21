@@ -1,5 +1,8 @@
+import jax
 import jax.numpy as jnp
 from jax import jit, vmap
+
+jax.config.update("jax_enable_x64", True)
 
 
 @jit
@@ -14,7 +17,7 @@ def ax2skew(a: jnp.ndarray) -> jnp.ndarray:
     # fmt: off
     return jnp.array([[0,    -a[2], a[1] ],
                       [a[2],  0,    -a[0]],
-                      [-a[1], a[0], 0    ]], dtype=jnp.float32)
+                      [-a[1], a[0], 0    ]], dtype=jnp.float64)
     # fmt: on
 
 
@@ -30,7 +33,7 @@ def ax2skew_squared(a: jnp.ndarray) -> jnp.ndarray:
         [-a2**2 - a3**2,              a1 * a2,              a1 * a3],
         [             a2 * a1, -a1**2 - a3**2,              a2 * a3],
         [             a3 * a1,              a3 * a2, -a1**2 - a2**2],
-    ], dtype=jnp.float32)
+    ], dtype=jnp.float64)
     # fmt: on
 
 
@@ -40,7 +43,7 @@ def skew2ax(A: jnp.ndarray) -> jnp.ndarray:
     # fmt: off
     return 0.5 * jnp.array([A[2, 1] - A[1, 2], 
                             A[0, 2] - A[2, 0], 
-                            A[1, 0] - A[0, 1]], dtype=jnp.float32)
+                            A[1, 0] - A[0, 1]], dtype=jnp.float64)
     # fmt: on
 
 
@@ -52,7 +55,7 @@ def ax2skew_a() -> jnp.ndarray:
     Note:
     -----
     This is a constant 3x3x3 ndarray."""
-    A = jnp.zeros((3, 3, 3), dtype=jnp.float32)
+    A = jnp.zeros((3, 3, 3), dtype=jnp.float64)
     A = A.at[1, 2, 0].set(-1)
     A = A.at[2, 1, 0].set(1)
     A = A.at[0, 2, 1].set(1)
@@ -70,7 +73,7 @@ def skew2ax_A() -> jnp.ndarray:
     Note:
     -----
     This is a constant 3x3x3 ndarray."""
-    A = jnp.zeros((3, 3, 3), dtype=jnp.float32)
+    A = jnp.zeros((3, 3, 3), dtype=jnp.float64)
     A = A.at[0, 2, 1].set(0.5)
     A = A.at[0, 1, 2].set(-0.5)
 
@@ -88,5 +91,5 @@ def cross3(a: jnp.ndarray, b: jnp.ndarray) -> jnp.ndarray:
     # fmt: off
     return jnp.array([a[1] * b[2] - a[2] * b[1], 
                       a[2] * b[0] - a[0] * b[2], 
-                      a[0] * b[1] - a[1] * b[0]])
+                      a[0] * b[1] - a[1] * b[0]], dtype=jnp.float64)
     # fmt: on

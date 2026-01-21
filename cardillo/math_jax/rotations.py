@@ -5,12 +5,13 @@ from jax import jit, jacfwd, vmap
 
 from .algebra import norm, ax2skew, ax2skew_a, ax2skew_squared
 
+jax.config.update("jax_enable_x64", True)
 # for small angles we use first order approximations of the equations since
 # most of the SO(3) and SE(3) equations get singular for psi -> 0.
 # angle_singular = 1.0e-6
 angle_singular = 0.0
 
-eye3 = jnp.eye(3, dtype=jnp.float32)
+eye3 = jnp.eye(3, dtype=jnp.float64)
 
 
 def Spurrier(R: np.ndarray) -> np.ndarray:
@@ -24,12 +25,12 @@ def Spurrier(R: np.ndarray) -> np.ndarray:
     Simo1986: https://doi.org/10.1016/0045-7825(86)90079-4 \\
     Crisfield1997: http://inis.jinr.ru/sl/M_Mathematics/MN_Numerical%20methods/MNf_Finite%20elements/Crisfield%20M.A.%20Vol.2.%20Non-linear%20Finite%20Element%20Analysis%20of%20Solids%20and%20Structures..%20Advanced%20Topics%20(Wiley,1996)(ISBN%20047195649X)(509s).pdf
     """
-    decision = np.zeros(4, dtype=jnp.float32)
+    decision = np.zeros(4, dtype=jnp.float64)
     decision[:3] = np.diag(R)
     decision[3] = np.trace(R)
     i = np.argmax(decision)
 
-    quat = np.zeros(4, dtype=jnp.float32)
+    quat = np.zeros(4, dtype=jnp.float64)
     if i != 3:
         j = (i + 1) % 3
         k = (j + 1) % 3
