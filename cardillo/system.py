@@ -343,6 +343,7 @@ class System:
         u = self.u0
         la_g = np.zeros(self.nla_g)
         la_c = np.zeros(self.nla_c)
+        la_N = np.zeros(self.nla_N)
         # q_dot_q
         self._q_dot_q_coo = CooMatrix((self.nq, self.nq))
         for contr in self.__q_dot_q_contr:
@@ -437,6 +438,29 @@ class System:
             value = contr.g_S_q(t, q[contr.qDOF])
             self._g_S_q_coo.allocate(contr.la_SDOF, contr.qDOF, value)
         self._g_S_q_coo.fix_size()
+
+        # normal contacts
+        self._g_N_q_coo = CooMatrix((self.nla_N, self.nq))
+        self._W_N_coo = CooMatrix((self.nu, self.nla_N))
+        self._xi_N_q_coo = CooMatrix((self.nla_N, self.nq))
+        self._g_N_dot_u_coo = CooMatrix((self.nla_N, self.nu))
+        self._Wla_N_q_coo = CooMatrix((self.nu, self.nq))
+        for contr in self.__g_N_contr:
+            value = contr.g_N_q(t, q[contr.qDOF])
+            self._g_N_q_coo.allocate(contr.la_NDOF, contr.qDOF, value)
+            value = contr.W_N(t, q[contr.qDOF])
+            self._W_N_coo.allocate(contr.uDOF, contr.la_NDOF, value)
+            value = contr.g_N_dot_q(t, q[contr.qDOF], u[contr.uDOF])
+            self._xi_N_q_coo.allocate(contr.la_NDOF, contr.qDOF, value)
+            value = contr.g_N_dot_u(t, q[contr.qDOF])
+            self._g_N_dot_u_coo.allocate(contr.la_NDOF, contr.uDOF, value)
+            value = contr.Wla_N_q(t, q[contr.qDOF], la_N[contr.la_NDOF])
+            self._Wla_N_q_coo.allocate(contr.uDOF, contr.qDOF, value)
+        self._g_N_q_coo.fix_size()
+        self._W_N_coo.fix_size()
+        self._xi_N_q_coo.fix_size()
+        self._g_N_dot_u_coo.fix_size()
+        self._Wla_N_q_coo.fix_size()
 
     #####################
     # kinematic equations
@@ -779,16 +803,14 @@ class System:
         return g_N
 
     def g_N_q(self, t, q, format="coo"):
-        coo = CooMatrix((self.nla_N, self.nq))
-        for contr in self.__g_N_contr:
-            coo[contr.la_NDOF, contr.qDOF] = contr.g_N_q(t, q[contr.qDOF])
-        return coo.asformat(format)
+        for i, contr in enumerate(self.__g_N_contr):
+            self._g_N_q_coo.set_allocated(i, contr.g_N_q(t, q[contr.qDOF]))
+        return self._g_N_q_coo.asformat(format)
 
     def W_N(self, t, q, format="coo"):
-        coo = CooMatrix((self.nu, self.nla_N))
-        for contr in self.__g_N_contr:
-            coo[contr.uDOF, contr.la_NDOF] = contr.W_N(t, q[contr.qDOF])
-        return coo.asformat(format)
+        for i, contr in enumerate(self.__g_N_contr):
+            self._W_N_coo.set_allocated(i, contr.W_N(t, q[contr.qDOF]))
+        return self._W_N_coo.asformat(format)
 
     def g_N_dot(self, t, q, u):
         g_N_dot = np.zeros(self.nla_N, dtype=np.common_type(q, u))
@@ -813,12 +835,11 @@ class System:
         return xi_N
 
     def xi_N_q(self, t_post, q_post, u_post, format="coo"):
-        coo = CooMatrix((self.nla_N, self.nq))
-        for contr in self.__g_N_contr:
-            coo[contr.la_NDOF, contr.qDOF] = contr.g_N_dot_q(
-                t_post, q_post[contr.qDOF], u_post[contr.uDOF]
+        for i, contr in enumerate(self.__g_N_contr):
+            self._xi_N_q_coo.set_allocated(
+                i, contr.g_N_dot_q(t_post, q_post[contr.qDOF], u_post[contr.uDOF])
             )
-        return coo.asformat(format)
+        return self._xi_N_q_coo.asformat(format)
 
     # TODO: Assemble chi_N for efficency
     def chi_N(self, t, q):
@@ -828,18 +849,16 @@ class System:
         warnings.warn(
             "We assume g_N_dot_u(t, q) == W_N(t, q).T. This function will be deleted soon!"
         )
-        coo = CooMatrix((self.nla_N, self.nu))
-        for contr in self.__g_N_contr:
-            coo[contr.la_NDOF, contr.uDOF] = contr.g_N_dot_u(t, q[contr.qDOF])
-        return coo.asformat(format)
+        for i, contr in enumerate(self.__g_N_contr):
+            self._g_N_dot_u_coo.set_allocated(i, contr.g_N_dot_u(t, q[contr.qDOF]))
+        return self._g_N_dot_u_coo.asformat(format)
 
     def Wla_N_q(self, t, q, la_N, format="coo"):
-        coo = CooMatrix((self.nu, self.nq))
-        for contr in self.__g_N_contr:
-            coo[contr.uDOF, contr.qDOF] = contr.Wla_N_q(
-                t, q[contr.qDOF], la_N[contr.la_NDOF]
+        for i, contr in enumerate(self.__g_N_contr):
+            self._Wla_N_q_coo.set_allocated(
+                i, contr.Wla_N_q(t, q[contr.qDOF], la_N[contr.la_NDOF])
             )
-        return coo.asformat(format)
+        return self._Wla_N_q_coo.asformat(format)
 
     #################
     # friction

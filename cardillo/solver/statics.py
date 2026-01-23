@@ -136,6 +136,10 @@ class Newton:
         )
         self._jac_coo.fix_size()
 
+        self._no_empty_map_jac_coo = np.zeros(self._jac_coo._nallocation, dtype=bool)
+        for i in range(self._jac_coo._nallocation):
+            self._no_empty_map_jac_coo[i] = self._jac_coo._data_allocation_lenth(i)
+
     def fun(self, x, t):
         # unpack unknowns
         q, la_g, la_c, la_N = np.array_split(x, self.split_x)
@@ -168,45 +172,66 @@ class Newton:
         q, la_g, la_c, la_N = np.array_split(x, self.split_x)
 
         # evaluate additionally required quantites for computing the jacobian
-        # coo is used for efficient bmat
-        h_q = self.system.h_q(t, q, self.u0, format="CooMatrix")
-        Wla_g_q = self.system.Wla_g_q(t, q, la_g, format="CooMatrix")
-        Wla_c_q = self.system.Wla_c_q(t, q, la_c, format="CooMatrix")
-        Wla_N_q = self.system.Wla_N_q(t, q, la_N, format="CooMatrix")
+        # coo is used for efficiency
+        no_empty_map = self._no_empty_map_jac_coo
+        if no_empty_map[0]:
+            h_q = self.system.h_q(t, q, self.u0, format="CooMatrix")
+            self._jac_coo.set_allocated(0, h_q)
 
-        g_q = self.system.g_q(t, q, format="CooMatrix")
-        g_S_q = self.system.g_S_q(t, q, format="CooMatrix")
-        c_q = self.system.c_q(t, q, self.u0, la_c, format="CooMatrix")
-        c_la_c = self.system.c_la_c()
+        if no_empty_map[1]:
+            Wla_g_q = self.system.Wla_g_q(t, q, la_g, format="CooMatrix")
+            self._jac_coo.set_allocated(1, Wla_g_q)
 
-        # note: csr_matrix is best for row slicing, see
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
-        g_N_q = self.system.g_N_q(t, q, format="csr")
+        if no_empty_map[2]:
+            Wla_c_q = self.system.Wla_c_q(t, q, la_c, format="CooMatrix")
+            self._jac_coo.set_allocated(2, Wla_c_q)
 
-        Rla_N_q = lil_array((self.nla_N, self.nq), dtype=float)
-        Rla_N_la_N = lil_array((self.nla_N, self.nla_N), dtype=float)
-        for i in range(self.nla_N):
-            if la_N[i] < self.g_N[i]:
-                Rla_N_la_N[i, i] = 1.0
-            else:
-                Rla_N_q[i] = g_N_q[i]
+        if no_empty_map[3]:
+            Wla_N_q = self.system.Wla_N_q(t, q, la_N, format="CooMatrix")
+            self._jac_coo.set_allocated(3, Wla_N_q)
 
-        self._jac_coo.set_allocated(0, h_q)
-        self._jac_coo.set_allocated(1, Wla_g_q)
-        self._jac_coo.set_allocated(2, Wla_c_q)
-        self._jac_coo.set_allocated(3, Wla_N_q)
+        if no_empty_map[4]:
+            self._jac_coo.set_allocated(4, self.W_g)
 
-        self._jac_coo.set_allocated(4, self.W_g)
-        self._jac_coo.set_allocated(5, self.W_c)
-        self._jac_coo.set_allocated(6, self.W_N)
+        if no_empty_map[5]:
+            self._jac_coo.set_allocated(5, self.W_c)
 
-        self._jac_coo.set_allocated(7, g_q)
-        self._jac_coo.set_allocated(8, c_q)
-        self._jac_coo.set_allocated(9, g_S_q)
-        self._jac_coo.set_allocated(10, Rla_N_q)
+        if no_empty_map[6]:
+            self._jac_coo.set_allocated(6, self.W_N)
 
-        self._jac_coo.set_allocated(11, c_la_c)
-        self._jac_coo.set_allocated(12, Rla_N_la_N)
+        if no_empty_map[7]:
+            g_q = self.system.g_q(t, q, format="CooMatrix")
+            self._jac_coo.set_allocated(7, g_q)
+
+        if no_empty_map[8]:
+            c_q = self.system.c_q(t, q, self.u0, la_c, format="CooMatrix")
+            self._jac_coo.set_allocated(8, c_q)
+
+        if no_empty_map[9]:
+            g_S_q = self.system.g_S_q(t, q, format="CooMatrix")
+            self._jac_coo.set_allocated(9, g_S_q)
+
+        if no_empty_map[10]:
+            # note: csr_matrix is best for row slicing, see
+            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
+            g_N_q = self.system.g_N_q(t, q, format="csr")
+
+            Rla_N_q = lil_array((self.nla_N, self.nq), dtype=float)
+            for i in range(self.nla_N):
+                if la_N[i] >= self.g_N[i]:
+                    Rla_N_q[i] = g_N_q[i]
+            self._jac_coo.set_allocated(10, Rla_N_q)
+
+        if no_empty_map[11]:
+            c_la_c = self.system.c_la_c()
+            self._jac_coo.set_allocated(11, c_la_c)
+
+        if no_empty_map[12]:
+            Rla_N_la_N = lil_array((self.nla_N, self.nla_N), dtype=float)
+            for i in range(self.nla_N):
+                if la_N[i] < self.g_N[i]:
+                    Rla_N_la_N[i, i] = 1.0
+            self._jac_coo.set_allocated(12, Rla_N_la_N)
 
         return self._jac_coo.asformat("csc")
 
