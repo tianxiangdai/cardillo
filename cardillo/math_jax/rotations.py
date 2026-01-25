@@ -90,8 +90,8 @@ def Exp_SO3_quat(P, normalize: bool = True):
 
 Exp_SO3_quat_batch = jit(vmap(Exp_SO3_quat))
 
-Exp_SO3_quat_p = jit(jacfwd(Exp_SO3_quat, argnums=0))
-Exp_SO3_quat_p_batch = jit(vmap(jacfwd(Exp_SO3_quat, argnums=0)))
+Exp_SO3_quat_P = jit(jacfwd(Exp_SO3_quat, argnums=0))
+Exp_SO3_quat_P_batch = jit(vmap(jacfwd(Exp_SO3_quat, argnums=0)))
 
 
 Log_SO3_quat = Spurrier

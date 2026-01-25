@@ -356,6 +356,18 @@ class System:
             value = contr.q_dot_u(t, q[contr.qDOF])
             self._q_dot_u_coo.allocate(contr.my_qDOF, contr.uDOF, value)
         self._q_dot_u_coo.fix_size()
+        # h_q
+        self._h_q_coo = CooMatrix((self.nu, self.nq))
+        for contr in self.__h_q_contr:
+            value = contr.h_q(t, q[contr.qDOF], u[contr.uDOF])
+            self._h_q_coo.allocate(contr.uDOF, contr.qDOF, value)
+        self._h_q_coo.fix_size()
+        # h_u
+        self._h_u_coo = CooMatrix((self.nu, self.nu))
+        for contr in self.__h_u_contr:
+            value = contr.h_u(t, q[contr.qDOF], u[contr.uDOF])
+            self._h_u_coo.allocate(contr.uDOF, contr.uDOF, value)
+        self._h_u_coo.fix_size()
         # compliance
         self._c_q_coo = CooMatrix((self.nla_c, self.nq))
         for contr in self.__c_q_contr:
@@ -530,16 +542,14 @@ class System:
         return h
 
     def h_q(self, t, q, u, format="coo"):
-        coo = CooMatrix((self.nu, self.nq))
-        for contr in self.__h_q_contr:
-            coo[contr.uDOF, contr.qDOF] = contr.h_q(t, q[contr.qDOF], u[contr.uDOF])
-        return coo.asformat(format)
+        for i, contr in enumerate(self.__h_q_contr):
+            self._h_q_coo.set_allocated(i, contr.h_q(t, q[contr.qDOF], u[contr.uDOF]))
+        return self._h_q_coo.asformat(format)
 
     def h_u(self, t, q, u, format="coo"):
-        coo = CooMatrix((self.nu, self.nu))
-        for contr in self.__h_u_contr:
-            coo[contr.uDOF, contr.uDOF] = contr.h_u(t, q[contr.qDOF], u[contr.uDOF])
-        return coo.asformat(format)
+        for i, contr in enumerate(self.__h_u_contr):
+            self._h_u_coo.set_allocated(i, contr.h_u(t, q[contr.qDOF], u[contr.uDOF]))
+        return self._h_u_coo.asformat(format)
 
     ############
     # compliance

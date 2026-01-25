@@ -187,7 +187,7 @@ class CooMatrix(_CooMatrix):
     def __init__(self, shape):
         super().__init__(shape)
         self._nallocation = 0
-        self._data_index = {}
+        self._data_allocation_index = {}
         self._size_fixed = False
         self._coo = None
 
@@ -203,7 +203,7 @@ class CooMatrix(_CooMatrix):
         self.row.extend(rows)
         self.col.extend(cols)
         idx2 = len(self.row)
-        self._data_index[allocation_id] = (idx1, idx2)
+        self._data_allocation_index[allocation_id] = (idx1, idx2)
         return allocation_id
 
     def allocate(self, rows, cols, target=None):
@@ -224,6 +224,10 @@ class CooMatrix(_CooMatrix):
             raise NotImplementedError
         return self._allocate(_rows, _cols)
 
+    def _data_allocation_lenth(self, allocation_id):
+        idx1, idx2 = self._data_allocation_index[allocation_id]
+        return idx2 - idx1
+
     def set_allocated(self, allocation_id, target):
         if isinstance(target, np.ndarray):
             data = target.reshape(-1)
@@ -233,7 +237,7 @@ class CooMatrix(_CooMatrix):
             data = target.tocoo().data if len(target.data) else target.data
         else:
             raise NotImplementedError
-        idx1, idx2 = self._data_index[allocation_id]
+        idx1, idx2 = self._data_allocation_index[allocation_id]
         self.data[idx1:idx2] = data
 
     def asformat(self, format, copy=False):

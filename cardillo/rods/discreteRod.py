@@ -1,0 +1,746 @@
+import numpy as np
+from numpy.lib.stride_tricks import as_strided
+
+import jax
+from jax import vmap, jit
+from jax import numpy as jnp
+
+from cachetools import cachedmethod, LRUCache
+from cachetools.keys import hashkey
+
+from cardillo.math_numba import (
+    norm,
+    Log_SO3_quat,
+    Exp_SO3_quat,
+    T_SO3_inv_quat_P,
+    T_SO3_inv_quat,
+    cross3,
+    ax2skew,
+    Exp_SO3_quat_P,
+)
+from cardillo import math_jax
+from cardillo.rods._base import RodExportBase
+from cardillo.utility.coo_matrix import CooMatrix
+from cardillo.rods import CrossSectionInertias
+
+jax.config.update("jax_enable_x64", True)
+
+eye3 = jnp.eye(3, dtype=jnp.float64)
+
+
+_nla_c_el = 6  # 6/12
+
+
+class DiscreteRod(RodExportBase):
+    def __init__(
+        self,
+        cross_section,
+        material_model,
+        nelement,
+        Q,
+        *,
+        q0=None,
+        u0=None,
+        cross_section_inertias=CrossSectionInertias(),
+        name="discrete_node",
+    ):
+        super().__init__(cross_section)
+        self.material_model = material_model
+        self.nelement = nelement
+        self.nnode = nelement + 1
+        self.name = name
+        self.C_n_inv = material_model.C_n_inv
+        self.C_m_inv = material_model.C_m_inv
+
+        # total DOFs
+        self.nq = 7 * self.nnode
+        self.nu = 6 * self.nnode
+        self.nla_S = self.nnode
+        self.nla_c = self.nelement * _nla_c_el
+
+        self.q0 = Q if q0 is None else np.asarray(q0)
+        self.u0 = np.zeros(self.nu, dtype=float) if u0 is None else np.asarray(u0)
+        self.la_S0 = np.zeros(self.nla_S, dtype=float)
+
+        self.xis = np.linspace(0, 1, self.nnode)
+
+        # slices of DOFs
+        self.elDOF = [slice(7 * el, 7 * (el + 2)) for el in range(self.nelement)]
+        self.elDOF_u = [slice(6 * el, 6 * (el + 2)) for el in range(self.nelement)]
+        self.elDOF_la_c = [
+            slice(_nla_c_el * el, _nla_c_el * (el + 1)) for el in range(self.nelement)
+        ]
+        self.nodalDOF = [slice(7 * n, 7 * (n + 1)) for n in range(self.nnode)]
+        self.nodalDOF_r = [slice(7 * n, 7 * n + 3) for n in range(self.nnode)]
+        self.nodalDOF_p = [slice(7 * n + 3, 7 * (n + 1)) for n in range(self.nnode)]
+        self.nodalDOF_u = [slice(6 * n, 6 * (n + 1)) for n in range(self.nnode)]
+        self.nodalDOF_r_u = [slice(6 * n, 6 * n + 3) for n in range(self.nnode)]
+        self.nodalDOF_p_u = [slice(6 * n + 3, 6 * (n + 1)) for n in range(self.nnode)]
+
+        self.set_reference_strains(Q)
+
+        self.constant_mass_matrix = True
+        self.__M = CooMatrix((self.nu, self.nu))
+        self._B_Theta_C = []
+        for n in range(self.nnode):
+            if n == 0:
+                w = self.L[0] / 2
+            elif n == self.nnode - 1:
+                w = self.L[n - 1] / 2
+            else:
+                w = (self.L[n] + self.L[n - 1]) / 2
+            mass = cross_section_inertias.A_rho0 * w
+            B_Theta_C = cross_section_inertias.B_I_rho0 * w
+            self._B_Theta_C.append(B_Theta_C)
+            nodalDOF_r_u = self.nodalDOF_r_u[n]
+            nodalDOF_p_u = self.nodalDOF_p_u[n]
+            self.__M[nodalDOF_r_u, nodalDOF_r_u] = mass * np.eye(3, dtype=float)
+            self.__M[nodalDOF_p_u, nodalDOF_p_u] = B_Theta_C
+
+        # allocate memery
+        self._q_dot = np.zeros(self.nq, dtype=float)
+        self._J_P = np.zeros((3, 12), dtype=float)
+        self._J_P_q = np.zeros((3, 12, 14), dtype=float)
+        self._B_Omega_q = np.zeros((3, 14), dtype=float)
+        self._B_J_R = np.zeros((3, 12), dtype=float)
+        self._B_J_R_q = np.zeros((3, 12, 14), dtype=float)
+        self._B_Psi_q = np.zeros((3, 14), dtype=float)
+        self._B_Psi_u = np.zeros((3, 12), dtype=float)
+        # CooMatrix
+        self._c_q_coo = CooMatrix((self.nla_c, self.nq))
+        self._W_c_coo = CooMatrix((self.nu, self.nla_c))
+        self._Wla_c_q_coo = CooMatrix((self.nu, self.nq))
+        self.__c_la_c = CooMatrix((self.nla_c, self.nla_c))
+        for el in range(self.nelement):
+            elDOF = self.elDOF[el]
+            elDOF_u = self.elDOF_u[el]
+            elDOF_la_c = self.elDOF_la_c[el]
+            elDOF = np.arange(elDOF.start, elDOF.stop)
+            elDOF_u = np.arange(elDOF_u.start, elDOF_u.stop)
+            elDOF_la_c = np.arange(elDOF_la_c.start, elDOF_la_c.stop)
+            #
+            self._c_q_coo.allocate(elDOF_la_c, elDOF)
+            self._W_c_coo.allocate(elDOF_u, elDOF_la_c)
+            self._Wla_c_q_coo.allocate(elDOF_u, elDOF)
+            self.__c_la_c.allocate(elDOF_la_c, elDOF_la_c)
+        self._c_q_coo.fix_size()
+        self._W_c_coo.fix_size()
+        self._Wla_c_q_coo.fix_size()
+        self.__c_la_c.fix_size()
+
+        self._q_dot_q_coo = CooMatrix((self.nq, self.nq))
+        self._q_dot_u_coo = CooMatrix((self.nq, self.nq))
+        self._h_u_coo = CooMatrix((self.nu, self.nu))
+        self._g_S_q_coo = CooMatrix((self.nla_S, self.nq))
+        for n in range(self.nnode):
+            nodalDOF_r = self.nodalDOF_r[n]
+            nodalDOF_r_u = self.nodalDOF_r_u[n]
+            nodalDOF_p = self.nodalDOF_p[n]
+            nodalDOF_p_u = self.nodalDOF_p_u[n]
+            nodalDOF_r = np.arange(nodalDOF_r.start, nodalDOF_r.stop)
+            nodalDOF_r_u = np.arange(nodalDOF_r_u.start, nodalDOF_r_u.stop)
+            nodalDOF_p = np.arange(nodalDOF_p.start, nodalDOF_p.stop)
+            nodalDOF_p_u = np.arange(nodalDOF_p_u.start, nodalDOF_p_u.stop)
+
+            self._q_dot_q_coo.allocate(nodalDOF_p, nodalDOF_p)
+            self._q_dot_u_coo.allocate(nodalDOF_r, nodalDOF_r_u)
+            self._q_dot_u_coo.allocate(nodalDOF_p, nodalDOF_p_u)
+            self._h_u_coo.allocate(nodalDOF_p_u, nodalDOF_p_u)
+            self._g_S_q_coo.allocate([n], nodalDOF_p)
+        self._q_dot_q_coo.fix_size()
+        self._q_dot_u_coo.fix_size()
+        self._h_u_coo.fix_size()
+        self._g_S_q_coo.fix_size()
+
+        # cache
+        self._alpha_cache = LRUCache(maxsize=np.inf)
+        self._eval_kinematics_cache = LRUCache(maxsize=np.inf)
+
+    def set_reference_strains(self, Q):
+        self.L = np.array(
+            [
+                norm(Q[self.nodalDOF_r[el + 1]] - Q[self.nodalDOF_r[el]])
+                for el in range(self.nelement)
+            ]
+        )
+        self.B_Gamma0 = []
+        self.B_Kappa0 = []
+        A_IB0, B_Gamma0, B_Kappa0 = _eval_batch(self._view_element_q(Q), self.L)
+        A_IB0 = np.asarray(A_IB0)
+        self.B_Gamma0 = np.asarray(B_Gamma0)
+        self.B_Kappa0 = np.asarray(B_Kappa0)
+
+    def element_number(self, xi):
+        num = np.searchsorted(self.xis, xi, side="right") - 1
+        return num if num < self.nelement else num - 1
+
+    def element_interval(self, el):
+        return (self.xis[el], self.xis[el + 1])
+
+    def _view_element_q(self, q):
+        stride = q.strides[0]
+        return as_strided(q, shape=(self.nelement, 14), strides=(stride * 7, stride))
+
+    def _view_element_la_c(self, la_c):
+        stride = la_c.strides[0]
+        return as_strided(
+            la_c, shape=(self.nelement, _nla_c_el), strides=(stride * _nla_c_el, stride)
+        )
+
+    def nodes(self, q):
+        """Returns nodal position coordinates"""
+        q_body = q[self.qDOF]
+        return np.array([q_body[nodalDOF] for nodalDOF in self.nodalDOF_r]).T
+
+    @staticmethod
+    def straight_configuration(
+        nelement,
+        L,
+        r_OP0=np.zeros(3, dtype=float),
+        A_IB0=np.eye(3, dtype=float),
+    ):
+        nnode = nelement + 1
+        x0 = np.linspace(0, L, num=nnode)
+        y0 = np.zeros(nnode)
+        z0 = np.zeros(nnode)
+        r_OC = np.vstack((x0, y0, z0))
+        r_OC = r_OP0 + (A_IB0 @ r_OC).T
+        P = np.repeat(Log_SO3_quat(A_IB0)[None, :], nnode, axis=0)
+        return np.hstack((r_OC, P)).flatten()
+
+    @staticmethod
+    def pose_configuration(
+        nelement,
+        r_OP,
+        A_IB,
+        r_OP0=np.zeros(3, dtype=float),
+        A_IB0=np.eye(3, dtype=float),
+    ):
+        """Compute generalized position coordinates for a pre-curved rod with centerline curve r_OP and orientation of A_IB."""
+        nnodes_r = nelement + 1
+
+        assert callable(r_OP), "r_OP must be callable!"
+        assert callable(A_IB), "A_IB must be callable!"
+
+        xis = np.linspace(0, 1, nnodes_r)
+
+        # nodal positions and unit quaternions
+        r0 = np.zeros((nnodes_r, 3))
+        p0 = np.zeros((nnodes_r, 4))
+
+        for i, xii in enumerate(xis):
+            r0[i] = r_OP0 + A_IB0 @ r_OP(xii)
+            A_IBi = A_IB0 @ A_IB(xii)
+            p0[i] = Log_SO3_quat(A_IBi)
+
+        # check for the right quaternion hemisphere
+        for i in range(nnodes_r - 1):
+            inner = p0[i] @ p0[i + 1]
+            if inner < 0:
+                p0[i + 1] *= -1
+
+        return np.concatenate([r0, p0], axis=1).flatten()
+
+    def assembler_callback(self):
+        self._c_la_c_coo()
+
+    #####################
+    # kinematic equations
+    #####################
+    def q_dot(self, t, q, u):
+        for n in range(self.nnode):
+            nodalDOF_r = self.nodalDOF_r[n]
+            nodalDOF_p = self.nodalDOF_p[n]
+            nodalDOF_r_u = self.nodalDOF_r_u[n]
+            nodalDOF_p_u = self.nodalDOF_p_u[n]
+            p = q[nodalDOF_p]
+            B_omega_IB = u[nodalDOF_p_u]
+            self._q_dot[nodalDOF_r] = u[nodalDOF_r_u]
+            self._q_dot[nodalDOF_p] = T_SO3_inv_quat(p, normalize=False) @ B_omega_IB
+        return self._q_dot
+
+    def q_dot_q(self, t, q, u):
+        for n in range(self.nnode):
+            nodalDOF_p = self.nodalDOF_p[n]
+            nodalDOF_p_u = self.nodalDOF_p_u[n]
+            p = q[nodalDOF_p]
+            B_omega_IB = u[nodalDOF_p_u]
+            self._q_dot_q_coo.set_allocated(
+                n, B_omega_IB @ T_SO3_inv_quat_P(p, normalize=False)
+            )
+        return self._q_dot_q_coo
+
+    def q_dot_u(self, t, q):
+        for n in range(self.nnode):
+            nodalDOF_p = self.nodalDOF_p[n]
+
+            p = q[nodalDOF_p]
+            self._q_dot_u_coo.set_allocated(2 * n, np.eye(3, dtype=float))
+            self._q_dot_u_coo.set_allocated(
+                2 * n + 1, T_SO3_inv_quat(p, normalize=False)
+            )
+        return self._q_dot_u_coo
+
+    def step_callback(self, t, q, u):
+        for n in range(self.nnode):
+            p = q[self.nodalDOF_p[n]]
+            p[:] = p / norm(p)
+        return q, u
+
+    #####################
+    # equations of motion
+    #####################
+    def M(self, t, q):
+        return self.__M
+
+    def h(self, t, q, u):
+        h = np.zeros(self.nu, dtype=float)
+        for n in range(self.nnode):
+            nodalDOF_p_u = self.nodalDOF_p_u[n]
+            B_omega_IB = u[nodalDOF_p_u]
+            h[nodalDOF_p_u] = -cross3(B_omega_IB, self._B_Theta_C[n] @ B_omega_IB)
+        return h
+
+    def h_u(self, t, q, u):
+        for n in range(self.nnode):
+            nodalDOF_p_u = self.nodalDOF_p_u[n]
+            B_omega_IB = u[nodalDOF_p_u]
+            self._h_u_coo.set_allocated(
+                n,
+                ax2skew(self._B_Theta_C[n] @ B_omega_IB)
+                - ax2skew(B_omega_IB) @ self._B_Theta_C[n],
+            )
+        return self._h_u_coo
+
+    #####################################################
+    # stabilization conditions for the kinematic equation
+    #####################################################
+    def g_S(self, t, q):
+        p = q.reshape((self.nnode, 7))[:, 3:]
+        return np.array([pi @ pi - 1.0 for pi in p], dtype=float)
+
+    def g_S_q(self, t, q):
+        p = q.reshape((self.nnode, 7))[:, 3:]
+        for n in range(self.nnode):
+            self._g_S_q_coo.set_allocated(n, 2 * p[n])
+        return self._g_S_q_coo
+
+    ############
+    # compliance
+    ############
+    def la_c(self, t, q, u):
+        la_c_el = _la_c_el_batch(
+            self._view_element_q(q),
+            self.L,
+            self.B_Gamma0,
+            self.B_Kappa0,
+            self.__c_la_c_el_inv,
+        )
+        return np.asarray(la_c_el).ravel()
+
+    def c(self, t, q, u, la_c):
+        _c_els = _c_el_batch(
+            self._view_element_q(q),
+            self._view_element_la_c(la_c),
+            self.L,
+            self.B_Gamma0,
+            self.B_Kappa0,
+            self.C_n_inv,
+            self.C_m_inv,
+        )
+        return np.asarray(_c_els).ravel()
+
+    def c_la_c(self):
+        return self.__c_la_c
+
+    def _c_la_c_coo(self):
+        self.__c_la_c_el_inv = []
+        for el in range(self.nelement):
+            c_la_c_el = np.zeros((_nla_c_el, _nla_c_el), dtype=float)
+            c_la_c_el[:3, :3] = self.C_n_inv
+            c_la_c_el[3:6, 3:6] = self.C_m_inv
+            if _nla_c_el == 12:
+                c_la_c_el[6:9, 6:9] = self.C_n_inv
+                c_la_c_el[9:, 9:] = self.C_m_inv
+            c_la_c_el *= self.L[el]
+            self.__c_la_c.set_allocated(el, c_la_c_el)
+            self.__c_la_c_el_inv.append(np.linalg.inv(c_la_c_el))
+        self.__c_la_c_el_inv = np.array(self.__c_la_c_el_inv)
+
+    def c_q(self, t, q, u, la_c):
+        c_el_qes = _c_el_qe_batch(self._view_element_q(q), self.L)
+        self._c_q_coo.data[:] = np.asarray(c_el_qes).ravel()
+
+        return self._c_q_coo
+
+    def W_c(self, t, q):
+        _W_c_els = _W_c_el_batch(self._view_element_q(q), self.L)
+        self._W_c_coo.data[:] = np.asarray(_W_c_els).ravel()
+        return self._W_c_coo
+
+    def Wla_c_q(self, t, q, la_c):
+        W = _Wla_c_el_qe_batch(
+            self._view_element_q(q), self._view_element_la_c(la_c), self.L
+        )
+        self._Wla_c_q_coo.data[:] = np.asarray(W).ravel()
+        return self._Wla_c_q_coo
+
+    # @cachedmethod(
+    #     lambda self: self._alpha_cache,
+    #     key=lambda self, xi: hashkey(xi),
+    # )
+    def _alpha(self, xi):
+        num = self.element_number(xi)
+        return (xi - self.xis[num]) / (self.xis[num + 1] - self.xis[num])
+
+    ####################################################
+    # interactions with other bodies and the environment
+    ####################################################
+    def elDOF_P(self, xi):
+        el = self.element_number(xi)
+        elDOF = self.elDOF[el]
+        return np.arange(elDOF.start, elDOF.stop)
+
+    def elDOF_P_u(self, xi):
+        num = self.element_number(xi)
+        elDOF_u = self.elDOF_u[num]
+        return np.arange(elDOF_u.start, elDOF_u.stop)
+
+    def local_qDOF_P(self, xi):
+        return self.elDOF_P(xi)
+
+    def local_uDOF_P(self, xi=None):
+        return self.elDOF_P_u(xi)
+
+    ##########################
+    # r_OP / A_IB contribution
+    ##########################
+    @cachedmethod(
+        lambda self: self._eval_kinematics_cache,
+        key=lambda self, qe, xi: hashkey(*qe, xi),
+    )
+    def _eval_kinematics(self, qe, xi):
+        alpha = self._alpha(xi)
+        r_OC0 = qe[:3]
+        P0 = qe[3:7]
+
+        r_OC1 = qe[7:10]
+        P1 = qe[10:]
+
+        r_OC = (1 - alpha) * r_OC0 + alpha * r_OC1
+        r_OC_qe = np.hstack(
+            (
+                (1 - alpha) * np.eye(3),
+                np.zeros((3, 4)),
+                alpha * np.eye(3),
+                np.zeros((3, 4)),
+            )
+        )
+
+        P = (1 - alpha) * P0 + alpha * P1
+        P_qe = np.hstack(
+            (
+                np.zeros((4, 3)),
+                (1 - alpha) * np.eye(4),
+                np.zeros((4, 3)),
+                alpha * np.eye(4),
+            )
+        )
+
+        A_IB = Exp_SO3_quat(P, normalize=True)
+        A_IB_qe = Exp_SO3_quat_P(P, normalize=True) @ P_qe
+        #
+        # T = math_jax.T_SO3_quat(P, normalize=True)
+        # return A_IB, B_Gamma, B_Kappa, r_OC_s_qe, A_IB_qe, B_Gamma_qe, B_Kappa_qe
+        return r_OC, r_OC_qe, A_IB, A_IB_qe
+
+    def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
+        r_OC, _, A_IB, _ = self._eval_kinematics(qe, xi)
+        return r_OC + A_IB @ B_r_CP
+
+    def r_OP_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
+        _, r_OC_qe, _, A_IB_qe = self._eval_kinematics(qe, xi)
+        return r_OC_qe + B_r_CP @ A_IB_qe
+
+    def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
+        alpha = self._alpha(xi)
+
+        # centerline velocity
+        v_C0 = ue[:3]
+        v_C1 = ue[6:9]
+        v_C = (1 - alpha) * v_C0 + alpha * v_C1
+
+        A_IB = self.A_IB(t, qe, xi)
+        B_Omega = self.B_Omega(t, qe, ue, xi)
+
+        return v_C + A_IB @ cross3(B_Omega, B_r_CP)
+
+    def v_P_q(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
+        A_IB_q = self.A_IB_q(t, qe, xi)
+        B_Omega = self.B_Omega(t, qe, ue, xi)
+        return cross3(B_Omega, B_r_CP) @ A_IB_q
+
+    def J_P(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
+        alpha = self._alpha(xi)
+
+        A_IB = self.A_IB(t, qe, xi)
+        B_r_CP_tilde = ax2skew(B_r_CP)
+        r_CP_tilde = A_IB @ B_r_CP_tilde
+
+        np.fill_diagonal(self._J_P[:, :3], 1 - alpha)
+        self._J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
+        np.fill_diagonal(self._J_P[:, 6:9], alpha)
+        self._J_P[:, 9:12] = -alpha * r_CP_tilde
+        return self._J_P
+
+    def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
+        alpha = self._alpha(xi)
+
+        B_r_CP_tilde = ax2skew(B_r_CP)
+        A_IB_q = self.A_IB_q(t, qe, xi)
+        r_CP_tilde_q = B_r_CP_tilde.T @ A_IB_q
+
+        self._J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
+        self._J_P_q[:, 9:12] = -alpha * r_CP_tilde_q
+        return self._J_P_q
+
+    def a_P(self, t, qe, ue, ue_dot, xi, B_r_CP=np.zeros(3, dtype=float)):
+        alpha = self._alpha(xi)
+
+        # interpolate orientation
+        A_IB = self.A_IB(t, qe, xi)
+
+        # centerline acceleration
+        a_C0 = ue[:3]
+        a_C1 = ue[6:9]
+        a_C = (1 - alpha) * a_C0 + alpha * a_C1
+
+        # angular velocity and acceleration in B-frame
+        B_Omega = self.B_Omega(t, qe, ue, xi)
+        B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
+
+        # rigid body formular
+        return a_C + A_IB @ (
+            cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP))
+        )
+
+    def a_P_q(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
+        raise
+
+    #     B_Omega = self.B_Omega(t, qe, ue, xi)
+    #     B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
+    #     a_P_q = np.einsum(
+    #         "ijk,j->ik",
+    #         self.A_IB_q(t, qe, xi),
+    #         cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP)),
+    #     )
+    #     return a_P_q
+
+    def a_P_u(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
+        raise
+
+    #     B_Omega = self.B_Omega(t, qe, ue, xi)
+    #     local = -self.A_IB(t, qe, xi) @ (
+    #         ax2skew(cross3(B_Omega, B_r_CP)) + ax2skew(B_Omega) @ ax2skew(B_r_CP)
+    #     )
+
+    #     N, _ = self.basis_functions_r(xi)
+    #     a_P_u = np.zeros((3, self.nu_element), dtype=float)
+    #     for node in range(self.nnodes_element_r):
+    #         a_P_u[:, self.nodalDOF_element_p_u[node]] += N[node] * local
+
+    #     return a_P_u
+
+    def A_IB(self, t, qe, xi):
+        return self._eval_kinematics(qe, xi)[2]
+
+    def A_IB_q(self, t, qe, xi):
+        return self._eval_kinematics(qe, xi)[3]
+
+    def B_Omega(self, t, qe, ue, xi):
+        """Since we use Petrov-Galerkin method we only interpolate the nodal
+        angular velocities in the B-frame.
+        """
+        alpha = self._alpha(xi)
+        B_Omega_1 = ue[3:6]
+        B_Omega_2 = ue[9:12]
+        B_Omega = (1 - alpha) * B_Omega_1 + alpha * B_Omega_2
+        return B_Omega
+
+    def B_Omega_q(self, t, qe, ue, xi):
+        return self._B_Omega_q
+
+    def B_J_R(self, t, qe, xi):
+        alpha = self._alpha(xi)
+        np.fill_diagonal(self._B_J_R[:, 3:6], 1 - alpha)
+        np.fill_diagonal(self._B_J_R[:, 9:12], alpha)
+        return self._B_J_R
+
+    def B_J_R_q(self, t, qe, xi):
+        return self._B_J_R_q
+
+    def B_Psi(self, t, qe, ue, ue_dot, xi):
+        """Since we use Petrov-Galerkin method we only interpolate the nodal
+        time derivative of the angular velocities in the B-frame.
+        """
+        alpha = self._alpha(xi)
+        B_Psi_1 = ue_dot[3:6]
+        B_Psi_2 = ue_dot[9:12]
+        B_Psi = (1 - alpha) * B_Psi_1 + alpha * B_Psi_2
+        return B_Psi
+
+    def B_Psi_q(self, t, qe, ue, ue_dot, xi):
+        return self._B_Psi_q
+
+    def B_Psi_u(self, t, qe, ue, ue_dot, xi):
+        return self._B_Psi_u
+
+
+def _la_c_el(
+    qe,
+    Le,
+    B_Gamma0,
+    B_Kappa0,
+    c_la_c_el_inv,
+):
+    _, B_Gamma, B_Kappa = _eval_jax(qe, Le)
+    c_el = jnp.zeros(_nla_c_el, dtype=jnp.float64)
+
+    c_el = c_el.at[:3].set(-(B_Gamma - B_Gamma0) * Le)
+    c_el = c_el.at[3:6].set(-(B_Kappa - B_Kappa0) * Le)
+    # TODO: add damping
+    la_c_el = -c_la_c_el_inv @ c_el
+    return la_c_el
+
+
+_la_c_el_batch = jit(vmap(_la_c_el))
+
+
+def _Wla_c_el_qe_jax(qe, la_c, Le):
+    A_IB_qe, B_Gamma_qe, B_Kappa_qe = _deval_jax(qe, Le)
+    B_n = la_c[:3]
+    B_m = la_c[3:]
+
+    W0 = B_n @ A_IB_qe
+
+    common = -0.5 * Le * (math_jax.cross3(B_n, B_Gamma_qe) + math_jax.cross3(B_m, B_Kappa_qe))
+
+    W = jnp.vstack([W0, common, -W0, common])
+    return W
+
+
+_Wla_c_el_qe_batch = jit(vmap(_Wla_c_el_qe_jax))
+
+
+def _c_el(qe, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
+    _, B_Gamma, B_Kappa = _eval_jax(qe, Le)
+    c_el = jnp.zeros(_nla_c_el, dtype=jnp.float64)
+    #
+    B_n = la_c[:3]
+    B_m = la_c[3:6]
+
+    c_el = c_el.at[:3].set((C_n_inv @ B_n - (B_Gamma - B_Gamma0)) * Le)
+    c_el = c_el.at[3:6].set((C_m_inv @ B_m - (B_Kappa - B_Kappa0)) * Le)
+    # TODO:add damping
+    return c_el
+
+
+_c_el_batch = jit(vmap(_c_el, in_axes=(0, 0, 0, 0, 0, None, None)))
+
+
+def _c_el_qe_jax(qe, Le):
+    _, B_Gamma_qe, B_Kappa_qe = _deval_jax(qe, Le)
+    c_el_qe = jnp.zeros((_nla_c_el, 14), dtype=jnp.float64)
+    c_el_qe = c_el_qe.at[:3].set(-B_Gamma_qe * Le)
+    c_el_qe = c_el_qe.at[3:6].set(-B_Kappa_qe * Le)
+    # TODO:add damping
+    return c_el_qe
+
+
+_c_el_qe_batch = jit(vmap(_c_el_qe_jax))
+
+
+def _W_c_el_jax(qe, Le):
+    A_IB, B_Gamma, B_Kappa = _eval_jax(qe, Le)
+    s1 = 0.5 * math_jax.ax2skew(B_Gamma) * Le
+    s2 = 0.5 * math_jax.ax2skew(B_Kappa) * Le
+
+    W_c_el = jnp.zeros((12, _nla_c_el))
+    #
+    W_c_el = W_c_el.at[:3, :3].set(A_IB)
+    W_c_el = W_c_el.at[3:6, :3].set(s1)
+    W_c_el = W_c_el.at[3:6, 3:6].set(eye3 + s2)
+    W_c_el = W_c_el.at[6:9, :3].set(-A_IB)
+    W_c_el = W_c_el.at[9:, :3].set(s1)
+    W_c_el = W_c_el.at[9:, 3:6].set(-eye3 + s2)
+    # TODO:add damping
+    return W_c_el
+
+
+_W_c_el_batch = jit(vmap(_W_c_el_jax))
+
+
+def _eval_jax(qe, Le):
+    r_OC0 = qe[:3]
+    P0 = qe[3:7]
+
+    r_OC1 = qe[7:10]
+    P1 = qe[10:]
+
+    r_OC_s = (r_OC1 - r_OC0) / Le
+
+    P = (P0 + P1) / 2
+    P_s = (P1 - P0) / Le
+
+    A_IB = math_jax.Exp_SO3_quat(P, normalize=True)
+    #
+    T = math_jax.T_SO3_quat(P, normalize=True)
+    B_Gamma = A_IB.T @ r_OC_s
+
+    B_Kappa = T @ P_s
+    return A_IB, B_Gamma, B_Kappa
+
+
+_eval_batch = jit(vmap(_eval_jax))
+
+
+def _deval_jax(qe, Le):
+    r_OC0 = qe[:3]
+    P0 = qe[3:7]
+
+    r_OC1 = qe[7:10]
+    P1 = qe[10:]
+
+    r_OC_s = (r_OC1 - r_OC0) / Le
+    r_OC_s_qe = (
+        jnp.hstack((-jnp.eye(3), jnp.zeros((3, 4)), jnp.eye(3), jnp.zeros((3, 4)))) / Le
+    )
+
+    P = (P0 + P1) / 2
+    P_s = (P1 - P0) / Le
+    P_qe = (
+        jnp.hstack((jnp.zeros((4, 3)), jnp.eye(4), jnp.zeros((4, 3)), jnp.eye(4))) / 2
+    )
+    P_s_qe = (
+        jnp.hstack((jnp.zeros((4, 3)), -jnp.eye(4), jnp.zeros((4, 3)), jnp.eye(4))) / Le
+    )
+
+    A_IB = math_jax.Exp_SO3_quat(P, normalize=True)
+    A_IB_qe = math_jax.Exp_SO3_quat_P(P, normalize=True) @ P_qe
+    #
+    T = math_jax.T_SO3_quat(P, normalize=True)
+    # B_Gamma = A_IB.T @ r_OC_s
+    B_Gamma_qe = (A_IB_qe.T @ r_OC_s).T + A_IB.T @ r_OC_s_qe
+    # B_Gamma_qe = jnp.einsum("k,kij", r_OC_s, A_IB_qe) + A_IB.T @ r_OC_s_qe
+
+    # B_Kappa = T @ P_s
+    B_Kappa_qe = (
+        P_s @ math_jax.T_SO3_quat_P(P, normalize=True)
+        @ P_qe
+        + T @ P_s_qe
+    )
+    # return A_IB, B_Gamma, B_Kappa, r_OC_s_qe, A_IB_qe, B_Gamma_qe, B_Kappa_qe
+    return A_IB_qe, B_Gamma_qe, B_Kappa_qe
+
+
+# _deval_batch = jit(vmap(_deval_jax))

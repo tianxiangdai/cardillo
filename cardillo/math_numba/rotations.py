@@ -602,7 +602,7 @@ def Exp_SO3_quat(P, normalize=True):
 
 
 @njit(cache=True)
-def Exp_SO3_quat_p(P, normalize=True):
+def Exp_SO3_quat_P(P, normalize=True):
     """Derivative of Exp_SO3_quat with respect to P."""
     p0, p = P[0], P[1:]
     p_tilde = ax2skew(p)
