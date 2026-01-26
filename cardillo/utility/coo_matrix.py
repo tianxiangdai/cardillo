@@ -248,22 +248,52 @@ class CooMatrix(_CooMatrix):
         else:
             return super().asformat(format, copy=copy)
 
-    # def __add__(self, other):
-    #     """ (A + B)"""
-    #     if self.shape != other.shape:
-    #         raise ValueError(f"Matrices shapes {self.shape} and {other.shape} do not match.")
+    def __add__(self, other):
+        """(A + B)"""
+        if self.shape != other.shape:
+            raise ValueError(
+                f"Matrices shapes {self.shape} and {other.shape} do not match."
+            )
 
-    #     result = CooMatrix(self.shape)
+        result = CooMatrix(self.shape)
 
-    #     result._CooMatrix__data.extend(self._CooMatrix__data)
-    #     result._CooMatrix__row.extend(self._CooMatrix__row)
-    #     result._CooMatrix__col.extend(self._CooMatrix__col)
+        result._CooMatrix__data.extend(self._CooMatrix__data)
+        result._CooMatrix__row.extend(self._CooMatrix__row)
+        result._CooMatrix__col.extend(self._CooMatrix__col)
 
-    #     result._CooMatrix__data.extend(other._CooMatrix__data)
-    #     result._CooMatrix__row.extend(other._CooMatrix__row)
-    #     result._CooMatrix__col.extend(other._CooMatrix__col)
+        result._CooMatrix__data.extend(other._CooMatrix__data)
+        result._CooMatrix__row.extend(other._CooMatrix__row)
+        result._CooMatrix__col.extend(other._CooMatrix__col)
 
-    #     return result
+        return result
+
+    def __sub__(self, other):
+        """(A - B)"""
+        if self.shape != other.shape:
+            raise ValueError(
+                f"Matrices shapes {self.shape} and {other.shape} do not match."
+            )
+
+        result = CooMatrix(self.shape)
+
+        result._CooMatrix__data.extend(self._CooMatrix__data)
+        result._CooMatrix__row.extend(self._CooMatrix__row)
+        result._CooMatrix__col.extend(self._CooMatrix__col)
+
+        result._CooMatrix__data.extend(
+            array("d", [-el for el in other._CooMatrix__data])
+        )
+        result._CooMatrix__row.extend(other._CooMatrix__row)
+        result._CooMatrix__col.extend(other._CooMatrix__col)
+
+        return result
+
+    def __neg__(self):
+        if isinstance(self._CooMatrix__data, array):
+            self._CooMatrix__data = array("d", [-el for el in self._CooMatrix__data])
+        elif isinstance(self._CooMatrix__data, np.ndarray):
+            self._CooMatrix__data *= -1
+        return self
 
     def __repr__(self):
         print("nrow:", len(self.row))

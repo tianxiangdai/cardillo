@@ -23,6 +23,10 @@ from cardillo.rods._base import RodExportBase
 from cardillo.utility.coo_matrix import CooMatrix
 from cardillo.rods import CrossSectionInertias
 
+from cardillo.math import A_IB_basic
+from cardillo.utility.check_time_derivatives import check_time_derivatives
+
+
 jax.config.update("jax_enable_x64", True)
 
 eye3 = jnp.eye(3, dtype=jnp.float64)
@@ -207,6 +211,48 @@ class DiscreteRod(RodExportBase):
         r_OC = r_OP0 + (A_IB0 @ r_OC).T
         P = np.repeat(Log_SO3_quat(A_IB0)[None, :], nnode, axis=0)
         return np.hstack((r_OC, P)).flatten()
+
+    @staticmethod
+    def serret_frenet_configuration(
+        nelement,
+        r_OP,
+        r_OP_xi,
+        r_OP_xixi,
+        xi1,
+        alpha=0.0,
+        r_OP0=np.zeros(3, dtype=float),
+        A_IB0=np.eye(3, dtype=float),
+    ):
+        """Compute generalized position coordinates for a pre-curved rod along curve r_OP. The cross-section orientations are based on the Serret-Frenet equations and afterwards rotated by alpha."""
+        nnodes_r = nelement + 1
+
+        r_OP, r_OP_xi, r_OP_xixi = check_time_derivatives(r_OP, r_OP_xi, r_OP_xixi)
+        alpha, _, _ = check_time_derivatives(alpha, None, None)
+
+        xis = np.linspace(0, xi1, nnodes_r)
+
+        # nodal positions and unit quaternions
+        r0 = np.zeros((nnodes_r, 3))
+        p0 = np.zeros((nnodes_r, 4))
+
+        for i, xii in enumerate(xis):
+            r0[i] = r_OP0 + A_IB0 @ r_OP(xii)
+            r_xi = r_OP_xi(xii)
+            r_xixi = r_OP_xixi(xii)
+            ex = r_xi / norm(r_xi)
+            ey = r_xixi - ex * (ex @ r_xixi)
+            ey = ey / norm(ey)
+            A_B0B = np.vstack([ex, ey, cross3(ex, ey)]).T
+            A_IB = A_IB0 @ A_B0B @ A_IB_basic(alpha(xii)).x
+            p0[i] = Log_SO3_quat(A_IB)
+
+        # check for the right quaternion hemisphere
+        for i in range(nnodes_r - 1):
+            inner = p0[i] @ p0[i + 1]
+            if inner < 0:
+                p0[i + 1] *= -1
+
+        return np.concatenate([r0, p0], axis=1).flatten()
 
     @staticmethod
     def pose_configuration(
@@ -511,8 +557,8 @@ class DiscreteRod(RodExportBase):
         A_IB = self.A_IB(t, qe, xi)
 
         # centerline acceleration
-        a_C0 = ue[:3]
-        a_C1 = ue[6:9]
+        a_C0 = ue_dot[:3]
+        a_C1 = ue_dot[6:9]
         a_C = (1 - alpha) * a_C0 + alpha * a_C1
 
         # angular velocity and acceleration in B-frame
@@ -623,7 +669,11 @@ def _Wla_c_el_qe_jax(qe, la_c, Le):
 
     W0 = B_n @ A_IB_qe
 
-    common = -0.5 * Le * (math_jax.cross3(B_n, B_Gamma_qe) + math_jax.cross3(B_m, B_Kappa_qe))
+    common = (
+        -0.5
+        * Le
+        * (math_jax.cross3(B_n, B_Gamma_qe) + math_jax.cross3(B_m, B_Kappa_qe))
+    )
 
     W = jnp.vstack([W0, common, -W0, common])
     return W
@@ -734,11 +784,7 @@ def _deval_jax(qe, Le):
     # B_Gamma_qe = jnp.einsum("k,kij", r_OC_s, A_IB_qe) + A_IB.T @ r_OC_s_qe
 
     # B_Kappa = T @ P_s
-    B_Kappa_qe = (
-        P_s @ math_jax.T_SO3_quat_P(P, normalize=True)
-        @ P_qe
-        + T @ P_s_qe
-    )
+    B_Kappa_qe = P_s @ math_jax.T_SO3_quat_P(P, normalize=True) @ P_qe + T @ P_s_qe
     # return A_IB, B_Gamma, B_Kappa, r_OC_s_qe, A_IB_qe, B_Gamma_qe, B_Kappa_qe
     return A_IB_qe, B_Gamma_qe, B_Kappa_qe
 
