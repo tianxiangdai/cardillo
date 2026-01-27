@@ -206,6 +206,7 @@ class ScipyDAE:
             np.arange(self.split[4], self.ny), np.arange(self.split[4], self.ny), c_la_c
         )
         self._Jyp_coo.fix_size()
+        self._Jyp_coo.set_allocated(0, eye_q)
 
     def event(self, t, y, yp):
         q, u = np.array_split(y, self.split)[:2]
@@ -286,7 +287,7 @@ class ScipyDAE:
         c_q = self.system.c_q(t, q, u, la_c, "CooMatrix")
         c_u = self.system.c_u(t, q, u, la_c, "CooMatrix")
 
-        eye_q = eye_array(self.nq)
+        # eye_q = eye_array(self.nq)
         M = self.system.M(t, q)
         g_q = self.system.g_q(t, q)
         W_g = self.system.W_g(t, q, "CooMatrix")
@@ -312,7 +313,7 @@ class ScipyDAE:
 
         # second Jacobian w.r.t. yp
         Jyp_coo = self._Jyp_coo
-        Jyp_coo.set_allocated(0, eye_q)
+        # Jyp_coo.set_allocated(0, eye_q)
         Jyp_coo.set_allocated(1, -g_q.T)
         Jyp_coo.set_allocated(2, M)
         Jyp_coo.set_allocated(3, -W_g)

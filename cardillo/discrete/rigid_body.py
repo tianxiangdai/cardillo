@@ -69,6 +69,7 @@ class RigidBody:
 
         self.mass = mass
         self.B_Theta_C = B_Theta_C
+        self.constant_mass_matrix = True
         self.__M = np.zeros((self.nu, self.nu), dtype=float)
         self.__M[:3, :3] = self.mass * np.eye(3, dtype=float)
         self.__M[3:, 3:] = self.B_Theta_C

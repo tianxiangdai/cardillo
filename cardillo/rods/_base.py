@@ -382,6 +382,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
     def A_IB_q(self, t, qe, xi): ...
 
     def assembler_callback(self):
+        self.constant_mass_matrix = True
         self._M_coo()
 
     #####################

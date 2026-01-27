@@ -102,7 +102,6 @@ class DiscreteRod(RodExportBase):
             self.__M[nodalDOF_p_u, nodalDOF_p_u] = B_Theta_C
 
         # allocate memery
-        self._q_dot = np.zeros(self.nq, dtype=float)
         self._J_P = np.zeros((3, 12), dtype=float)
         self._J_P_q = np.zeros((3, 12, 14), dtype=float)
         self._B_Omega_q = np.zeros((3, 14), dtype=float)
@@ -155,6 +154,9 @@ class DiscreteRod(RodExportBase):
         self._q_dot_u_coo.fix_size()
         self._h_u_coo.fix_size()
         self._g_S_q_coo.fix_size()
+        # constant terms
+        for n in range(self.nnode):
+            self._q_dot_u_coo.set_allocated(2 * n, np.eye(3, dtype=float))
 
         # cache
         self._alpha_cache = LRUCache(maxsize=np.inf)
@@ -190,6 +192,14 @@ class DiscreteRod(RodExportBase):
         return as_strided(
             la_c, shape=(self.nelement, _nla_c_el), strides=(stride * _nla_c_el, stride)
         )
+    
+    def _view_nodal_q(self, q):
+        stride = q.strides[0]
+        return as_strided(q, shape=(self.nnode, 7), strides=(stride * 7, stride))
+    
+    def _view_nodal_u(self, u):
+        stride = u.strides[0]
+        return as_strided(u, shape=(self.nnode, 6), strides=(stride * 6, stride))
 
     def nodes(self, q):
         """Returns nodal position coordinates"""
@@ -294,26 +304,13 @@ class DiscreteRod(RodExportBase):
     # kinematic equations
     #####################
     def q_dot(self, t, q, u):
-        for n in range(self.nnode):
-            nodalDOF_r = self.nodalDOF_r[n]
-            nodalDOF_p = self.nodalDOF_p[n]
-            nodalDOF_r_u = self.nodalDOF_r_u[n]
-            nodalDOF_p_u = self.nodalDOF_p_u[n]
-            p = q[nodalDOF_p]
-            B_omega_IB = u[nodalDOF_p_u]
-            self._q_dot[nodalDOF_r] = u[nodalDOF_r_u]
-            self._q_dot[nodalDOF_p] = T_SO3_inv_quat(p, normalize=False) @ B_omega_IB
-        return self._q_dot
+        q, u = self._view_nodal_q(q), self._view_nodal_u(u)
+        q_dot = _q_dot_node_batch(q, u)
+        return np.asarray(q_dot).ravel()
 
     def q_dot_q(self, t, q, u):
-        for n in range(self.nnode):
-            nodalDOF_p = self.nodalDOF_p[n]
-            nodalDOF_p_u = self.nodalDOF_p_u[n]
-            p = q[nodalDOF_p]
-            B_omega_IB = u[nodalDOF_p_u]
-            self._q_dot_q_coo.set_allocated(
-                n, B_omega_IB @ T_SO3_inv_quat_P(p, normalize=False)
-            )
+        q, u = self._view_nodal_q(q), self._view_nodal_u(u)
+        self._q_dot_q_coo.data[:] = np.asarray(_p_dot_p_node_batch(q, u)).ravel()
         return self._q_dot_q_coo
 
     def q_dot_u(self, t, q):
@@ -321,7 +318,6 @@ class DiscreteRod(RodExportBase):
             nodalDOF_p = self.nodalDOF_p[n]
 
             p = q[nodalDOF_p]
-            self._q_dot_u_coo.set_allocated(2 * n, np.eye(3, dtype=float))
             self._q_dot_u_coo.set_allocated(
                 2 * n + 1, T_SO3_inv_quat(p, normalize=False)
             )
@@ -495,9 +491,6 @@ class DiscreteRod(RodExportBase):
 
         A_IB = Exp_SO3_quat(P, normalize=True)
         A_IB_qe = Exp_SO3_quat_P(P, normalize=True) @ P_qe
-        #
-        # T = math_jax.T_SO3_quat(P, normalize=True)
-        # return A_IB, B_Gamma, B_Kappa, r_OC_s_qe, A_IB_qe, B_Gamma_qe, B_Kappa_qe
         return r_OC, r_OC_qe, A_IB, A_IB_qe
 
     def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
@@ -642,6 +635,19 @@ class DiscreteRod(RodExportBase):
         return self._B_Psi_u
 
 
+def _q_dot_node(q, u):
+    q_dot = jnp.zeros(7, dtype=jnp.float64)
+    q_dot = q_dot.at[:3].set(u[:3])
+    q_dot = q_dot.at[3:].set(math_jax.T_SO3_inv_quat(q[3:], normalize=False) @ u[3:])    
+    return q_dot
+_q_dot_node_batch = jit(vmap(_q_dot_node))
+
+
+def _p_dot_p_node(q, u):
+    return u[3:] @ math_jax.T_SO3_inv_quat_P(q[3:], normalize=False)
+_p_dot_p_node_batch = jit(vmap(_p_dot_p_node))
+
+
 def _la_c_el(
     qe,
     Le,
@@ -649,7 +655,7 @@ def _la_c_el(
     B_Kappa0,
     c_la_c_el_inv,
 ):
-    _, B_Gamma, B_Kappa = _eval_jax(qe, Le)
+    _, B_Gamma, B_Kappa = _eval(qe, Le)
     c_el = jnp.zeros(_nla_c_el, dtype=jnp.float64)
 
     c_el = c_el.at[:3].set(-(B_Gamma - B_Gamma0) * Le)
@@ -662,8 +668,8 @@ def _la_c_el(
 _la_c_el_batch = jit(vmap(_la_c_el))
 
 
-def _Wla_c_el_qe_jax(qe, la_c, Le):
-    A_IB_qe, B_Gamma_qe, B_Kappa_qe = _deval_jax(qe, Le)
+def _Wla_c_el_qe(qe, la_c, Le):
+    A_IB_qe, B_Gamma_qe, B_Kappa_qe = _deval(qe, Le)
     B_n = la_c[:3]
     B_m = la_c[3:]
 
@@ -679,11 +685,11 @@ def _Wla_c_el_qe_jax(qe, la_c, Le):
     return W
 
 
-_Wla_c_el_qe_batch = jit(vmap(_Wla_c_el_qe_jax))
+_Wla_c_el_qe_batch = jit(vmap(_Wla_c_el_qe))
 
 
 def _c_el(qe, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
-    _, B_Gamma, B_Kappa = _eval_jax(qe, Le)
+    _, B_Gamma, B_Kappa = _eval(qe, Le)
     c_el = jnp.zeros(_nla_c_el, dtype=jnp.float64)
     #
     B_n = la_c[:3]
@@ -698,8 +704,8 @@ def _c_el(qe, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
 _c_el_batch = jit(vmap(_c_el, in_axes=(0, 0, 0, 0, 0, None, None)))
 
 
-def _c_el_qe_jax(qe, Le):
-    _, B_Gamma_qe, B_Kappa_qe = _deval_jax(qe, Le)
+def _c_el_qe(qe, Le):
+    _, B_Gamma_qe, B_Kappa_qe = _deval(qe, Le)
     c_el_qe = jnp.zeros((_nla_c_el, 14), dtype=jnp.float64)
     c_el_qe = c_el_qe.at[:3].set(-B_Gamma_qe * Le)
     c_el_qe = c_el_qe.at[3:6].set(-B_Kappa_qe * Le)
@@ -707,11 +713,11 @@ def _c_el_qe_jax(qe, Le):
     return c_el_qe
 
 
-_c_el_qe_batch = jit(vmap(_c_el_qe_jax))
+_c_el_qe_batch = jit(vmap(_c_el_qe))
 
 
-def _W_c_el_jax(qe, Le):
-    A_IB, B_Gamma, B_Kappa = _eval_jax(qe, Le)
+def _W_c_el(qe, Le):
+    A_IB, B_Gamma, B_Kappa = _eval(qe, Le)
     s1 = 0.5 * math_jax.ax2skew(B_Gamma) * Le
     s2 = 0.5 * math_jax.ax2skew(B_Kappa) * Le
 
@@ -727,10 +733,10 @@ def _W_c_el_jax(qe, Le):
     return W_c_el
 
 
-_W_c_el_batch = jit(vmap(_W_c_el_jax))
+_W_c_el_batch = jit(vmap(_W_c_el))
 
 
-def _eval_jax(qe, Le):
+def _eval(qe, Le):
     r_OC0 = qe[:3]
     P0 = qe[3:7]
 
@@ -751,10 +757,10 @@ def _eval_jax(qe, Le):
     return A_IB, B_Gamma, B_Kappa
 
 
-_eval_batch = jit(vmap(_eval_jax))
+_eval_batch = jit(vmap(_eval))
 
 
-def _deval_jax(qe, Le):
+def _deval(qe, Le):
     r_OC0 = qe[:3]
     P0 = qe[3:7]
 
