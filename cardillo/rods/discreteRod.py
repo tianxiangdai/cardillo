@@ -6,7 +6,6 @@ from jax import vmap, jit
 from jax import numpy as jnp
 
 from cachetools import cachedmethod, LRUCache
-from cachetools.keys import hashkey
 
 from cardillo.math_numba import (
     norm,
@@ -459,7 +458,7 @@ class DiscreteRod(RodExportBase):
     ##########################
     @cachedmethod(
         lambda self: self._eval_kinematics_cache,
-        key=lambda self, qe, xi: hashkey(*qe, xi),
+        key=lambda self, qe, xi: (qe.tobytes(), xi),
     )
     def _eval_kinematics(self, qe, xi):
         alpha = self._alpha(xi)
