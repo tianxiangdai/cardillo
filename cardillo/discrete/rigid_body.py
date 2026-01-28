@@ -1,5 +1,4 @@
 from cachetools import cachedmethod, LRUCache
-from cachetools.keys import hashkey
 import numpy as np
 from vtk import VTK_VERTEX
 
@@ -155,16 +154,21 @@ class RigidBody:
     def local_uDOF_P(self, xi=None):
         return np.arange(self.nu)
 
+    def _eval_kinematics(self, q):
+        r_OC = q[:3]
+        r_OC_q = np.zeros((3, self.nq), dtype=q.dtype)
+        r_OC_q[:, :3] = np.eye(3)
+
     @cachedmethod(
         lambda self: self.A_IB_cache,
-        key=lambda self, t, q, xi=None: hashkey(t, *q),
+        key=lambda self, t, q, xi=None: (t, q.tobytes()),
     )
     def A_IB(self, t, q, xi=None):
         return Exp_SO3_quat(q[3:])
 
     @cachedmethod(
         lambda self: self.A_IB_q_cache,
-        key=lambda self, t, q, xi=None: hashkey(t, *q),
+        key=lambda self, t, q, xi=None: (t, q.tobytes()),
     )
     def A_IB_q(self, t, q, xi=None):
         A_IB_q = np.zeros((3, 3, self.nq), dtype=q.dtype)
@@ -173,80 +177,85 @@ class RigidBody:
 
     @cachedmethod(
         lambda self: self.r_OP_cache,
-        key=lambda self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float): hashkey(
-            t, *q, *B_r_CP
+        key=lambda self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float): (
+            t, q.tobytes(), B_r_CP.tobytes()
         ),
     )
     def r_OP(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return q[:3] + self.A_IB(t, q) @ B_r_CP
+        return q[:3] + self.A_IB(t, q) @ B_r_CP if B_r_CP.any() else q[:3]
 
     def r_OP_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         r_OP_q = np.zeros((3, self.nq), dtype=q.dtype)
         r_OP_q[:, :3] = np.eye(3)
-        r_OP_q[:, :] += np.einsum("ijk,j->ik", self.A_IB_q(t, q), B_r_CP)
+        if B_r_CP.any():
+            r_OP_q[:, :] += np.einsum("ijk,j->ik", self.A_IB_q(t, q), B_r_CP)
         return r_OP_q
 
     @cachedmethod(
         lambda self: self.v_P_cache,
-        key=lambda self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float): hashkey(
-            t, *q, *u, *B_r_CP
+        key=lambda self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float): (
+            t, q.tobytes(), u.tobytes(), B_r_CP.tobytes()
         ),
     )
     def v_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return u[:3] + self.A_IB(t, q) @ cross3(u[3:], B_r_CP)
+        return u[:3] + self.A_IB(t, q) @ cross3(u[3:], B_r_CP) if B_r_CP.any() else u[:3]
 
     def v_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return np.einsum("ijk,j->ik", self.A_IB_q(t, q), cross3(u[3:], B_r_CP))
+        return np.einsum("ijk,j->ik", self.A_IB_q(t, q), cross3(u[3:], B_r_CP)) if B_r_CP.any() else np.zeros(3, dtype=float)
 
     def a_P(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         return u_dot[:3] + self.A_IB(t, q) @ (
             cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP))
-        )
+        ) if B_r_CP.any() else u_dot[3:]
 
     def a_P_q(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         return np.einsum(
             "ijk,j->ik",
             self.A_IB_q(t, q),
             cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP)),
-        )
+        ) if B_r_CP.any() else np.zeros((3, self.nq))
 
     def a_P_u(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         a_P_u = np.zeros((3, self.nu), dtype=float)
-        a_P_u[:, 3:] = -self.A_IB(t, q) @ (
-            ax2skew(cross3(u[3:], B_r_CP)) + ax2skew(u[3:]) @ ax2skew(B_r_CP)
-        )
+        if B_r_CP.any():
+            a_P_u[:, 3:] = -self.A_IB(t, q) @ (
+                ax2skew(cross3(u[3:], B_r_CP)) + ax2skew(u[3:]) @ ax2skew(B_r_CP)
+            )
         return a_P_u
 
     @cachedmethod(
         lambda self: self.J_P_cache,
-        key=lambda self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float): hashkey(
-            t, *q, *B_r_CP
+        key=lambda self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float): (
+            t, q.tobytes(), B_r_CP.tobytes()
         ),
     )
     def J_P(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         J_P = np.zeros((3, self.nu), dtype=q.dtype)
         J_P[:, :3] = np.eye(3)
-        J_P[:, 3:] = -self.A_IB(t, q) @ ax2skew(B_r_CP)
+        if B_r_CP.any():
+            J_P[:, 3:] = -self.A_IB(t, q) @ ax2skew(B_r_CP)
         return J_P
 
     def J_P_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         J_P_q = np.zeros((3, self.nu, self.nq), dtype=q.dtype)
-        J_P_q[:, 3:, :] = np.einsum("ijk,jl->ilk", self.A_IB_q(t, q), -ax2skew(B_r_CP))
+        if B_r_CP.any():
+            J_P_q[:, 3:, :] = np.einsum("ijk,jl->ilk", self.A_IB_q(t, q), -ax2skew(B_r_CP))
         return J_P_q
 
     def kappa_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
-        return self.A_IB(t, q) @ (cross3(u[3:], cross3(u[3:], B_r_CP)))
+        return self.A_IB(t, q) @ (cross3(u[3:], cross3(u[3:], B_r_CP))) if B_r_CP.any() else np.zeros(3)
 
     def kappa_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
         return np.einsum(
             "ijk,j->ik", self.A_IB_q(t, q), cross3(u[3:], cross3(u[3:], B_r_CP))
-        )
+        ) if B_r_CP.any() else np.zeros((3, self.nq))
 
     def kappa_P_u(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
         kappa_P_u = np.zeros((3, self.nu))
-        kappa_P_u[:, 3:] = -self.A_IB(t, q) @ (
-            ax2skew(cross3(u[3:], B_r_CP)) + ax2skew(u[3:]) @ ax2skew(B_r_CP)
-        )
+        if B_r_CP.any():
+            kappa_P_u[:, 3:] = -self.A_IB(t, q) @ (
+                ax2skew(cross3(u[3:], B_r_CP)) + ax2skew(u[3:]) @ ax2skew(B_r_CP)
+            )
         return kappa_P_u
 
     def B_Omega(self, t, q, u, xi=None):

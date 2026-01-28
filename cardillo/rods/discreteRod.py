@@ -4,6 +4,7 @@ from numpy.lib.stride_tricks import as_strided
 import jax
 from jax import vmap, jit
 from jax import numpy as jnp
+from numba import njit
 
 from cachetools import cachedmethod, LRUCache
 
@@ -426,10 +427,10 @@ class DiscreteRod(RodExportBase):
         self._Wla_c_q_coo.data[:] = np.asarray(W).ravel()
         return self._Wla_c_q_coo
 
-    # @cachedmethod(
-    #     lambda self: self._alpha_cache,
-    #     key=lambda self, xi: hashkey(xi),
-    # )
+    @cachedmethod(
+        lambda self: self._alpha_cache,
+        key=lambda self, xi: xi
+    )
     def _alpha(self, xi):
         num = self.element_number(xi)
         return (xi - self.xis[num]) / (self.xis[num + 1] - self.xis[num])
@@ -462,43 +463,15 @@ class DiscreteRod(RodExportBase):
     )
     def _eval_kinematics(self, qe, xi):
         alpha = self._alpha(xi)
-        r_OC0 = qe[:3]
-        P0 = qe[3:7]
-
-        r_OC1 = qe[7:10]
-        P1 = qe[10:]
-
-        r_OC = (1 - alpha) * r_OC0 + alpha * r_OC1
-        r_OC_qe = np.hstack(
-            (
-                (1 - alpha) * np.eye(3),
-                np.zeros((3, 4)),
-                alpha * np.eye(3),
-                np.zeros((3, 4)),
-            )
-        )
-
-        P = (1 - alpha) * P0 + alpha * P1
-        P_qe = np.hstack(
-            (
-                np.zeros((4, 3)),
-                (1 - alpha) * np.eye(4),
-                np.zeros((4, 3)),
-                alpha * np.eye(4),
-            )
-        )
-
-        A_IB = Exp_SO3_quat(P, normalize=True)
-        A_IB_qe = Exp_SO3_quat_P(P, normalize=True) @ P_qe
-        return r_OC, r_OC_qe, A_IB, A_IB_qe
+        return _eval_kinematics(alpha, qe)
 
     def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
         r_OC, _, A_IB, _ = self._eval_kinematics(qe, xi)
-        return r_OC + A_IB @ B_r_CP
+        return r_OC + A_IB @ B_r_CP if B_r_CP.any() else r_OC
 
     def r_OP_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
         _, r_OC_qe, _, A_IB_qe = self._eval_kinematics(qe, xi)
-        return r_OC_qe + B_r_CP @ A_IB_qe
+        return r_OC_qe + B_r_CP @ A_IB_qe if B_r_CP.any() else r_OC_qe
 
     def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
         alpha = self._alpha(xi)
@@ -511,56 +484,60 @@ class DiscreteRod(RodExportBase):
         A_IB = self.A_IB(t, qe, xi)
         B_Omega = self.B_Omega(t, qe, ue, xi)
 
-        return v_C + A_IB @ cross3(B_Omega, B_r_CP)
+        return v_C + A_IB @ cross3(B_Omega, B_r_CP) if B_r_CP.any() else v_C
 
     def v_P_q(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
-        A_IB_q = self.A_IB_q(t, qe, xi)
-        B_Omega = self.B_Omega(t, qe, ue, xi)
-        return cross3(B_Omega, B_r_CP) @ A_IB_q
+        if B_r_CP.any():
+            A_IB_q = self.A_IB_q(t, qe, xi)
+            B_Omega = self.B_Omega(t, qe, ue, xi)
+            return cross3(B_Omega, B_r_CP) @ A_IB_q
+        else:
+            return np.zeros((3, 14), dtype=float)
 
     def J_P(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
         alpha = self._alpha(xi)
-
-        A_IB = self.A_IB(t, qe, xi)
-        B_r_CP_tilde = ax2skew(B_r_CP)
-        r_CP_tilde = A_IB @ B_r_CP_tilde
-
         np.fill_diagonal(self._J_P[:, :3], 1 - alpha)
-        self._J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
         np.fill_diagonal(self._J_P[:, 6:9], alpha)
-        self._J_P[:, 9:12] = -alpha * r_CP_tilde
+        if B_r_CP.any():
+            A_IB = self.A_IB(t, qe, xi)
+            B_r_CP_tilde = ax2skew(B_r_CP)
+            r_CP_tilde = A_IB @ B_r_CP_tilde
+            self._J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
+            self._J_P[:, 9:12] = -alpha * r_CP_tilde
+        else:
+            self._J_P[:, 3:6] *= 0
+            self._J_P[:, 9:12] *= 0
+
         return self._J_P
 
-    def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        alpha = self._alpha(xi)
+    def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):        
+        if B_r_CP.any():
+            B_r_CP_tilde = ax2skew(B_r_CP)
+            A_IB_q = self.A_IB_q(t, qe, xi)
+            r_CP_tilde_q = B_r_CP_tilde.T @ A_IB_q
 
-        B_r_CP_tilde = ax2skew(B_r_CP)
-        A_IB_q = self.A_IB_q(t, qe, xi)
-        r_CP_tilde_q = B_r_CP_tilde.T @ A_IB_q
-
-        self._J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
-        self._J_P_q[:, 9:12] = -alpha * r_CP_tilde_q
+            alpha = self._alpha(xi)
+            self._J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
+            self._J_P_q[:, 9:12] = -alpha * r_CP_tilde_q
+        else:
+            self._J_P_q[:, 3:6] *= 0
+            self._J_P_q[:, 9:12] *= 0
         return self._J_P_q
 
     def a_P(self, t, qe, ue, ue_dot, xi, B_r_CP=np.zeros(3, dtype=float)):
         alpha = self._alpha(xi)
-
-        # interpolate orientation
-        A_IB = self.A_IB(t, qe, xi)
-
         # centerline acceleration
         a_C0 = ue_dot[:3]
         a_C1 = ue_dot[6:9]
         a_C = (1 - alpha) * a_C0 + alpha * a_C1
-
-        # angular velocity and acceleration in B-frame
-        B_Omega = self.B_Omega(t, qe, ue, xi)
-        B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
-
-        # rigid body formular
-        return a_C + A_IB @ (
-            cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP))
-        )
+        if B_r_CP.any():
+            A_IB = self.A_IB(t, qe, xi)
+            B_Omega = self.B_Omega(t, qe, ue, xi)
+            B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
+            # rigid body formular
+            return a_C + A_IB @ (cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP)))
+        else:
+            return a_C
 
     def a_P_q(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
         raise
@@ -632,6 +609,34 @@ class DiscreteRod(RodExportBase):
 
     def B_Psi_u(self, t, qe, ue, ue_dot, xi):
         return self._B_Psi_u
+
+
+@njit(cache=True)
+def _eval_kinematics(alpha, qe):
+    r_OC0 = qe[:3]
+    P0 = qe[3:7]
+
+    r_OC1 = qe[7:10]
+    P1 = qe[10:]
+
+    r_OC = (1 - alpha) * r_OC0 + alpha * r_OC1
+    P = (1 - alpha) * P0 + alpha * P1
+
+    r_OC_qe = np.zeros((3, 14), dtype=float)
+    np.fill_diagonal(r_OC_qe[:, :3], 1-alpha)
+    np.fill_diagonal(r_OC_qe[:, 7:10], alpha)
+
+
+    P_qe = np.zeros((4, 14), dtype=float)
+    np.fill_diagonal(P_qe[:, 3:7], 1-alpha)
+    np.fill_diagonal(P_qe[:, 10:], alpha)
+
+    A_IB = Exp_SO3_quat(P, normalize=True)
+    A_P = Exp_SO3_quat_P(P, normalize=True)
+    A_IB_qe = np.empty((3, 3, 14))
+    for i in range(3):
+        A_IB_qe[i] = A_P[i] @ P_qe
+    return r_OC, r_OC_qe, A_IB, A_IB_qe
 
 
 def _q_dot_node(q, u):
