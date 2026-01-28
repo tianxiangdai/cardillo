@@ -294,6 +294,23 @@ class CooMatrix(_CooMatrix):
         elif isinstance(self._CooMatrix__data, np.ndarray):
             self._CooMatrix__data *= -1
         return self
+    
+
+    def transpose(self, copy=False):
+        coo = CooMatrix((self.shape[1], self.shape[0]))
+        if copy:
+            coo._CooMatrix__data = self._CooMatrix__data.copy()
+            coo._CooMatrix__row = self._CooMatrix__col.copy()
+            coo._CooMatrix__col = self._CooMatrix__row.copy()
+        else:
+            coo._CooMatrix__data = self._CooMatrix__data
+            coo._CooMatrix__row = self._CooMatrix__col
+            coo._CooMatrix__col = self._CooMatrix__row
+        return coo
+
+    @property
+    def T(self):
+        return self.transpose(copy=False)
 
     def __repr__(self):
         print("nrow:", len(self.row))

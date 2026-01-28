@@ -100,6 +100,7 @@ class DiscreteRod(RodExportBase):
             nodalDOF_p_u = self.nodalDOF_p_u[n]
             self.__M[nodalDOF_r_u, nodalDOF_r_u] = mass * np.eye(3, dtype=float)
             self.__M[nodalDOF_p_u, nodalDOF_p_u] = B_Theta_C
+        self._B_Theta_C = np.array(self._B_Theta_C)
 
         # allocate memery
         self._J_P = np.zeros((3, 12), dtype=float)
@@ -336,12 +337,9 @@ class DiscreteRod(RodExportBase):
         return self.__M
 
     def h(self, t, q, u):
-        h = np.zeros(self.nu, dtype=float)
-        for n in range(self.nnode):
-            nodalDOF_p_u = self.nodalDOF_p_u[n]
-            B_omega_IB = u[nodalDOF_p_u]
-            h[nodalDOF_p_u] = -cross3(B_omega_IB, self._B_Theta_C[n] @ B_omega_IB)
-        return h
+        u = self._view_nodal_u(u)
+        h = _h_node_batch(u, self._B_Theta_C)
+        return np.asarray(h).ravel()
 
     def h_u(self, t, q, u):
         for n in range(self.nnode):
@@ -637,6 +635,13 @@ def _eval_kinematics(alpha, qe):
     for i in range(3):
         A_IB_qe[i] = A_P[i] @ P_qe
     return r_OC, r_OC_qe, A_IB, A_IB_qe
+
+def _h_node(u, B_Theta_C):
+    B_omega_IB = u[3:]
+    h = jnp.zeros(6, dtype=jnp.float64)
+    h = h.at[3:].set(math_jax.cross3(B_Theta_C @ B_omega_IB, B_omega_IB))
+    return h
+_h_node_batch = jit(vmap(_h_node))
 
 
 def _q_dot_node(q, u):

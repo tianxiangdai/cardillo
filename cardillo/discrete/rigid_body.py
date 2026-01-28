@@ -2,7 +2,7 @@ from cachetools import cachedmethod, LRUCache
 import numpy as np
 from vtk import VTK_VERTEX
 
-from cardillo.math import (
+from cardillo.math_numba import (
     cross3,
     ax2skew,
     norm,
@@ -154,11 +154,6 @@ class RigidBody:
     def local_uDOF_P(self, xi=None):
         return np.arange(self.nu)
 
-    def _eval_kinematics(self, q):
-        r_OC = q[:3]
-        r_OC_q = np.zeros((3, self.nq), dtype=q.dtype)
-        r_OC_q[:, :3] = np.eye(3)
-
     @cachedmethod(
         lambda self: self.A_IB_cache,
         key=lambda self, t, q, xi=None: (t, q.tobytes()),
@@ -201,12 +196,12 @@ class RigidBody:
         return u[:3] + self.A_IB(t, q) @ cross3(u[3:], B_r_CP) if B_r_CP.any() else u[:3]
 
     def v_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return np.einsum("ijk,j->ik", self.A_IB_q(t, q), cross3(u[3:], B_r_CP)) if B_r_CP.any() else np.zeros(3, dtype=float)
+        return np.einsum("ijk,j->ik", self.A_IB_q(t, q), cross3(u[3:], B_r_CP)) if B_r_CP.any() else np.zeros((3,self.nq), dtype=float)
 
     def a_P(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         return u_dot[:3] + self.A_IB(t, q) @ (
             cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP))
-        ) if B_r_CP.any() else u_dot[3:]
+        ) if B_r_CP.any() else u_dot[:3]
 
     def a_P_q(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         return np.einsum(

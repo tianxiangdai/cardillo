@@ -122,7 +122,7 @@ class ScipyDAE:
 
         eye_q = eye_array(self.nq)
         M = self.system.M(t, q)
-        g_q = self.system.g_q(t, q)
+        g_q = self.system.g_q(t, q, "CooMatrix")
         W_g = self.system.W_g(t, q, "CooMatrix")
         W_gamma = self.system.W_gamma(t, q, "CooMatrix")
         W_c = self.system.W_c(t, q, "CooMatrix")
@@ -139,12 +139,40 @@ class ScipyDAE:
         self._Jy_coo.allocate(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0]),
-            Mu_q - h_q - Wla_tau_q - Wla_gamma_q - Wla_g_q - Wla_c_q,
+            Mu_q,
+        )
+        self._Jy_coo.allocate(
+            np.arange(self.split[0], self.split[1]),
+            np.arange(self.split[0]),
+            -h_q,
+        )
+        self._Jy_coo.allocate(
+            np.arange(self.split[0], self.split[1]),
+            np.arange(self.split[0]),
+            -Wla_tau_q,
+        )
+        self._Jy_coo.allocate(
+            np.arange(self.split[0], self.split[1]),
+            np.arange(self.split[0]),
+            -Wla_gamma_q,
+        )
+        self._Jy_coo.allocate(
+            np.arange(self.split[0], self.split[1]), np.arange(self.split[0]), -Wla_g_q
+        )
+        self._Jy_coo.allocate(
+            np.arange(self.split[0], self.split[1]),
+            np.arange(self.split[0]),
+            -Wla_c_q,
         )
         self._Jy_coo.allocate(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0], self.split[1]),
-            -h_u - Wla_tau_u,
+            -h_u,
+        )
+        self._Jy_coo.allocate(
+            np.arange(self.split[0], self.split[1]),
+            np.arange(self.split[0], self.split[1]),
+            -Wla_tau_u,
         )
         self._Jy_coo.allocate(
             np.arange(self.split[1], self.split[2]), np.arange(self.split[0]), g_q
@@ -207,9 +235,12 @@ class ScipyDAE:
         )
         self._Jyp_coo.fix_size()
         self._Jyp_coo.set_allocated(0, eye_q)
+        self._Jyp_coo.set_allocated(6, c_la_c)
 
     def event(self, t, y, yp):
-        q, u = np.array_split(y, self.split)[:2]
+        i0, i1 = self.split[:2]
+        q = y[:i0]
+        u = y[i0:i1]
         q, u = self.system.step_callback(t, q, u)
         return 1
 
@@ -221,8 +252,16 @@ class ScipyDAE:
         self.i = i1
 
         # unpack vectors
-        q, u, _, _, _, _ = np.array_split(y, self.split)
-        q_dot, u_dot, mu_g, la_g, la_gamma, la_c = np.array_split(yp, self.split)
+        i0, i1, i2, i3, i4 = self.split[:5]
+        q = y[:i0]
+        u = y[i0:i1]
+
+        q_dot = yp[:i0]
+        u_dot = yp[i0:i1]
+        mu_g = yp[i1:i2]
+        la_g = yp[i2:i3]
+        la_gamma = yp[i3:i4]
+        la_c = yp[i4:]
 
         # residual
         F = np.zeros_like(y, dtype=np.common_type(y, yp))
@@ -262,8 +301,14 @@ class ScipyDAE:
 
     def jac(self, t, y, yp):
         # unpack vectors
-        q, u, _, _, _, _ = np.array_split(y, self.split)
-        q_dot, u_dot, mu_g, la_g, la_gamma, la_c = np.array_split(yp, self.split)
+        i0, i1, i2, i3, i4 = self.split[:5]
+        q = y[:i0]
+        u = y[i0:i1]
+
+        u_dot = yp[i0:i1]
+        la_g = yp[i2:i3]
+        la_gamma = yp[i3:i4]
+        la_c = yp[i4:]
 
         # evaluate commonly used quantities
         q_dot_q = self.system.q_dot_q(t, q, u)
@@ -289,27 +334,31 @@ class ScipyDAE:
 
         # eye_q = eye_array(self.nq)
         M = self.system.M(t, q)
-        g_q = self.system.g_q(t, q)
+        g_q = self.system.g_q(t, q, "CooMatrix")
         W_g = self.system.W_g(t, q, "CooMatrix")
         W_gamma = self.system.W_gamma(t, q, "CooMatrix")
         W_c = self.system.W_c(t, q, "CooMatrix")
-        c_la_c = self.system.c_la_c()
+        # c_la_c = self.system.c_la_c()
 
         # first Jacobian w.r.t. y
         Jy_coo = self._Jy_coo
         Jy_coo.set_allocated(0, -q_dot_q)
         Jy_coo.set_allocated(1, -q_dot_u)
-        Jy_coo.set_allocated(
-            2, Mu_q - h_q - Wla_tau_q - Wla_gamma_q - Wla_g_q - Wla_c_q
-        )
-        Jy_coo.set_allocated(3, -h_u - Wla_tau_u)
-        Jy_coo.set_allocated(4, g_q)
-        Jy_coo.set_allocated(5, g_dot_q)
-        Jy_coo.set_allocated(6, g_dot_u)
-        Jy_coo.set_allocated(7, gamma_q)
-        Jy_coo.set_allocated(8, gamma_u)
-        Jy_coo.set_allocated(9, c_q)
-        Jy_coo.set_allocated(10, c_u)
+        Jy_coo.set_allocated(2, Mu_q)
+        Jy_coo.set_allocated(3, -h_q)
+        Jy_coo.set_allocated(4, -Wla_tau_q)
+        Jy_coo.set_allocated(5, -Wla_gamma_q)
+        Jy_coo.set_allocated(6, -Wla_g_q)
+        Jy_coo.set_allocated(7, -Wla_c_q)
+        Jy_coo.set_allocated(8, -h_u)
+        Jy_coo.set_allocated(9, -Wla_tau_u)
+        Jy_coo.set_allocated(10, g_q)
+        Jy_coo.set_allocated(11, g_dot_q)
+        Jy_coo.set_allocated(12, g_dot_u)
+        Jy_coo.set_allocated(13, gamma_q)
+        Jy_coo.set_allocated(14, gamma_u)
+        Jy_coo.set_allocated(15, c_q)
+        Jy_coo.set_allocated(16, c_u)
 
         # second Jacobian w.r.t. yp
         Jyp_coo = self._Jyp_coo
@@ -319,7 +368,7 @@ class ScipyDAE:
         Jyp_coo.set_allocated(3, -W_g)
         Jyp_coo.set_allocated(4, -W_gamma)
         Jyp_coo.set_allocated(5, -W_c)
-        Jyp_coo.set_allocated(6, c_la_c)
+        # Jyp_coo.set_allocated(6, c_la_c)
 
         return Jy_coo.asformat("coo"), Jyp_coo.asformat("coo")
 
