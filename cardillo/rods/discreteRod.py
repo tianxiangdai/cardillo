@@ -324,9 +324,8 @@ class DiscreteRod(RodExportBase):
         return self._q_dot_u_coo
 
     def step_callback(self, t, q, u):
-        for n in range(self.nnode):
-            p = q[self.nodalDOF_p[n]]
-            p[:] = p / norm(p)
+        p = self._view_nodal_q(q)[:, 3:]
+        p /= np.linalg.norm(p, axis=1)[:, None]
         return q, u
 
     #####################
