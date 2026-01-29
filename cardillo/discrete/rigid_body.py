@@ -13,6 +13,8 @@ from cardillo.math import (
     Spurrier,
 )
 
+eye3 = np.eye(3, dtype=float)
+
 
 class RigidBody:
     def __init__(self, mass, B_Theta_C, q0=None, u0=None, name="rigid_body"):
@@ -70,7 +72,7 @@ class RigidBody:
         self.B_Theta_C = B_Theta_C
         self.constant_mass_matrix = True
         self.__M = np.zeros((self.nu, self.nu), dtype=float)
-        self.__M[:3, :3] = self.mass * np.eye(3, dtype=float)
+        self.__M[:3, :3] = self.mass * eye3
         self.__M[3:, 3:] = self.B_Theta_C
 
         self.name = name
@@ -80,6 +82,22 @@ class RigidBody:
         self.r_OP_cache = LRUCache(maxsize=1)
         self.v_P_cache = LRUCache(maxsize=1)
         self.J_P_cache = LRUCache(maxsize=1)
+
+        # allocate memory
+        self._q_dot = np.zeros(self.nq, dtype=float)
+        self._q_dot_q = np.zeros((self.nq, self.nq), dtype=float)
+        self._q_dot_u = np.zeros((self.nq, self.nu), dtype=float)
+        self._h = np.zeros(self.nu, dtype=float)
+        self._h_u = np.zeros((self.nu, self.nu), dtype=float)
+        self._B_Omega_q = np.zeros((3, self.nq), dtype=float)
+        self._B_Psi_q = np.zeros((3, self.nq), dtype=float)
+        self._B_Psi_u = np.zeros((3, self.nu), dtype=float)
+        self._B_kappa_R = np.zeros(3, dtype=float)
+        self._B_kappa_R_q = np.zeros((3, self.nq), dtype=float)
+        self._B_kappa_R_u = np.zeros((3, self.nu), dtype=float)
+        self._B_J_R = np.zeros((3, self.nu), dtype=float)
+        self._B_J_R[:, 3:] = eye3
+        self._B_J_R_q = np.zeros((3, self.nu, self.nq), dtype=float)
 
     #####################
     # utility
@@ -92,19 +110,19 @@ class RigidBody:
     # kinematic equations
     #####################
     def q_dot(self, t, q, u):
-        q_dot = np.zeros(self.nq, dtype=np.common_type(q, u))
+        q_dot = self._q_dot
         q_dot[:3] = u[:3]
         q_dot[3:] = T_SO3_inv_quat(q[3:], normalize=False) @ u[3:]
         return q_dot
 
     def q_dot_q(self, t, q, u):
-        q_dot_q = np.zeros((self.nq, self.nq), dtype=np.common_type(q, u))
+        q_dot_q = self._q_dot_q
         q_dot_q[3:, 3:] = u[3:] @ T_SO3_inv_quat_P(q[3:], normalize=False)
         return q_dot_q
 
     def q_dot_u(self, t, q):
-        q_dot_u = np.zeros((self.nq, self.nu), dtype=q.dtype)
-        q_dot_u[:3, :3] = np.eye(3, dtype=q.dtype)
+        q_dot_u = self._q_dot_u
+        q_dot_u[:3, :3] = eye3
         q_dot_u[3:, 3:] = T_SO3_inv_quat(q[3:], normalize=False)
         return q_dot_u
 
@@ -119,14 +137,14 @@ class RigidBody:
         return self.__M
 
     def h(self, t, q, u):
+        h = self._h
         omega = u[3:]
-        f = np.zeros(self.nu, dtype=np.common_type(q, u))
-        f[3:] = -cross3(omega, self.B_Theta_C @ omega)
-        return f
+        h[3:] = -cross3(omega, self.B_Theta_C @ omega)
+        return h
 
     def h_u(self, t, q, u):
+        h_u = self._h_u
         omega = u[3:]
-        h_u = np.zeros((self.nu, self.nu), dtype=np.common_type(q, u))
         h_u[3:, 3:] = ax2skew(self.B_Theta_C @ omega) - ax2skew(omega) @ self.B_Theta_C
         return h_u
 
@@ -171,7 +189,9 @@ class RigidBody:
     @cachedmethod(
         lambda self: self.r_OP_cache,
         key=lambda self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float): (
-            t, q.tobytes(), B_r_CP.tobytes()
+            t,
+            q.tobytes(),
+            B_r_CP.tobytes(),
         ),
     )
     def r_OP(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
@@ -179,7 +199,7 @@ class RigidBody:
 
     def r_OP_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         r_OP_q = np.zeros((3, self.nq), dtype=q.dtype)
-        r_OP_q[:, :3] = np.eye(3)
+        r_OP_q[:, :3] = eye3
         if B_r_CP.any():
             r_OP_q += B_r_CP @ self.A_IB_q(t, q)
         return r_OP_q
@@ -187,22 +207,40 @@ class RigidBody:
     @cachedmethod(
         lambda self: self.v_P_cache,
         key=lambda self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float): (
-            t, q.tobytes(), u.tobytes(), B_r_CP.tobytes()
+            t,
+            q.tobytes(),
+            u.tobytes(),
+            B_r_CP.tobytes(),
         ),
     )
     def v_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return u[:3] + self.A_IB(t, q) @ cross3(u[3:], B_r_CP) if B_r_CP.any() else u[:3]
+        return (
+            u[:3] + self.A_IB(t, q) @ cross3(u[3:], B_r_CP) if B_r_CP.any() else u[:3]
+        )
 
     def v_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return cross3(u[3:], B_r_CP) @ self.A_IB_q(t, q) if B_r_CP.any() else np.zeros((3,self.nq), dtype=float)
+        return (
+            cross3(u[3:], B_r_CP) @ self.A_IB_q(t, q)
+            if B_r_CP.any()
+            else np.zeros((3, self.nq), dtype=float)
+        )
 
     def a_P(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return u_dot[:3] + self.A_IB(t, q) @ (
-            cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP))
-        ) if B_r_CP.any() else u_dot[:3]
+        return (
+            u_dot[:3]
+            + self.A_IB(t, q)
+            @ (cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP)))
+            if B_r_CP.any()
+            else u_dot[:3]
+        )
 
     def a_P_q(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return (cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP))) @ self.A_IB_q(t, q) if B_r_CP.any() else np.zeros((3, self.nq))
+        return (
+            (cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP)))
+            @ self.A_IB_q(t, q)
+            if B_r_CP.any()
+            else np.zeros((3, self.nq))
+        )
 
     def a_P_u(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         a_P_u = np.zeros((3, self.nu), dtype=float)
@@ -215,12 +253,14 @@ class RigidBody:
     @cachedmethod(
         lambda self: self.J_P_cache,
         key=lambda self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float): (
-            t, q.tobytes(), B_r_CP.tobytes()
+            t,
+            q.tobytes(),
+            B_r_CP.tobytes(),
         ),
     )
     def J_P(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         J_P = np.zeros((3, self.nu), dtype=q.dtype)
-        J_P[:, :3] = np.eye(3)
+        J_P[:, :3] = eye3
         if B_r_CP.any():
             J_P[:, 3:] = -self.A_IB(t, q) @ ax2skew(B_r_CP)
         return J_P
@@ -232,10 +272,18 @@ class RigidBody:
         return J_P_q
 
     def kappa_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
-        return self.A_IB(t, q) @ (cross3(u[3:], cross3(u[3:], B_r_CP))) if B_r_CP.any() else np.zeros(3)
+        return (
+            self.A_IB(t, q) @ (cross3(u[3:], cross3(u[3:], B_r_CP)))
+            if B_r_CP.any()
+            else np.zeros(3)
+        )
 
     def kappa_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
-        return (cross3(u[3:], cross3(u[3:], B_r_CP))) @ self.A_IB_q(t, q) if B_r_CP.any() else np.zeros((3, self.nq))
+        return (
+            (cross3(u[3:], cross3(u[3:], B_r_CP))) @ self.A_IB_q(t, q)
+            if B_r_CP.any()
+            else np.zeros((3, self.nq))
+        )
 
     def kappa_P_u(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
         kappa_P_u = np.zeros((3, self.nu))
@@ -249,33 +297,31 @@ class RigidBody:
         return u[3:]
 
     def B_Omega_q(self, t, q, u, xi=None):
-        return np.zeros((3, self.nq), dtype=np.common_type(q, u))
+        return self._B_Omega_q
 
     def B_Psi(self, t, q, u, u_dot, xi=None):
         return u_dot[3:]
 
     def B_Psi_q(self, t, q, u, u_dot, xi=None):
-        return np.zeros((3, self.nq), dtype=np.common_type(q, u, u_dot))
+        return self._B_Psi_q
 
     def B_Psi_u(self, t, q, u, u_dot, xi=None):
-        return np.zeros((3, self.nu), dtype=np.common_type(q, u, u_dot))
+        return self._B_Psi_u
 
     def B_kappa_R(self, t, q, u, xi=None):
-        return np.zeros(3, dtype=np.common_type(q, u))
+        return self._B_kappa_R
 
     def B_kappa_R_q(self, t, q, u, xi=None):
-        return np.zeros((3, self.nq), dtype=np.common_type(q, u))
+        return self._B_kappa_R_q
 
     def B_kappa_R_u(self, t, q, u, xi=None):
-        return np.zeros((3, self.nu), dtype=np.common_type(q, u))
+        return self.B_kappa_R_u
 
     def B_J_R(self, t, q, xi=None):
-        B_J_R = np.zeros((3, self.nu), dtype=q.dtype)
-        B_J_R[:, 3:] = np.eye(3)
-        return B_J_R
+        return self._B_J_R
 
     def B_J_R_q(self, t, q, xi=None):
-        return np.zeros((3, self.nu, self.nq), dtype=q.dtype)
+        return self._B_J_R_q
 
     ########
     # export

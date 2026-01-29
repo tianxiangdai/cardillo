@@ -30,6 +30,7 @@ from cardillo.utility.check_time_derivatives import check_time_derivatives
 jax.config.update("jax_enable_x64", True)
 
 eye3 = jnp.eye(3, dtype=jnp.float64)
+zeros3 = jnp.zeros((3, 3))
 
 
 _nla_c_el = 6  # 6/12
@@ -103,8 +104,6 @@ class DiscreteRod(RodExportBase):
         self._B_Theta_C = np.array(self._B_Theta_C)
 
         # allocate memery
-        self._J_P = np.zeros((3, 12), dtype=float)
-        self._J_P_q = np.zeros((3, 12, 14), dtype=float)
         self._B_Omega_q = np.zeros((3, 14), dtype=float)
         self._B_J_R = np.zeros((3, 12), dtype=float)
         self._B_J_R_q = np.zeros((3, 12, 14), dtype=float)
@@ -160,8 +159,8 @@ class DiscreteRod(RodExportBase):
             self._q_dot_u_coo.set_allocated(2 * n, np.eye(3, dtype=float))
 
         # cache
-        self._alpha_cache = LRUCache(maxsize=np.inf)
-        self._eval_kinematics_cache = LRUCache(maxsize=np.inf)
+        self._alpha_cache = LRUCache(maxsize=self.nnode * 10)
+        self._eval_kinematics_cache = LRUCache(maxsize=self.nnode * 10)
 
     def set_reference_strains(self, Q):
         self.L = np.array(
@@ -193,11 +192,11 @@ class DiscreteRod(RodExportBase):
         return as_strided(
             la_c, shape=(self.nelement, _nla_c_el), strides=(stride * _nla_c_el, stride)
         )
-    
+
     def _view_nodal_q(self, q):
         stride = q.strides[0]
         return as_strided(q, shape=(self.nnode, 7), strides=(stride * 7, stride))
-    
+
     def _view_nodal_u(self, u):
         stride = u.strides[0]
         return as_strided(u, shape=(self.nnode, 6), strides=(stride * 6, stride))
@@ -425,10 +424,7 @@ class DiscreteRod(RodExportBase):
         self._Wla_c_q_coo.data[:] = np.asarray(W).ravel()
         return self._Wla_c_q_coo
 
-    @cachedmethod(
-        lambda self: self._alpha_cache,
-        key=lambda self, xi: xi
-    )
+    @cachedmethod(lambda self: self._alpha_cache, key=lambda self, xi: xi)
     def _alpha(self, xi):
         num = self.element_number(xi)
         return (xi - self.xis[num]) / (self.xis[num + 1] - self.xis[num])
@@ -457,19 +453,21 @@ class DiscreteRod(RodExportBase):
     ##########################
     @cachedmethod(
         lambda self: self._eval_kinematics_cache,
-        key=lambda self, qe, xi: (qe.tobytes(), xi),
+        key=lambda self, qe, xi, B_r_CP=np.zeros(3, dtype=float): (
+            qe.tobytes(),
+            xi,
+            B_r_CP.tobytes(),
+        ),
     )
-    def _eval_kinematics(self, qe, xi):
+    def _element_kinematics(self, qe, xi, B_r_CP):
         alpha = self._alpha(xi)
-        return _eval_kinematics(alpha, qe)
+        return _eval_kinematics(alpha, qe, B_r_CP)
 
     def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        r_OC, _, A_IB, _ = self._eval_kinematics(qe, xi)
-        return r_OC + A_IB @ B_r_CP if B_r_CP.any() else r_OC
+        return self._element_kinematics(qe, xi, B_r_CP)[0]
 
     def r_OP_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        _, r_OC_qe, _, A_IB_qe = self._eval_kinematics(qe, xi)
-        return r_OC_qe + B_r_CP @ A_IB_qe if B_r_CP.any() else r_OC_qe
+        return self._element_kinematics(qe, xi, B_r_CP)[1]
 
     def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
         alpha = self._alpha(xi)
@@ -495,34 +493,10 @@ class DiscreteRod(RodExportBase):
             return np.zeros((3, 14), dtype=float)
 
     def J_P(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        alpha = self._alpha(xi)
-        np.fill_diagonal(self._J_P[:, :3], 1 - alpha)
-        np.fill_diagonal(self._J_P[:, 6:9], alpha)
-        if B_r_CP.any():
-            A_IB = self.A_IB(t, qe, xi)
-            B_r_CP_tilde = ax2skew(B_r_CP)
-            r_CP_tilde = A_IB @ B_r_CP_tilde
-            self._J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
-            self._J_P[:, 9:12] = -alpha * r_CP_tilde
-        else:
-            self._J_P[:, 3:6] *= 0
-            self._J_P[:, 9:12] *= 0
+        return self._element_kinematics(qe, xi, B_r_CP)[4]
 
-        return self._J_P
-
-    def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):        
-        if B_r_CP.any():
-            B_r_CP_tilde = ax2skew(B_r_CP)
-            A_IB_q = self.A_IB_q(t, qe, xi)
-            r_CP_tilde_q = B_r_CP_tilde.T @ A_IB_q
-
-            alpha = self._alpha(xi)
-            self._J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
-            self._J_P_q[:, 9:12] = -alpha * r_CP_tilde_q
-        else:
-            self._J_P_q[:, 3:6] *= 0
-            self._J_P_q[:, 9:12] *= 0
-        return self._J_P_q
+    def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
+        return self._element_kinematics(qe, xi, B_r_CP)[5]
 
     def a_P(self, t, qe, ue, ue_dot, xi, B_r_CP=np.zeros(3, dtype=float)):
         alpha = self._alpha(xi)
@@ -535,7 +509,9 @@ class DiscreteRod(RodExportBase):
             B_Omega = self.B_Omega(t, qe, ue, xi)
             B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
             # rigid body formular
-            return a_C + A_IB @ (cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP)))
+            return a_C + A_IB @ (
+                cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP))
+            )
         else:
             return a_C
 
@@ -567,10 +543,10 @@ class DiscreteRod(RodExportBase):
     #     return a_P_u
 
     def A_IB(self, t, qe, xi):
-        return self._eval_kinematics(qe, xi)[2]
+        return self._element_kinematics(qe, xi)[2]
 
     def A_IB_q(self, t, qe, xi):
-        return self._eval_kinematics(qe, xi)[3]
+        return self._element_kinematics(qe, xi)[3]
 
     def B_Omega(self, t, qe, ue, xi):
         """Since we use Petrov-Galerkin method we only interpolate the nodal
@@ -612,7 +588,7 @@ class DiscreteRod(RodExportBase):
 
 
 @njit(cache=True)
-def _eval_kinematics(alpha, qe):
+def _eval_kinematics(alpha, qe, B_r_CP):
     r_OC0 = qe[:3]
     P0 = qe[3:7]
 
@@ -622,13 +598,8 @@ def _eval_kinematics(alpha, qe):
     r_OC = (1 - alpha) * r_OC0 + alpha * r_OC1
     P = (1 - alpha) * P0 + alpha * P1
 
-    r_OC_qe = np.zeros((3, 14), dtype=float)
-    np.fill_diagonal(r_OC_qe[:, :3], 1-alpha)
-    np.fill_diagonal(r_OC_qe[:, 7:10], alpha)
-
-
     P_qe = np.zeros((4, 14), dtype=float)
-    np.fill_diagonal(P_qe[:, 3:7], 1-alpha)
+    np.fill_diagonal(P_qe[:, 3:7], 1 - alpha)
     np.fill_diagonal(P_qe[:, 10:], alpha)
 
     A_IB = Exp_SO3_quat(P, normalize=True)
@@ -636,26 +607,57 @@ def _eval_kinematics(alpha, qe):
     A_IB_qe = np.empty((3, 3, 14))
     for i in range(3):
         A_IB_qe[i] = A_P[i] @ P_qe
-    return r_OC, r_OC_qe, A_IB, A_IB_qe
+
+    #
+    r_OP = r_OC + A_IB @ B_r_CP if B_r_CP.any() else r_OC
+    r_OP_qe = np.zeros((3, 14), dtype=float)
+    np.fill_diagonal(r_OP_qe[:, :3], 1 - alpha)
+    np.fill_diagonal(r_OP_qe[:, 7:10], alpha)
+    if B_r_CP.any():
+        for i in range(3):
+            r_OP_qe[i] += B_r_CP @ A_IB_qe[i]
+    # r_OP_qe = r_OC_qe + B_r_CP @ A_IB_qe if B_r_CP.any() else r_OC_qe
+
+    J_P = np.zeros((3, 12), dtype=float)
+    J_P_q = np.zeros((3, 12, 14), dtype=float)
+    np.fill_diagonal(J_P[:, :3], 1 - alpha)
+    np.fill_diagonal(J_P[:, 6:9], alpha)
+    if B_r_CP.any():
+        B_r_CP_tilde = ax2skew(B_r_CP)
+        r_CP_tilde = A_IB @ B_r_CP_tilde
+        J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
+        J_P[:, 9:12] = -alpha * r_CP_tilde
+        #
+        r_CP_tilde_q = np.zeros((3, 14), dtype=float)
+        for i in range(3):
+            r_CP_tilde_q[i] = B_r_CP_tilde.T @ A_IB_qe[i]
+        J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
+        J_P_q[:, 9:12] = -alpha * r_CP_tilde_q
+
+    return r_OP, r_OP_qe, A_IB, A_IB_qe, J_P, J_P_q
+
 
 def _h_node(u, B_Theta_C):
     B_omega_IB = u[3:]
-    h = jnp.zeros(6, dtype=jnp.float64)
-    h = h.at[3:].set(math_jax.cross3(B_Theta_C @ B_omega_IB, B_omega_IB))
-    return h
+    cross = math_jax.cross3(B_Theta_C @ B_omega_IB, B_omega_IB)
+    return jnp.array([0.0, 0.0, 0.0, cross[0], cross[1], cross[2]], dtype=jnp.float64)
+
+
 _h_node_batch = jit(vmap(_h_node))
 
 
 def _q_dot_node(q, u):
-    q_dot = jnp.zeros(7, dtype=jnp.float64)
-    q_dot = q_dot.at[:3].set(u[:3])
-    q_dot = q_dot.at[3:].set(math_jax.T_SO3_inv_quat(q[3:], normalize=False) @ u[3:])    
-    return q_dot
+    T = math_jax.T_SO3_inv_quat(q[3:], normalize=False) @ u[3:]
+    return jnp.array([u[0], u[1], u[2], T[0], T[1], T[2], T[3]], dtype=jnp.float64)
+
+
 _q_dot_node_batch = jit(vmap(_q_dot_node))
 
 
 def _p_dot_p_node(q, u):
     return u[3:] @ math_jax.T_SO3_inv_quat_P(q[3:], normalize=False)
+
+
 _p_dot_p_node_batch = jit(vmap(_p_dot_p_node))
 
 
@@ -667,13 +669,14 @@ def _la_c_el(
     c_la_c_el_inv,
 ):
     _, B_Gamma, B_Kappa = _eval(qe, Le)
-    c_el = jnp.zeros(_nla_c_el, dtype=jnp.float64)
-
-    c_el = c_el.at[:3].set(-(B_Gamma - B_Gamma0) * Le)
-    c_el = c_el.at[3:6].set(-(B_Kappa - B_Kappa0) * Le)
+    eps = jnp.concatenate(
+        [
+            (B_Gamma - B_Gamma0) * Le,
+            (B_Kappa - B_Kappa0) * Le,
+        ]
+    )
     # TODO: add damping
-    la_c_el = -c_la_c_el_inv @ c_el
-    return la_c_el
+    return c_la_c_el_inv @ eps
 
 
 _la_c_el_batch = jit(vmap(_la_c_el))
@@ -706,10 +709,11 @@ def _c_el(qe, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
     B_n = la_c[:3]
     B_m = la_c[3:6]
 
-    c_el = c_el.at[:3].set((C_n_inv @ B_n - (B_Gamma - B_Gamma0)) * Le)
-    c_el = c_el.at[3:6].set((C_m_inv @ B_m - (B_Kappa - B_Kappa0)) * Le)
+    c_n = (C_n_inv @ B_n - (B_Gamma - B_Gamma0)) * Le
+    c_m = (C_m_inv @ B_m - (B_Kappa - B_Kappa0)) * Le
+
     # TODO:add damping
-    return c_el
+    return jnp.concatenate([c_n, c_m], dtype=jnp.float64)
 
 
 _c_el_batch = jit(vmap(_c_el, in_axes=(0, 0, 0, 0, 0, None, None)))
@@ -717,11 +721,9 @@ _c_el_batch = jit(vmap(_c_el, in_axes=(0, 0, 0, 0, 0, None, None)))
 
 def _c_el_qe(qe, Le):
     _, B_Gamma_qe, B_Kappa_qe = _deval(qe, Le)
-    c_el_qe = jnp.zeros((_nla_c_el, 14), dtype=jnp.float64)
-    c_el_qe = c_el_qe.at[:3].set(-B_Gamma_qe * Le)
-    c_el_qe = c_el_qe.at[3:6].set(-B_Kappa_qe * Le)
-    # TODO:add damping
-    return c_el_qe
+    c_n_qe = -B_Gamma_qe * Le
+    c_m_qe = -B_Kappa_qe * Le
+    return jnp.concatenate([c_n_qe, c_m_qe], dtype=jnp.float64)
 
 
 _c_el_qe_batch = jit(vmap(_c_el_qe))
@@ -732,14 +734,14 @@ def _W_c_el(qe, Le):
     s1 = 0.5 * math_jax.ax2skew(B_Gamma) * Le
     s2 = 0.5 * math_jax.ax2skew(B_Kappa) * Le
 
-    W_c_el = jnp.zeros((12, _nla_c_el))
-    #
-    W_c_el = W_c_el.at[:3, :3].set(A_IB)
-    W_c_el = W_c_el.at[3:6, :3].set(s1)
-    W_c_el = W_c_el.at[3:6, 3:6].set(eye3 + s2)
-    W_c_el = W_c_el.at[6:9, :3].set(-A_IB)
-    W_c_el = W_c_el.at[9:, :3].set(s1)
-    W_c_el = W_c_el.at[9:, 3:6].set(-eye3 + s2)
+    W_c_el = jnp.block(
+        [
+            [A_IB, zeros3],
+            [s1, eye3 + s2],
+            [-A_IB, zeros3],
+            [s1, -eye3 + s2],
+        ]
+    )
     # TODO:add damping
     return W_c_el
 

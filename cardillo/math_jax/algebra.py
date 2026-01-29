@@ -55,14 +55,14 @@ def ax2skew_a() -> jnp.ndarray:
     Note:
     -----
     This is a constant 3x3x3 ndarray."""
-    A = jnp.zeros((3, 3, 3), dtype=jnp.float64)
-    A = A.at[1, 2, 0].set(-1)
-    A = A.at[2, 1, 0].set(1)
-    A = A.at[0, 2, 1].set(1)
-    A = A.at[2, 0, 1].set(-1)
-    A = A.at[0, 1, 2].set(-1)
-    A = A.at[1, 0, 2].set(1)
-    return A
+    return jnp.array(
+        [
+            [[0.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]],
+            [[0.0, 0.0, 1.0], [0.0, 0.0, 0.0], [-1.0, 0.0, 0.0]],
+            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+        ],
+        dtype=jnp.float64,
+    )
 
 
 @jit
@@ -73,16 +73,14 @@ def skew2ax_A() -> jnp.ndarray:
     Note:
     -----
     This is a constant 3x3x3 ndarray."""
-    A = jnp.zeros((3, 3, 3), dtype=jnp.float64)
-    A = A.at[0, 2, 1].set(0.5)
-    A = A.at[0, 1, 2].set(-0.5)
-
-    A = A.at[1, 0, 2].set(0.5)
-    A = A.at[1, 2, 0].set(-0.5)
-
-    A = A.at[2, 1, 0].set(0.5)
-    A = A.at[2, 0, 1].set(-0.5)
-    return A
+    return jnp.array(
+        [
+            [[0.0, 0.0, 0.0], [0.0, 0.0, -0.5], [0.0, 0.5, 0.0]],
+            [[0.0, 0.0, 0.5], [0.0, 0.0, 0.0], [-0.5, 0.0, 0.0]],
+            [[0.0, -0.5, 0.0], [0.5, 0.0, 0.0], [0.0, 0.0, 0.0]],
+        ],
+        dtype=jnp.float64,
+    )
 
 
 @jit

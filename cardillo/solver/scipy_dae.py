@@ -270,8 +270,8 @@ class ScipyDAE:
         ####################
         q_dot = q_dot - self.system.q_dot(t, q, u)
         if mu_g.size > 0:
-            q_dot -= self.system.g_q(t, q).T @ mu_g
-        self._F[: i0] = q_dot
+            q_dot -= mu_g @ self.system.g_q(t, q)
+        self._F[:i0] = q_dot
 
         #####################
         # equations of motion

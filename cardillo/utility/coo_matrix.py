@@ -194,7 +194,9 @@ class CooMatrix(_CooMatrix):
     def fix_size(self):
         self._CooMatrix__data = np.empty(len(self.row), dtype=np.float64)
         self._coo = super().tocoo(copy=False)
-        self._data_allocation_lenth = [self.data_allocation_length(i) for i in range(self._nallocation)]
+        self._data_allocation_lenth = [
+            self.data_allocation_length(i) for i in range(self._nallocation)
+        ]
         self._size_fixed = True
 
     def _allocate(self, rows, cols):
@@ -298,7 +300,6 @@ class CooMatrix(_CooMatrix):
         elif isinstance(self._CooMatrix__data, np.ndarray):
             self._CooMatrix__data *= -1
         return self
-    
 
     def transpose(self, copy=False):
         coo = CooMatrix((self.shape[1], self.shape[0]))

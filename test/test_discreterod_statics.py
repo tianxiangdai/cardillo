@@ -57,7 +57,7 @@ system.assemble()
 
 t1 = 1
 
-options = SolverOptions(newton_atol = 1e-6, newton_rtol = 1e-6)
+options = SolverOptions(newton_atol=1e-6, newton_rtol=1e-6)
 # warm up
 solver = Newton(system, n_load_steps=10, options=options, verbose=False)
 solver.solve()
@@ -108,13 +108,13 @@ r_OC1s = q[-1, rod.qDOF].reshape((-1, 7))[:, :3]
 t, q = sol2.t, sol2.q
 r_OC2s = q[-1, rod.qDOF][rod.nodalDOF_r]
 
-print(np.linalg.norm(r_OC1s-r_OC2s, np.inf))
+print(np.linalg.norm(r_OC1s - r_OC2s, np.inf))
 
-plt.subplot(2 ,1, 1)
+plt.subplot(2, 1, 1)
 plt.plot(r_OC1s[:, 0], r_OC1s[:, 1], "-xr")
 plt.plot(r_OC2s[:, 0], r_OC2s[:, 1], "-b.")
 plt.axis("equal")
-plt.subplot(2 ,1, 2)
+plt.subplot(2, 1, 2)
 plt.plot(np.linalg.norm(r_OC1s - r_OC2s, axis=1), "-b.")
-plt.yscale('log')
+plt.yscale("log")
 plt.show(block=True)
