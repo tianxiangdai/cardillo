@@ -4,7 +4,7 @@ from cachetools.keys import hashkey
 import numpy as np
 from scipy.sparse.linalg import spsolve
 
-from cardillo.math.algebra import norm, cross3, ax2skew
+from cardillo.math import norm, cross3, ax2skew
 from cardillo.math.approx_fprime import approx_fprime
 from cardillo.math.rotations import Exp_SO3_quat, T_SO3_inv_quat, T_SO3_inv_quat_P
 from cardillo.utility.coo_matrix import CooMatrix

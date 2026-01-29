@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 # from cardillo.math import norm, approx_fprime
-from cardillo.math.algebra import norm
+from cardillo.math import norm
 
 
 class RodMaterialModel(ABC):

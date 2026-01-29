@@ -3,6 +3,7 @@ from cardillo.constraints._base import (
     PositionOrientationBase,
     ProjectedPositionOrientationBase,
 )
+from ..rods._base_export import RodExportBase
 
 
 class RigidConnection(PositionOrientationBase):
@@ -17,6 +18,9 @@ class RigidConnection(PositionOrientationBase):
         name="rigid_connection",
     ):
         self.name = name
+        if r_OJ0 is None and A_IJ0 is None and isinstance(subsystem2, RodExportBase):
+            subsystem1, subsystem2 = subsystem2, subsystem1
+            xi1, xi2 = xi2, xi1
         super().__init__(
             subsystem1,
             subsystem2,

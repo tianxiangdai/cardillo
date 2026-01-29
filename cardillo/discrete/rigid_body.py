@@ -2,7 +2,7 @@ from cachetools import cachedmethod, LRUCache
 import numpy as np
 from vtk import VTK_VERTEX
 
-from cardillo.math_numba import (
+from cardillo.math import (
     cross3,
     ax2skew,
     norm,
@@ -99,9 +99,7 @@ class RigidBody:
 
     def q_dot_q(self, t, q, u):
         q_dot_q = np.zeros((self.nq, self.nq), dtype=np.common_type(q, u))
-        q_dot_q[3:, 3:] = np.einsum(
-            "ijk,j->ik", T_SO3_inv_quat_P(q[3:], normalize=False), u[3:]
-        )
+        q_dot_q[3:, 3:] = u[3:] @ T_SO3_inv_quat_P(q[3:], normalize=False)
         return q_dot_q
 
     def q_dot_u(self, t, q):
@@ -183,7 +181,7 @@ class RigidBody:
         r_OP_q = np.zeros((3, self.nq), dtype=q.dtype)
         r_OP_q[:, :3] = np.eye(3)
         if B_r_CP.any():
-            r_OP_q[:, :] += np.einsum("ijk,j->ik", self.A_IB_q(t, q), B_r_CP)
+            r_OP_q += B_r_CP @ self.A_IB_q(t, q)
         return r_OP_q
 
     @cachedmethod(
@@ -196,7 +194,7 @@ class RigidBody:
         return u[:3] + self.A_IB(t, q) @ cross3(u[3:], B_r_CP) if B_r_CP.any() else u[:3]
 
     def v_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return np.einsum("ijk,j->ik", self.A_IB_q(t, q), cross3(u[3:], B_r_CP)) if B_r_CP.any() else np.zeros((3,self.nq), dtype=float)
+        return cross3(u[3:], B_r_CP) @ self.A_IB_q(t, q) if B_r_CP.any() else np.zeros((3,self.nq), dtype=float)
 
     def a_P(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         return u_dot[:3] + self.A_IB(t, q) @ (
@@ -204,11 +202,7 @@ class RigidBody:
         ) if B_r_CP.any() else u_dot[:3]
 
     def a_P_q(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        return np.einsum(
-            "ijk,j->ik",
-            self.A_IB_q(t, q),
-            cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP)),
-        ) if B_r_CP.any() else np.zeros((3, self.nq))
+        return (cross3(u_dot[3:], B_r_CP) + cross3(u[3:], cross3(u[3:], B_r_CP))) @ self.A_IB_q(t, q) if B_r_CP.any() else np.zeros((3, self.nq))
 
     def a_P_u(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         a_P_u = np.zeros((3, self.nu), dtype=float)
@@ -234,16 +228,14 @@ class RigidBody:
     def J_P_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         J_P_q = np.zeros((3, self.nu, self.nq), dtype=q.dtype)
         if B_r_CP.any():
-            J_P_q[:, 3:, :] = np.einsum("ijk,jl->ilk", self.A_IB_q(t, q), -ax2skew(B_r_CP))
+            J_P_q[:, 3:] = ax2skew(-B_r_CP) @ self.A_IB_q(t, q)
         return J_P_q
 
     def kappa_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
         return self.A_IB(t, q) @ (cross3(u[3:], cross3(u[3:], B_r_CP))) if B_r_CP.any() else np.zeros(3)
 
     def kappa_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
-        return np.einsum(
-            "ijk,j->ik", self.A_IB_q(t, q), cross3(u[3:], cross3(u[3:], B_r_CP))
-        ) if B_r_CP.any() else np.zeros((3, self.nq))
+        return (cross3(u[3:], cross3(u[3:], B_r_CP))) @ self.A_IB_q(t, q) if B_r_CP.any() else np.zeros((3, self.nq))
 
     def kappa_P_u(self, t, q, u, xi=None, B_r_CP=np.zeros(3)):
         kappa_P_u = np.zeros((3, self.nu))

@@ -192,9 +192,10 @@ class CooMatrix(_CooMatrix):
         self._coo = None
 
     def fix_size(self):
-        self._size_fixed = True
         self._CooMatrix__data = np.empty(len(self.row), dtype=np.float64)
         self._coo = super().tocoo(copy=False)
+        self._data_allocation_lenth = [self.data_allocation_length(i) for i in range(self._nallocation)]
+        self._size_fixed = True
 
     def _allocate(self, rows, cols):
         allocation_id = self._nallocation
@@ -224,9 +225,12 @@ class CooMatrix(_CooMatrix):
             raise NotImplementedError
         return self._allocate(_rows, _cols)
 
-    def _data_allocation_lenth(self, allocation_id):
-        idx1, idx2 = self._data_allocation_index[allocation_id]
-        return idx2 - idx1
+    def data_allocation_length(self, allocation_id):
+        if self._size_fixed:
+            return self._data_allocation_lenth[allocation_id]
+        else:
+            idx1, idx2 = self._data_allocation_index[allocation_id]
+            return idx2 - idx1
 
     def set_allocated(self, allocation_id, target):
         if isinstance(target, np.ndarray):

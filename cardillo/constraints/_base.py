@@ -2,7 +2,7 @@ import warnings
 
 import numpy as np
 
-from cardillo.math.algebra import ax2skew, cross3
+from cardillo.math import ax2skew, cross3
 from cardillo.math.approx_fprime import approx_fprime
 
 
@@ -36,43 +36,43 @@ def concatenate_uDOF(object):
 
 def auxiliary_functions(
     object,
-    B1_r_P1B0,
-    B2_r_P2B0,
-    A_K1B0=None,
-    A_K2B0=None,
+    B1_r_P1J0,
+    B2_r_P2J0,
+    A_K1J0=None,
+    A_K2J0=None,
 ):
     nq1 = object._nq1
     nu1 = object._nu1
 
     # auxiliary functions for subsystem 1
     object.r_OJ1 = lambda t, q: object.subsystem1.r_OP(
-        t, q[:nq1], object.xi1, B1_r_P1B0
+        t, q[:nq1], object.xi1, B1_r_P1J0
     )
     object.r_OJ1_q1 = lambda t, q: object.subsystem1.r_OP_q(
-        t, q[:nq1], object.xi1, B1_r_P1B0
+        t, q[:nq1], object.xi1, B1_r_P1J0
     )
     object.v_J1 = lambda t, q, u: object.subsystem1.v_P(
-        t, q[:nq1], u[:nu1], object.xi1, B1_r_P1B0
+        t, q[:nq1], u[:nu1], object.xi1, B1_r_P1J0
     )
     object.v_J1_q1 = lambda t, q, u: object.subsystem1.v_P_q(
-        t, q[:nq1], u[:nu1], object.xi1, B1_r_P1B0
+        t, q[:nq1], u[:nu1], object.xi1, B1_r_P1J0
     )
     object.a_J1 = lambda t, q, u, u_dot: object.subsystem1.a_P(
-        t, q[:nq1], u[:nu1], u_dot[:nu1], object.xi1, B1_r_P1B0
+        t, q[:nq1], u[:nu1], u_dot[:nu1], object.xi1, B1_r_P1J0
     )
     object.a_J1_q1 = lambda t, q, u, u_dot: object.subsystem1.a_P_q(
-        t, q[:nq1], u[:nu1], u_dot[:nu1], object.xi1, B1_r_P1B0
+        t, q[:nq1], u[:nu1], u_dot[:nu1], object.xi1, B1_r_P1J0
     )
     object.a_J1_u1 = lambda t, q, u, u_dot: object.subsystem1.a_P_u(
-        t, q[:nq1], u[:nu1], u_dot[:nu1], object.xi1, B1_r_P1B0
+        t, q[:nq1], u[:nu1], u_dot[:nu1], object.xi1, B1_r_P1J0
     )
-    object.J_J1 = lambda t, q: object.subsystem1.J_P(t, q[:nq1], object.xi1, B1_r_P1B0)
+    object.J_J1 = lambda t, q: object.subsystem1.J_P(t, q[:nq1], object.xi1, B1_r_P1J0)
     object.J_J1_q1 = lambda t, q: object.subsystem1.J_P_q(
-        t, q[:nq1], object.xi1, B1_r_P1B0
+        t, q[:nq1], object.xi1, B1_r_P1J0
     )
-    object.A_IJ1 = lambda t, q: object.subsystem1.A_IB(t, q[:nq1], object.xi1) @ A_K1B0
+    object.A_IJ1 = lambda t, q: object.subsystem1.A_IB(t, q[:nq1], object.xi1) @ A_K1J0
     object.A_IJ1_q1 = lambda t, q: np.einsum(
-        "ijl,jk->ikl", object.subsystem1.A_IB_q(t, q[:nq1], object.xi1), A_K1B0
+        "ijl,jk->ikl", object.subsystem1.A_IB_q(t, q[:nq1], object.xi1), A_K1J0
     )
     object.Omega1 = lambda t, q, u: object.subsystem1.A_IB(
         t, q[:nq1], object.xi1
@@ -114,33 +114,33 @@ def auxiliary_functions(
 
     # auxiliary functions for subsystem 2
     object.r_OJ2 = lambda t, q: object.subsystem2.r_OP(
-        t, q[nq1:], object.xi2, B2_r_P2B0
+        t, q[nq1:], object.xi2, B2_r_P2J0
     )
     object.r_OJ2_q2 = lambda t, q: object.subsystem2.r_OP_q(
-        t, q[nq1:], object.xi2, B2_r_P2B0
+        t, q[nq1:], object.xi2, B2_r_P2J0
     )
     object.v_J2 = lambda t, q, u: object.subsystem2.v_P(
-        t, q[nq1:], u[nu1:], object.xi2, B2_r_P2B0
+        t, q[nq1:], u[nu1:], object.xi2, B2_r_P2J0
     )
     object.v_J2_q2 = lambda t, q, u: object.subsystem2.v_P_q(
-        t, q[nq1:], u[nu1:], object.xi2, B2_r_P2B0
+        t, q[nq1:], u[nu1:], object.xi2, B2_r_P2J0
     )
     object.a_J2 = lambda t, q, u, u_dot: object.subsystem2.a_P(
-        t, q[nq1:], u[nu1:], u_dot[nu1:], object.xi2, B2_r_P2B0
+        t, q[nq1:], u[nu1:], u_dot[nu1:], object.xi2, B2_r_P2J0
     )
     object.a_J2_q2 = lambda t, q, u, u_dot: object.subsystem2.a_P_q(
-        t, q[nq1:], u[nu1:], u_dot[nu1:], object.xi2, B2_r_P2B0
+        t, q[nq1:], u[nu1:], u_dot[nu1:], object.xi2, B2_r_P2J0
     )
     object.a_J2_u2 = lambda t, q, u, u_dot: object.subsystem2.a_P_u(
-        t, q[nq1:], u[nu1:], u_dot[nu1:], object.xi2, B2_r_P2B0
+        t, q[nq1:], u[nu1:], u_dot[nu1:], object.xi2, B2_r_P2J0
     )
-    object.J_J2 = lambda t, q: object.subsystem2.J_P(t, q[nq1:], object.xi2, B2_r_P2B0)
+    object.J_J2 = lambda t, q: object.subsystem2.J_P(t, q[nq1:], object.xi2, B2_r_P2J0)
     object.J_J2_q2 = lambda t, q: object.subsystem2.J_P_q(
-        t, q[nq1:], object.xi2, B2_r_P2B0
+        t, q[nq1:], object.xi2, B2_r_P2J0
     )
-    object.A_IJ2 = lambda t, q: object.subsystem2.A_IB(t, q[nq1:], object.xi2) @ A_K2B0
+    object.A_IJ2 = lambda t, q: object.subsystem2.A_IB(t, q[nq1:], object.xi2) @ A_K2J0
     object.A_IJ2_q2 = lambda t, q: np.einsum(
-        "ijk,jl->ilk", object.subsystem2.A_IB_q(t, q[nq1:], object.xi2), A_K2B0
+        "ijk,jl->ilk", object.subsystem2.A_IB_q(t, q[nq1:], object.xi2), A_K2J0
     )
     object.Omega2 = lambda t, q, u: object.subsystem2.A_IB(
         t, q[nq1:], object.xi2
@@ -238,11 +238,11 @@ class PositionOrientationBase:
             if self.A_IJ0 is None:
                 self.A_IJ0 = A_IB10
 
-            B1_r_P1J0 = A_IB10.T @ (self.r_OJ0 - r_OP10)
-            A_K1J0 = A_IB10.T @ self.A_IJ0
+            self.B1_r_P1J0 = A_IB10.T @ (self.r_OJ0 - r_OP10)
+            self.A_K1J0 = A_IB10.T @ self.A_IJ0
         else:
-            B1_r_P1J0 = np.zeros(3)
-            A_K1J0 = None  # unused
+            self.B1_r_P1J0 = np.zeros(3)
+            self.A_K1J0 = None  # unused
             assert self.nla_g_rot == 0  # Spherical case
 
         # check for A_IB of subsystem 2
@@ -257,15 +257,216 @@ class PositionOrientationBase:
             if self.A_IJ0 is None:
                 self.A_IJ0 = A_IB20
 
-            B2_r_P2J0 = A_IB20.T @ (self.r_OJ0 - r_OP20)
-            A_K2J0 = A_IB20.T @ self.A_IJ0
+            self.B2_r_P2J0 = A_IB20.T @ (self.r_OJ0 - r_OP20)
+            self.A_K2J0 = A_IB20.T @ self.A_IJ0
         else:
-            B2_r_P2J0 = np.zeros(3)
-            A_K2J0 = None  # unused
+            self.B2_r_P2J0 = np.zeros(3)
+            self.A_K2J0 = None  # unused
             assert self.nla_g_rot == 0  # Spherical case
 
-        auxiliary_functions(self, B1_r_P1J0, B2_r_P2J0, A_K1J0, A_K2J0)
+        # auxiliary_functions(self, B1_r_P1J0, B2_r_P2J0, A_K1J0, A_K2J0)
 
+    # auxiliary functions for subsystem 1
+    def r_OJ1(self, t, q):
+        return self.subsystem1.r_OP(
+            t, q[:self._nq1], self.xi1, self.B1_r_P1J0
+        )
+    
+    def r_OJ1_q1(self, t, q):
+        return self.subsystem1.r_OP_q(
+            t, q[:self._nq1], self.xi1, self.B1_r_P1J0
+        )
+    
+    def v_J1(self, t, q, u):
+        return self.subsystem1.v_P(
+            t, q[:self._nq1], u[:self._nu1], self.xi1, self.B1_r_P1J0
+        )
+    def v_J1_q1(self, t, q, u):
+        return self.subsystem1.v_P_q(
+            t, q[:self._nq1], u[:self._nu1], self.xi1, self.B1_r_P1J0
+        )
+
+    def a_J1(self, t, q, u, u_dot):
+        return self.subsystem1.a_P(
+            t, q[:self._nq1], u[:self._nu1], u_dot[:self._nu1], self.xi1, self.B1_r_P1J0
+        )
+
+    def a_J1_q1(self, t, q, u, u_dot):
+        return self.subsystem1.a_P_q(
+            t, q[:self._nq1], u[:self._nu1], u_dot[:self._nu1], self.xi1, self.B1_r_P1J0
+        )
+    
+    def a_J1_u1(self, t, q, u, u_dot):
+        return self.subsystem1.a_P_u(
+            t, q[:self._nq1], u[:self._nu1], u_dot[:self._nu1], self.xi1, self.B1_r_P1J0
+        )
+
+    def J_J1(self, t, q):
+        return self.subsystem1.J_P(t, q[:self._nq1], self.xi1, self.B1_r_P1J0)
+
+    def J_J1_q1(self, t, q):
+        return self.subsystem1.J_P_q(
+            t, q[:self._nq1], self.xi1, self.B1_r_P1J0
+        )
+    
+    def A_IJ1(self, t, q):
+        return self.subsystem1.A_IB(t, q[:self._nq1], self.xi1) @ self.A_K1J0
+    
+    def A_IJ1_q1(self, t, q):
+        return np.einsum(
+            "ijl,jk->ikl", self.subsystem1.A_IB_q(t, q[:self._nq1], self.xi1), self.A_K1J0
+        )
+
+    def Omega1(self, t, q, u):
+        return self.subsystem1.A_IB(
+            t, q[:self._nq1], self.xi1
+        ) @ self.subsystem1.B_Omega(t, q[:self._nq1], u[:self._nu1], self.xi1)
+    
+    def Omega1_q1(self, t, q, u):
+        return np.einsum(
+            "ijk,j->ik",
+            self.subsystem1.A_IB_q(t, q[:self._nq1], xi=self.xi1),
+            self.subsystem1.B_Omega(t, q[:self._nq1], u[:self._nu1], self.xi1),
+        ) + self.subsystem1.A_IB(t, q[:self._nq1], xi=self.xi1) @ self.subsystem1.B_Omega_q(
+            t, q[:self._nq1], u[:self._nu1], self.xi1
+        )
+    
+    def Psi1(self, t, q, u, u_dot):
+        return self.subsystem1.A_IB(
+            t, q[:self._nq1], self.xi1
+        ) @ self.subsystem1.B_Psi(t, q[:self._nq1], u[:self._nu1], u_dot[:self._nu1], self.xi1)
+
+    def Psi1_q1(self, t, q, u, u_dot):
+        return np.einsum(
+            "ijk,j->ik",
+            self.subsystem1.A_IB_q(t, q[:self._nq1], xi=self.xi1),
+            self.subsystem1.B_Psi(t, q[:self._nq1], u[:self._nu1], u_dot[:self._nu1], self.xi1),
+        ) + self.subsystem1.A_IB(t, q[:self._nq1], xi=self.xi1) @ self.subsystem1.B_Psi_q(
+            t, q[:self._nq1], u[:self._nu1], u_dot[:self._nu1], self.xi1
+        )
+    
+    def Psi1_u1(self, t, q, u, u_dot):
+        return self.subsystem1.A_IB(
+            t, q[:self._nq1], xi=self.xi1
+        ) @ self.subsystem1.B_Psi_u(t, q[:self._nq1], u[:self._nu1], u_dot[:self._nu1], self.xi1)
+    
+    def J_R1(self, t, q):
+        return self.subsystem1.A_IB(
+            t, q[:self._nq1], self.xi1
+        ) @ self.subsystem1.B_J_R(t, q[:self._nq1], self.xi1)
+    
+    def J_R1_q1(self, t, q):
+        return np.einsum(
+            "ijk,jl->ilk",
+            self.subsystem1.A_IB_q(t, q[:self._nq1], self.xi1),
+            self.subsystem1.B_J_R(t, q[:self._nq1], self.xi1),
+        ) + np.einsum(
+            "ij,jkl->ikl",
+            self.subsystem1.A_IB(t, q[:self._nq1], self.xi1),
+            self.subsystem1.B_J_R_q(t, q[:self._nq1], self.xi1),
+        )
+    
+    # auxiliary functions for subsystem 2
+    def r_OJ2(self, t, q):
+        return self.subsystem2.r_OP(
+            t, q[self._nq1:], self.xi2, self.B2_r_P2J0
+        )
+
+    def r_OJ2_q2(self, t, q):
+        return self.subsystem2.r_OP_q(
+            t, q[self._nq1:], self.xi2, self.B2_r_P2J0
+        )
+    
+    def v_J2(self, t, q, u):
+        return self.subsystem2.v_P(
+            t, q[self._nq1:], u[self._nu1:], self.xi2, self.B2_r_P2J0
+        )
+    
+    def v_J2_q2(self, t, q, u):
+        return self.subsystem2.v_P_q(
+            t, q[self._nq1:], u[self._nu1:], self.xi2, self.B2_r_P2J0
+        )
+    
+    def a_J2(self, t, q, u, u_dot):
+        return self.subsystem2.a_P(
+            t, q[self._nq1:], u[self._nu1:], u_dot[self._nu1:], self.xi2, self.B2_r_P2J0
+        )
+    
+    def a_J2_q2(self, t, q, u, u_dot):
+        return self.subsystem2.a_P_q(
+            t, q[self._nq1:], u[self._nu1:], u_dot[self._nu1:], self.xi2, self.B2_r_P2J0
+        )
+    
+    def a_J2_u2(self, t, q, u, u_dot):
+        return self.subsystem2.a_P_u(
+            t, q[self._nq1:], u[self._nu1:], u_dot[self._nu1:], self.xi2, self.B2_r_P2J0
+        )
+    
+    def J_J2(self, t, q):
+        return self.subsystem2.J_P(t, q[self._nq1:], self.xi2, self.B2_r_P2J0)
+    
+    def J_J2_q2(self, t, q):
+        return self.subsystem2.J_P_q(
+            t, q[self._nq1:], self.xi2, self.B2_r_P2J0
+        )
+    
+    def A_IJ2(self, t, q):
+        return self.subsystem2.A_IB(t, q[self._nq1:], self.xi2) @ self.A_K2J0
+    
+    def A_IJ2_q2(self, t, q):
+        return np.einsum(
+            "ijk,jl->ilk", self.subsystem2.A_IB_q(t, q[self._nq1:], self.xi2), self.A_K2J0
+        )
+    
+    def Omega2(self, t, q, u):
+        return self.subsystem2.A_IB(
+            t, q[self._nq1:], self.xi2
+        ) @ self.subsystem2.B_Omega(t, q[self._nq1:], u[self._nu1:], self.xi2)
+    
+    def Omega2_q2(self, t, q, u):
+        return np.einsum(
+            "ijk,j->ik",
+            self.subsystem2.A_IB_q(t, q[self._nq1:], xi=self.xi2),
+            self.subsystem2.B_Omega(t, q[self._nq1:], u[self._nu1:], self.xi2),
+        ) + self.subsystem2.A_IB(t, q[self._nq1:], xi=self.xi2) @ self.subsystem2.B_Omega_q(
+            t, q[self._nq1:], u[self._nu1:], self.xi2
+        )
+    
+    def Psi2(self, t, q, u, u_dot):
+        return self.subsystem2.A_IB(
+            t, q[self._nq1:], self.xi2
+        ) @ self.subsystem2.B_Psi(t, q[self._nq1:], u[self._nu1:], u_dot[self._nu1:], self.xi2)
+    
+    def Psi2_q2(self, t, q, u, u_dot):
+        return np.einsum(
+            "ijk,j->ik",
+            self.subsystem2.A_IB_q(t, q[self._nq1:], xi=self.xi2),
+            self.subsystem2.B_Psi(t, q[self._nq1:], u[self._nu1:], u_dot[self._nu1:], self.xi2),
+        ) + self.subsystem2.A_IB(t, q[self._nq1:], xi=self.xi2) @ self.subsystem2.B_Psi_q(
+            t, q[self._nq1:], u[self._nu1:], u_dot[self._nu1:], self.xi2
+        )
+    
+    def Psi2_u2(self, t, q, u, u_dot):
+        return self.subsystem2.A_IB(
+            t, q[self._nq1:], xi=self.xi2
+        ) @ self.subsystem2.B_Psi_u(t, q[self._nq1:], u[self._nu1:], u_dot[self._nu1:], self.xi2)
+    
+    def J_R2(self, t, q):
+        return self.subsystem2.A_IB(
+            t, q[self._nq1:], self.xi2
+        ) @ self.subsystem2.B_J_R(t, q[self._nq1:], self.xi2)
+    
+    def J_R2_q2(self, t, q):
+        return np.einsum(
+            "ijk,jl->ilk",
+            self.subsystem2.A_IB_q(t, q[self._nq1:], self.xi2),
+            self.subsystem2.B_J_R(t, q[self._nq1:], self.xi2),
+        ) + np.einsum(
+            "ij,jkl->ikl",
+            self.subsystem2.A_IB(t, q[self._nq1:], self.xi2),
+            self.subsystem2.B_J_R_q(t, q[self._nq1:], self.xi2),
+        )
+    
     def g(self, t, q):
         g = np.zeros(self.nla_g, dtype=q.dtype)
         g[:3] = self.r_OJ2(t, q) - self.r_OJ1(t, q)
@@ -378,11 +579,13 @@ class PositionOrientationBase:
         if self.constrain_orientation:
             A_IJ1 = self.A_IJ1(t, q)
             A_IJ2 = self.A_IJ2(t, q)
-            J = np.hstack([self.J_R1(t, q), -self.J_R2(t, q)])
+            J_R1 = self.J_R1(t, q)
+            J_R2 = self.J_R2(t, q)
 
             for i, (a, b) in enumerate(self.projection_pairs):
                 n = cross3(A_IJ1[:, a], A_IJ2[:, b])
-                W_g[:, 3 + i] = n @ J
+                W_g[:nu1, 3 + i] = n @ J_R1
+                W_g[nu1:, 3 + i] = -n @ J_R2
 
         return W_g
 

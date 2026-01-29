@@ -477,12 +477,14 @@ class DiscreteRod(RodExportBase):
         # centerline velocity
         v_C0 = ue[:3]
         v_C1 = ue[6:9]
-        v_C = (1 - alpha) * v_C0 + alpha * v_C1
+        v_C = v_C0 + alpha * (v_C1 - v_C0)
 
-        A_IB = self.A_IB(t, qe, xi)
-        B_Omega = self.B_Omega(t, qe, ue, xi)
-
-        return v_C + A_IB @ cross3(B_Omega, B_r_CP) if B_r_CP.any() else v_C
+        if B_r_CP.any():
+            A_IB = self.A_IB(t, qe, xi)
+            B_Omega = self.B_Omega(t, qe, ue, xi)
+            return v_C + A_IB @ cross3(B_Omega, B_r_CP)
+        else:
+            return v_C
 
     def v_P_q(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
         if B_r_CP.any():
@@ -527,7 +529,7 @@ class DiscreteRod(RodExportBase):
         # centerline acceleration
         a_C0 = ue_dot[:3]
         a_C1 = ue_dot[6:9]
-        a_C = (1 - alpha) * a_C0 + alpha * a_C1
+        a_C = a_C0 + alpha * (a_C1 - a_C0)
         if B_r_CP.any():
             A_IB = self.A_IB(t, qe, xi)
             B_Omega = self.B_Omega(t, qe, ue, xi)
@@ -577,7 +579,7 @@ class DiscreteRod(RodExportBase):
         alpha = self._alpha(xi)
         B_Omega_1 = ue[3:6]
         B_Omega_2 = ue[9:12]
-        B_Omega = (1 - alpha) * B_Omega_1 + alpha * B_Omega_2
+        B_Omega = B_Omega_1 + alpha * (B_Omega_2 - B_Omega_1)
         return B_Omega
 
     def B_Omega_q(self, t, qe, ue, xi):
@@ -599,7 +601,7 @@ class DiscreteRod(RodExportBase):
         alpha = self._alpha(xi)
         B_Psi_1 = ue_dot[3:6]
         B_Psi_2 = ue_dot[9:12]
-        B_Psi = (1 - alpha) * B_Psi_1 + alpha * B_Psi_2
+        B_Psi = B_Psi_1 + alpha * (B_Psi_2 - B_Psi_1)
         return B_Psi
 
     def B_Psi_q(self, t, qe, ue, ue_dot, xi):
