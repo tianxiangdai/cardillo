@@ -323,11 +323,7 @@ class PositionOrientationBase:
         return self.subsystem1.A_IB(t, q[: self._nq1], self.xi1) @ self.A_K1J0
 
     def A_IJ1_q1(self, t, q):
-        return np.einsum(
-            "ijl,jk->ikl",
-            self.subsystem1.A_IB_q(t, q[: self._nq1], self.xi1),
-            self.A_K1J0,
-        )
+        return self.A_K1J0.T @ self.subsystem1.A_IB_q(t, q[: self._nq1], self.xi1)
 
     def Omega1(self, t, q, u):
         return self.subsystem1.A_IB(
@@ -335,10 +331,9 @@ class PositionOrientationBase:
         ) @ self.subsystem1.B_Omega(t, q[: self._nq1], u[: self._nu1], self.xi1)
 
     def Omega1_q1(self, t, q, u):
-        return np.einsum(
-            "ijk,j->ik",
-            self.subsystem1.A_IB_q(t, q[: self._nq1], xi=self.xi1),
-            self.subsystem1.B_Omega(t, q[: self._nq1], u[: self._nu1], self.xi1),
+        return (
+            self.subsystem1.B_Omega(t, q[: self._nq1], u[: self._nu1], self.xi1)
+            @ self.subsystem1.A_IB_q(t, q[: self._nq1], xi=self.xi1)
         ) + self.subsystem1.A_IB(
             t, q[: self._nq1], xi=self.xi1
         ) @ self.subsystem1.B_Omega_q(
@@ -353,12 +348,11 @@ class PositionOrientationBase:
         )
 
     def Psi1_q1(self, t, q, u, u_dot):
-        return np.einsum(
-            "ijk,j->ik",
-            self.subsystem1.A_IB_q(t, q[: self._nq1], xi=self.xi1),
+        return (
             self.subsystem1.B_Psi(
                 t, q[: self._nq1], u[: self._nu1], u_dot[: self._nu1], self.xi1
-            ),
+            )
+            @ self.subsystem1.A_IB_q(t, q[: self._nq1], xi=self.xi1)
         ) + self.subsystem1.A_IB(
             t, q[: self._nq1], xi=self.xi1
         ) @ self.subsystem1.B_Psi_q(
@@ -378,15 +372,13 @@ class PositionOrientationBase:
         ) @ self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1)
 
     def J_R1_q1(self, t, q):
-        return np.einsum(
-            "ijk,jl->ilk",
-            self.subsystem1.A_IB_q(t, q[: self._nq1], self.xi1),
-            self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1),
-        ) + np.einsum(
-            "ij,jkl->ikl",
-            self.subsystem1.A_IB(t, q[: self._nq1], self.xi1),
-            self.subsystem1.B_J_R_q(t, q[: self._nq1], self.xi1),
-        )
+        return (
+            self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1).T
+            @ self.subsystem1.A_IB_q(t, q[: self._nq1], self.xi1)
+        ) + (
+            self.subsystem1.B_J_R_q(t, q[: self._nq1], self.xi1).T
+            @ self.subsystem1.A_IB(t, q[: self._nq1], self.xi1).T
+        ).T
 
     # auxiliary functions for subsystem 2
     def r_OJ2(self, t, q):
@@ -445,11 +437,7 @@ class PositionOrientationBase:
         return self.subsystem2.A_IB(t, q[self._nq1 :], self.xi2) @ self.A_K2J0
 
     def A_IJ2_q2(self, t, q):
-        return np.einsum(
-            "ijk,jl->ilk",
-            self.subsystem2.A_IB_q(t, q[self._nq1 :], self.xi2),
-            self.A_K2J0,
-        )
+        return self.A_K2J0.T @ self.subsystem2.A_IB_q(t, q[self._nq1 :], self.xi2)
 
     def Omega2(self, t, q, u):
         return self.subsystem2.A_IB(
@@ -457,10 +445,9 @@ class PositionOrientationBase:
         ) @ self.subsystem2.B_Omega(t, q[self._nq1 :], u[self._nu1 :], self.xi2)
 
     def Omega2_q2(self, t, q, u):
-        return np.einsum(
-            "ijk,j->ik",
-            self.subsystem2.A_IB_q(t, q[self._nq1 :], xi=self.xi2),
-            self.subsystem2.B_Omega(t, q[self._nq1 :], u[self._nu1 :], self.xi2),
+        return (
+            self.subsystem2.B_Omega(t, q[self._nq1 :], u[self._nu1 :], self.xi2)
+            @ self.subsystem2.A_IB_q(t, q[self._nq1 :], xi=self.xi2)
         ) + self.subsystem2.A_IB(
             t, q[self._nq1 :], xi=self.xi2
         ) @ self.subsystem2.B_Omega_q(
@@ -475,12 +462,11 @@ class PositionOrientationBase:
         )
 
     def Psi2_q2(self, t, q, u, u_dot):
-        return np.einsum(
-            "ijk,j->ik",
-            self.subsystem2.A_IB_q(t, q[self._nq1 :], xi=self.xi2),
+        return (
             self.subsystem2.B_Psi(
                 t, q[self._nq1 :], u[self._nu1 :], u_dot[self._nu1 :], self.xi2
-            ),
+            )
+            @ self.subsystem2.A_IB_q(t, q[self._nq1 :], xi=self.xi2)
         ) + self.subsystem2.A_IB(
             t, q[self._nq1 :], xi=self.xi2
         ) @ self.subsystem2.B_Psi_q(
@@ -500,14 +486,14 @@ class PositionOrientationBase:
         ) @ self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2)
 
     def J_R2_q2(self, t, q):
-        return np.einsum(
-            "ijk,jl->ilk",
-            self.subsystem2.A_IB_q(t, q[self._nq1 :], self.xi2),
-            self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2),
-        ) + np.einsum(
-            "ij,jkl->ikl",
-            self.subsystem2.A_IB(t, q[self._nq1 :], self.xi2),
-            self.subsystem2.B_J_R_q(t, q[self._nq1 :], self.xi2),
+        return (
+            self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2).T
+            @ self.subsystem2.A_IB_q(t, q[self._nq1 :], self.xi2)
+        ) + (
+            (
+                self.subsystem2.B_J_R_q(t, q[self._nq1 :], self.xi2).T
+                @ self.subsystem2.A_IB(t, q[self._nq1 :], self.xi2).T
+            ).T
         )
 
     def g(self, t, q):
@@ -543,7 +529,7 @@ class PositionOrientationBase:
         return g_q
 
     def g_dot(self, t, q, u):
-        g_dot = np.zeros(self.nla_g, dtype=np.common_type(q, u))
+        g_dot = np.zeros(self.nla_g, dtype=np.float64)
         g_dot[:3] = self.v_J2(t, q, u) - self.v_J1(t, q, u)
 
         if self.constrain_orientation:
@@ -560,7 +546,7 @@ class PositionOrientationBase:
 
     def g_dot_q(self, t, q, u):
         nq1 = self._nq1
-        g_dot_q = np.zeros((self.nla_g, self._nq), dtype=np.common_type(q, u))
+        g_dot_q = np.zeros((self.nla_g, self._nq), dtype=np.float64)
 
         g_dot_q[:3, :nq1] = -self.v_J1_q1(t, q, u)
         g_dot_q[:3, nq1:] = self.v_J2_q2(t, q, u)
@@ -592,7 +578,7 @@ class PositionOrientationBase:
         return self.W_g(t, q).T
 
     def g_ddot(self, t, q, u, u_dot):
-        g_ddot = np.zeros(self.nla_g, dtype=np.common_type(q, u, u_dot))
+        g_ddot = np.zeros(self.nla_g, dtype=np.float64)
         g_ddot[:3] = self.a_J2(t, q, u, u_dot) - self.a_J1(t, q, u, u_dot)
 
         if self.constrain_orientation:
@@ -625,20 +611,24 @@ class PositionOrientationBase:
             J_R1 = self.J_R1(t, q)
             J_R2 = self.J_R2(t, q)
 
-            for i, (a, b) in enumerate(self.projection_pairs):
-                n = cross3(A_IJ1[:, a], A_IJ2[:, b])
-                W_g[:nu1, 3 + i] = n @ J_R1
-                W_g[nu1:, 3 + i] = -n @ J_R2
-
+            n = np.array(
+                [cross3(A_IJ1[:, a], A_IJ2[:, b]) for a, b in self.projection_pairs]
+            )
+            W_g[:nu1, 3:] = (n @ J_R1).T
+            W_g[nu1:, 3:] = (-n @ J_R2).T
+            # for i, (a, b) in enumerate(self.projection_pairs):
+            #     n = cross3(A_IJ1[:, a], A_IJ2[:, b])
+            #     W_g[:nu1, 3 + i] = n @ J_R1
+            #     W_g[nu1:, 3 + i] = -n @ J_R2
         return W_g
 
     def Wla_g_q(self, t, q, la_g):
         nq1 = self._nq1
         nu1 = self._nu1
-        Wla_g_q = np.zeros((self._nu, self._nq), dtype=np.common_type(q, la_g))
+        Wla_g_q = np.zeros((self._nu, self._nq), dtype=np.float64)
 
-        Wla_g_q[:nu1, :nq1] += np.einsum("i,ijk->jk", -la_g[:3], self.J_J1_q1(t, q))
-        Wla_g_q[nu1:, nq1:] += np.einsum("i,ijk->jk", la_g[:3], self.J_J2_q2(t, q))
+        Wla_g_q[:nu1, :nq1] -= (self.J_J1_q1(t, q).T @ la_g[:3]).T
+        Wla_g_q[nu1:, nq1:] += (self.J_J2_q2(t, q).T @ la_g[:3]).T
 
         if self.constrain_orientation:
             A_IJ1 = self.A_IJ1(t, q)
@@ -657,14 +647,14 @@ class PositionOrientationBase:
                 n = cross3(e_a, e_b)
                 n_q1 = -ax2skew(e_b) @ A_IJ1_q1[:, a]
                 n_q2 = ax2skew(e_a) @ A_IJ2_q2[:, b]
-                Wla_g_q[:nu1, :nq1] += np.einsum(
-                    "i,ijk->jk", la_g[3 + i] * n, J_R1_q1
-                ) + np.einsum("ij,ik->kj", la_g[3 + i] * n_q1, J_R1)
-                Wla_g_q[:nu1, nq1:] += np.einsum("ij,ik->kj", la_g[3 + i] * n_q2, J_R1)
-                Wla_g_q[nu1:, :nq1] += np.einsum("ij,ik->kj", -la_g[3 + i] * n_q1, J_R2)
-                Wla_g_q[nu1:, nq1:] += np.einsum(
-                    "i,ijk->jk", -la_g[3 + i] * n, J_R2_q2
-                ) + np.einsum("ij,ik->kj", -la_g[3 + i] * n_q2, J_R2)
+                Wla_g_q[:nu1, :nq1] += (
+                    la_g[3 + i] * (J_R1_q1.T @ n).T + la_g[3 + i] * J_R1.T @ n_q1
+                )
+                Wla_g_q[:nu1, nq1:] += la_g[3 + i] * J_R1.T @ n_q2
+                Wla_g_q[nu1:, :nq1] -= la_g[3 + i] * J_R2.T @ n_q1
+                Wla_g_q[nu1:, nq1:] -= (
+                    la_g[3 + i] * (J_R2_q2.T @ n).T + la_g[3 + i] * J_R2.T @ n_q2
+                )
 
         return Wla_g_q
 
@@ -817,7 +807,7 @@ class ProjectedPositionOrientationBase:
         # return g_q_num
 
     def g_dot(self, t, q, u):
-        g_dot = np.zeros(self.nla_g, dtype=np.common_type(q, u))
+        g_dot = np.zeros(self.nla_g, dtype=np.float64)
 
         A_IJ1 = self.A_IJ1(t, q)
         Omega1 = self.Omega1(t, q, u)
@@ -839,7 +829,7 @@ class ProjectedPositionOrientationBase:
 
     def g_dot_q(self, t, q, u):
         nq1 = self._nq1
-        g_dot_q = np.zeros((self.nla_g, self._nq), dtype=np.common_type(q, u))
+        g_dot_q = np.zeros((self.nla_g, self._nq), dtype=np.float64)
 
         A_IJ1 = self.A_IJ1(t, q)
         A_IJ1_q1 = self.A_IJ1_q1(t, q)
@@ -894,7 +884,7 @@ class ProjectedPositionOrientationBase:
         return self.W_g(t, q).T
 
     def g_ddot(self, t, q, u, u_dot):
-        g_ddot = np.zeros(self.nla_g, dtype=np.common_type(q, u, u_dot))
+        g_ddot = np.zeros(self.nla_g, dtype=np.float64)
 
         A_IJ1 = self.A_IJ1(t, q)
         Omega1 = self.Omega1(t, q, u)
@@ -965,7 +955,7 @@ class ProjectedPositionOrientationBase:
     def Wla_g_q(self, t, q, la_g):
         nq1 = self._nq1
         nu1 = self._nu1
-        Wla_g_q = np.zeros((self._nu, self._nq), dtype=np.common_type(q, la_g))
+        Wla_g_q = np.zeros((self._nu, self._nq), dtype=np.float64)
 
         A_IJ1 = self.A_IJ1(t, q)
         A_IJ1_q1 = self.A_IJ1_q1(t, q)
@@ -980,29 +970,18 @@ class ProjectedPositionOrientationBase:
             J_J1_q1 = self.J_J1_q1(t, q)
             J_J2_q2 = self.J_J2_q2(t, q)
             for i, ax in enumerate(self.constrained_axes_displacement):
-                Wla_g_q[:nu1, :nq1] += (
-                    np.einsum("i,ijk->jk", -la_g[i] * A_IJ1[:, ax], J_J1_q1)
-                    + np.einsum("ik,ij->jk", -la_g[i] * A_IJ1_q1[:, ax], J_J1)
-                    + np.einsum(
-                        "i,ijk->jk", la_g[i] * cross3(A_IJ1[:, ax], r_J1J2), J_R1_q1
-                    )
-                    + np.einsum(
-                        "ik,ij->jk", -la_g[i] * ax2skew(A_IJ1[:, ax]) @ r_OJ1_q1, J_R1
-                    )
-                    + np.einsum(
-                        "ik,ij->jk", -la_g[i] * ax2skew(r_J1J2) @ A_IJ1_q1[:, ax], J_R1
-                    )
+                e_J1 = A_IJ1[:, ax]
+                e_J1_q1 = A_IJ1_q1[:, ax]
+                Wla_g_q[:nu1, :nq1] += la_g[i] * (
+                    -(J_J1_q1.T @ e_J1).T
+                    - J_J1.T @ e_J1_q1
+                    + (J_R1_q1.T @ cross3(e_J1, r_J1J2)).T
+                    - J_R1.T @ (cross3(e_J1), r_OJ1_q1)
+                    - J_R1.T @ (cross3(r_J1J2), e_J1_q1)
                 )
-                Wla_g_q[:nu1, nq1:] += np.einsum(
-                    "ik,ij->jk", la_g[i] * ax2skew(A_IJ1[:, ax]) @ r_OJ2_q2, J_R1
-                )
-
-                Wla_g_q[nu1:, :nq1] += np.einsum(
-                    "ij,ik->kj", la_g[i] * A_IJ1_q1[:, ax], J_J2
-                )
-                Wla_g_q[nu1:, nq1:] += np.einsum(
-                    "i,ijk->jk", la_g[i] * A_IJ1[:, ax], J_J2_q2
-                )
+                Wla_g_q[:nu1, nq1:] += la_g[i] * J_R1.T @ (cross3(e_J1), r_OJ2_q2)
+                Wla_g_q[nu1:, :nq1] += la_g[i] * J_J2.T @ e_J1_q1
+                Wla_g_q[nu1:, nq1:] += la_g[i] * (J_J2_q2.T @ e_J1).T
 
         # TODO: Compare with PositionOrientationBase
         if self.constrain_orientation:
@@ -1019,20 +998,16 @@ class ProjectedPositionOrientationBase:
                 nla_g_trans = self.nla_g_trans
                 e_a, e_b = A_IJ1[:, a], A_IJ2[:, b]
                 n = cross3(e_a, e_b)
-                n_q1 = -ax2skew(e_b) @ A_IJ1_q1[:, a]
-                n_q2 = ax2skew(e_a) @ A_IJ2_q2[:, b]
-                Wla_g_q[:nu1, :nq1] += np.einsum(
-                    "i,ijk->jk", la_g[nla_g_trans + i] * n, J_R1_q1
-                ) + np.einsum("ij,ik->kj", la_g[nla_g_trans + i] * n_q1, J_R1)
-                Wla_g_q[:nu1, nq1:] += np.einsum(
-                    "ij,ik->kj", la_g[nla_g_trans + i] * n_q2, J_R1
+                n_q1 = -cross3(e_b, A_IJ1_q1[:, a])
+                n_q2 = cross3(e_a, A_IJ2_q2[:, b])
+                Wla_g_q[:nu1, :nq1] += la_g[nla_g_trans + i] * (
+                    (J_R1_q1.T @ n).T + J_R1.T @ n_q1
                 )
-                Wla_g_q[nu1:, :nq1] += np.einsum(
-                    "ij,ik->kj", -la_g[nla_g_trans + i] * n_q1, J_R2
+                Wla_g_q[:nu1, nq1:] += la_g[nla_g_trans + i] * J_R1.T @ n_q2
+                Wla_g_q[nu1:, :nq1] -= la_g[nla_g_trans + i] * J_R2.T @ n_q1
+                Wla_g_q[nu1:, nq1:] -= la_g[nla_g_trans + i] * (
+                    (J_R2_q2.T @ n).T + J_R2.T @ n_q2
                 )
-                Wla_g_q[nu1:, nq1:] += np.einsum(
-                    "i,ijk->jk", -la_g[nla_g_trans + i] * n, J_R2_q2
-                ) + np.einsum("ij,ik->kj", -la_g[nla_g_trans + i] * n_q2, J_R2)
 
         return Wla_g_q
 

@@ -594,7 +594,7 @@ def _eval_kinematics(alpha, qe, B_r_CP):
     r_OC1 = qe[7:10]
     P1 = qe[10:]
 
-    r_OC = (1 - alpha) * r_OC0 + alpha * r_OC1
+    r_OP = (1 - alpha) * r_OC0 + alpha * r_OC1
     P = (1 - alpha) * P0 + alpha * P1
 
     P_qe = np.zeros((4, 14), dtype=float)
@@ -608,31 +608,31 @@ def _eval_kinematics(alpha, qe, B_r_CP):
         A_IB_qe[i] = A_P[i] @ P_qe
 
     #
-    r_OP = r_OC + A_IB @ B_r_CP if B_r_CP.any() else r_OC
     r_OP_qe = np.zeros((3, 14), dtype=float)
     np.fill_diagonal(r_OP_qe[:, :3], 1 - alpha)
     np.fill_diagonal(r_OP_qe[:, 7:10], alpha)
-    if B_r_CP.any():
-        for i in range(3):
-            r_OP_qe[i] += B_r_CP @ A_IB_qe[i]
-    # r_OP_qe = r_OC_qe + B_r_CP @ A_IB_qe if B_r_CP.any() else r_OC_qe
 
     J_P = np.zeros((3, 12), dtype=float)
     J_P_q = np.zeros((3, 12, 14), dtype=float)
     np.fill_diagonal(J_P[:, :3], 1 - alpha)
     np.fill_diagonal(J_P[:, 6:9], alpha)
     if B_r_CP.any():
+        # r_OP
+        r_OP += A_IB @ B_r_CP
+        # r_OP_qe
+        for i in range(3):
+            r_OP_qe[i] += B_r_CP @ A_IB_qe[i]
+        # J_P
         B_r_CP_tilde = ax2skew(B_r_CP)
         r_CP_tilde = A_IB @ B_r_CP_tilde
         J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
         J_P[:, 9:12] = -alpha * r_CP_tilde
-        #
+        # J_P_q
         r_CP_tilde_q = np.zeros((3, 14), dtype=float)
         for i in range(3):
             r_CP_tilde_q[i] = B_r_CP_tilde.T @ A_IB_qe[i]
         J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
         J_P_q[:, 9:12] = -alpha * r_CP_tilde_q
-
     return r_OP, r_OP_qe, A_IB, A_IB_qe, J_P, J_P_q
 
 

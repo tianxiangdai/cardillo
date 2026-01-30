@@ -139,7 +139,7 @@ def cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     # fmt: off
     return np.array([a[1] * b[2] - a[2] * b[1], \
                      a[2] * b[0] - a[0] * b[2], \
-                     a[0] * b[1] - a[1] * b[0] ])
+                     a[0] * b[1] - a[1] * b[0] ], dtype=np.float64)
     # fmt: on
 
 
