@@ -458,7 +458,7 @@ class DiscreteRod(RodExportBase):
             B_r_CP.tobytes(),
         ),
     )
-    def _element_kinematics(self, qe, xi, B_r_CP):
+    def _element_kinematics(self, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
         alpha = self._alpha(xi)
         return _eval_kinematics(alpha, qe, B_r_CP)
 
@@ -628,7 +628,7 @@ def _eval_kinematics(alpha, qe, B_r_CP):
         J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
         J_P[:, 9:12] = -alpha * r_CP_tilde
         # J_P_q
-        r_CP_tilde_q = np.zeros((3, 14), dtype=float)
+        r_CP_tilde_q = np.zeros((3, 3, 14), dtype=float)
         for i in range(3):
             r_CP_tilde_q[i] = B_r_CP_tilde.T @ A_IB_qe[i]
         J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
