@@ -752,9 +752,9 @@ class PositionOrientationBase:
                 Omega21 = A_IB1 @ self.B_Omega1(t, q, u) - A_IB2 @ self.B_Omega2(
                     t, q, u
                 )
-                for i, (a, b) in enumerate(self.projection_pairs):
-                    cross = cross3(A_IJ1[:, a], A_IJ2[:, b])
-                    g_dot[3 + i] = cross @ Omega21
+                g_dot[3:] = [
+                    cross3(A_IJ1[:, a], A_IJ2[:, b]) for a, b in self.projection_pairs
+                ] @ Omega21
 
             if "W_g" in keys:
                 J_R1 = A_IB1 @ self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1)

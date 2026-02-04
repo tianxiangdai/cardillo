@@ -10,12 +10,10 @@ from cachetools import cachedmethod, LRUCache
 
 from cardillo.math_numba import (
     norm,
-    Log_SO3_quat,
-    Exp_SO3_quat,
-    T_SO3_inv_quat_P,
-    T_SO3_inv_quat,
     cross3,
     ax2skew,
+    Log_SO3_quat,
+    Exp_SO3_quat,
     Exp_SO3_quat_P,
 )
 from cardillo import math_jax
@@ -147,16 +145,21 @@ class DiscreteRod(RodExportBase):
 
             self._q_dot_q_coo.allocate(nodalDOF_p, nodalDOF_p)
             self._q_dot_u_coo.allocate(nodalDOF_r, nodalDOF_r_u)
-            self._q_dot_u_coo.allocate(nodalDOF_p, nodalDOF_p_u)
             self._h_u_coo.allocate(nodalDOF_p_u, nodalDOF_p_u)
             self._g_S_q_coo.allocate([n], nodalDOF_p)
+        for n in range(self.nnode):
+            nodalDOF_p = self.nodalDOF_p[n]
+            nodalDOF_p_u = self.nodalDOF_p_u[n]
+            nodalDOF_p = np.arange(nodalDOF_p.start, nodalDOF_p.stop)
+            nodalDOF_p_u = np.arange(nodalDOF_p_u.start, nodalDOF_p_u.stop)
+            self._q_dot_u_coo.allocate(nodalDOF_p, nodalDOF_p_u)
         self._q_dot_q_coo.fix_size()
         self._q_dot_u_coo.fix_size()
         self._h_u_coo.fix_size()
         self._g_S_q_coo.fix_size()
         # constant terms
         for n in range(self.nnode):
-            self._q_dot_u_coo.set_allocated(2 * n, np.eye(3, dtype=float))
+            self._q_dot_u_coo.set_allocated(n, np.eye(3, dtype=float))
 
         # cache
         self._alpha_cache = LRUCache(maxsize=self.nnode * 10)
@@ -303,14 +306,12 @@ class DiscreteRod(RodExportBase):
     def update(self, keys, t=None, q=None, u=None, la_c=None, **kwargs):
         q_els, la_c_els = self._view_element_q(q), self._view_element_la_c(la_c)
         q_nodes, u_nodes = self._view_nodal_q(q), self._view_nodal_u(u)
-        # W_c
         if "W_c" in keys:
             self._W_c_coo.data[:] = np.asarray(_W_c_el_batch(q_els, self.L)).ravel()
         if "Wla_c_q" in keys:
             self._Wla_c_q_coo.data[:] = np.asarray(
                 _Wla_c_el_qe_batch(q_els, la_c_els, self.L)
             ).ravel()
-        # c
         if "c" in keys:
             self._c = np.asarray(
                 _c_el_batch(
@@ -324,20 +325,15 @@ class DiscreteRod(RodExportBase):
                 )
             ).ravel()
         if "c_q" in keys:
-            c_el_qes = _c_el_qe_batch(self._view_element_q(q), self.L)
-            self._c_q_coo.data[:] = np.asarray(c_el_qes).ravel()
-        # h
+            self._c_q_coo.data[:] = np.asarray(
+                _c_el_qe_batch(self._view_element_q(q), self.L)
+            ).ravel()
         if "h" in keys:
             self._h = np.asarray(_h_node_batch(u_nodes, self._B_Theta_C)).ravel()
         if "h_u" in keys:
-            for n in range(self.nnode):
-                B_omega_IB = u_nodes[n, 3:]
-                self._h_u_coo.set_allocated(
-                    n,
-                    ax2skew(self._B_Theta_C[n] @ B_omega_IB)
-                    - ax2skew(B_omega_IB) @ self._B_Theta_C[n],
-                )
-        # q_dot
+            self._h_u_coo.data[:] = np.asarray(
+                _h_u_node_batch(self._view_nodal_u(u)[:, 3:], self._B_Theta_C)
+            ).ravel()
         if "q_dot" in keys:
             self._q_dot = np.asarray(_q_dot_node_batch(q_nodes, u_nodes)).ravel()
         if "q_dot_q" in keys:
@@ -345,13 +341,10 @@ class DiscreteRod(RodExportBase):
                 _p_dot_p_node_batch(q_nodes, u_nodes)
             ).ravel()
         if "q_dot_u" in keys:
-            for n in range(self.nnode):
-                p = q_nodes[n, 3:]
-                self._q_dot_u_coo.set_allocated(
-                    2 * n + 1, T_SO3_inv_quat(p, normalize=False)
-                )
+            self._q_dot_u_coo.data[-self.nnode * 12 :] = np.asarray(
+                math_jax.T_SO3_inv_quat_batch(q_nodes[:, 3:], False)
+            ).ravel()
 
-        #
         self._q = q
         self._u = u
         self._la_c = la_c
@@ -375,11 +368,9 @@ class DiscreteRod(RodExportBase):
     def q_dot_u(self, t, q):
         if self._q.tobytes() != q.tobytes():
             q = self._view_nodal_q(q)
-            for n in range(self.nnode):
-                p = q[n, 3:]
-                self._q_dot_u_coo.set_allocated(
-                    2 * n + 1, T_SO3_inv_quat(p, normalize=False)
-                )
+            self._q_dot_u_coo.data[-self.nnode * 12 :] = np.asarray(
+                math_jax.T_SO3_inv_quat_batch(q[:, 3:], False)
+            ).ravel()
         return self._q_dot_u_coo
 
     def step_callback(self, t, q, u):
@@ -402,14 +393,9 @@ class DiscreteRod(RodExportBase):
 
     def h_u(self, t, q, u):
         if self._u.tobytes() != u.tobytes():
-            for n in range(self.nnode):
-                nodalDOF_p_u = self.nodalDOF_p_u[n]
-                B_omega_IB = u[nodalDOF_p_u]
-                self._h_u_coo.set_allocated(
-                    n,
-                    ax2skew(self._B_Theta_C[n] @ B_omega_IB)
-                    - ax2skew(B_omega_IB) @ self._B_Theta_C[n],
-                )
+            self._h_u_coo.data[:] = np.asarray(
+                _h_u_node_batch(self._view_nodal_u(u)[:, 3:], self._B_Theta_C)
+            ).ravel()
         return self._h_u_coo
 
     #####################################################
@@ -706,6 +692,16 @@ def _h_node(u, B_Theta_C):
 
 
 _h_node_batch = jit(vmap(_h_node))
+
+
+def _h_u_node(B_omega_IB, B_Theta_C):
+    return (
+        math_jax.ax2skew(B_Theta_C @ B_omega_IB)
+        - math_jax.ax2skew(B_omega_IB) @ B_Theta_C
+    )
+
+
+_h_u_node_batch = jit(vmap(_h_u_node))
 
 
 def _q_dot_node(q, u):
