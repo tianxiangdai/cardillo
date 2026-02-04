@@ -4,6 +4,7 @@ import numpy as np
 
 from cardillo.math import ax2skew, cross3
 from cardillo.math.approx_fprime import approx_fprime
+from ..rods._base_export import RodExportBase
 
 
 def concatenate_qDOF(object):
@@ -193,6 +194,12 @@ class PositionOrientationBase:
         xi2=None,
         **kwargs,
     ):
+        if isinstance(subsystem2, RodExportBase):
+            subsystem1, subsystem2 = subsystem2, subsystem1
+            xi1, xi2 = xi2, xi1
+            projection_pairs_rotation = [
+                (pair[1], pair[0]) for pair in projection_pairs_rotation
+            ]
         self.subsystem1 = subsystem1
         self.subsystem2 = subsystem2
         self.xi1 = xi1
@@ -268,6 +275,12 @@ class PositionOrientationBase:
             assert self.nla_g_rot == 0  # Spherical case
 
         # auxiliary_functions(self, B1_r_P1J0, B2_r_P2J0, A_K1J0, A_K2J0)
+
+        # allocate memory
+        self._g = np.zeros(self.nla_g, dtype=float)
+        self._g_q = np.zeros((self.nla_g, self._nq), dtype=float)
+        self._g_dot = np.zeros(self.nla_g, dtype=float)
+        self._W_g = np.zeros((self._nu, self.nla_g), dtype=float)
 
     # auxiliary functions
     def r_OJ1(self, t, q):
@@ -375,83 +388,83 @@ class PositionOrientationBase:
         return self.subsystem2.J_P_q(t, q[self._nq1 :], self.xi2, self.B2_r_P2J0)
 
     def A_IB1(self, t, q):
-        if self._t != t or self._q.tobytes() != q.tobytes():
-            self._A_IB1 = self.subsystem1.A_IB(t, q[: self._nq1], self.xi1)
+        # if self._t != t or self._q.tobytes() != q.tobytes():
+        self._A_IB1 = self.subsystem1.A_IB(t, q[: self._nq1], self.xi1)
         return self._A_IB1
 
     def A_IB2(self, t, q):
-        if self._t != t or self._q.tobytes() != q.tobytes():
-            self._A_IB2 = self.subsystem2.A_IB(t, q[self._nq1 :], self.xi2)
+        # if self._t != t or self._q.tobytes() != q.tobytes():
+        self._A_IB2 = self.subsystem2.A_IB(t, q[self._nq1 :], self.xi2)
         return self._A_IB2
 
     def A_IB_q1(self, t, q):
-        if self._t != t or self._q.tobytes() != q.tobytes():
-            self._A_IB_q1 = self.subsystem1.A_IB_q(t, q[: self._nq1], self.xi1)
+        # if self._t != t or self._q.tobytes() != q.tobytes():
+        self._A_IB_q1 = self.subsystem1.A_IB_q(t, q[: self._nq1], self.xi1)
         return self._A_IB_q1
 
     def A_IB_q2(self, t, q):
-        if self._t != t or self._q.tobytes() != q.tobytes():
-            self._A_IB_q2 = self.subsystem2.A_IB_q(t, q[self._nq1 :], self.xi2)
+        # if self._t != t or self._q.tobytes() != q.tobytes():
+        self._A_IB_q2 = self.subsystem2.A_IB_q(t, q[self._nq1 :], self.xi2)
         return self._A_IB_q2
 
     def A_IJ1(self, t, q):
-        if self._t != t or self._q.tobytes() != q.tobytes():
-            self._A_IJ1 = self.A_IB1(t, q) @ self.A_K1J0
+        # if self._t != t or self._q.tobytes() != q.tobytes():
+        self._A_IJ1 = self.A_IB1(t, q) @ self.A_K1J0
         return self._A_IJ1
 
     def A_IJ2(self, t, q):
-        if self._t != t or self._q.tobytes() != q.tobytes():
-            self._A_IJ2 = self.A_IB2(t, q) @ self.A_K2J0
+        # if self._t != t or self._q.tobytes() != q.tobytes():
+        self._A_IJ2 = self.A_IB2(t, q) @ self.A_K2J0
         return self._A_IJ2
 
     def A_IJ1_q1(self, t, q):
-        if self._t != t or self._q.tobytes() != q.tobytes():
-            self._A_IJ1_q1 = self.A_K1J0.T @ self.A_IB_q1(t, q)
+        # if self._t != t or self._q.tobytes() != q.tobytes():
+        self._A_IJ1_q1 = self.A_K1J0.T @ self.A_IB_q1(t, q)
         return self._A_IJ1_q1
 
     def A_IJ2_q2(self, t, q):
-        if self._t != t or self._q.tobytes() != q.tobytes():
-            self._A_IJ2_q2 = self.A_K2J0.T @ self.A_IB_q2(t, q)
+        # if self._t != t or self._q.tobytes() != q.tobytes():
+        self._A_IJ2_q2 = self.A_K2J0.T @ self.A_IB_q2(t, q)
         return self._A_IJ2_q2
 
     def B_Omega1(self, t, q, u):
-        if (
-            self._t != t
-            or self._q.tobytes() != q.tobytes()
-            or self._u.tobytes() != u.tobytes()
-        ):
-            self._B_Omega1 = self.subsystem1.B_Omega(
-                t, q[: self._nq1], u[: self._nu1], self.xi1
-            )
+        # if (
+        #     self._t != t
+        #     or self._q.tobytes() != q.tobytes()
+        #     or self._u.tobytes() != u.tobytes()
+        # ):
+        self._B_Omega1 = self.subsystem1.B_Omega(
+            t, q[: self._nq1], u[: self._nu1], self.xi1
+        )
         return self._B_Omega1
 
     def B_Omega2(self, t, q, u):
-        if (
-            self._t != t
-            or self._q.tobytes() != q.tobytes()
-            or self._u.tobytes() != u.tobytes()
-        ):
-            self._B_Omega2 = self.subsystem2.B_Omega(
-                t, q[self._nq1 :], u[self._nu1 :], self.xi2
-            )
+        # if (
+        #     self._t != t
+        #     or self._q.tobytes() != q.tobytes()
+        #     or self._u.tobytes() != u.tobytes()
+        # ):
+        self._B_Omega2 = self.subsystem2.B_Omega(
+            t, q[self._nq1 :], u[self._nu1 :], self.xi2
+        )
         return self._B_Omega2
 
     def Omega1(self, t, q, u):
-        if (
-            self._t != t
-            or self._q.tobytes() != q.tobytes()
-            or self._u.tobytes() != u.tobytes()
-        ):
-            self._Omega1 = self.A_IB1(t, q) @ self.B_Omega1(t, q, u)
+        # if (
+        #     self._t != t
+        #     or self._q.tobytes() != q.tobytes()
+        #     or self._u.tobytes() != u.tobytes()
+        # ):
+        self._Omega1 = self.A_IB1(t, q) @ self.B_Omega1(t, q, u)
         return self._Omega1
 
     def Omega2(self, t, q, u):
-        if (
-            self._t != t
-            or self._q.tobytes() != q.tobytes()
-            or self._u.tobytes() != u.tobytes()
-        ):
-            self._Omega2 = self.A_IB2(t, q) @ self.B_Omega2(t, q, u)
+        # if (
+        #     self._t != t
+        #     or self._q.tobytes() != q.tobytes()
+        #     or self._u.tobytes() != u.tobytes()
+        # ):
+        self._Omega2 = self.A_IB2(t, q) @ self.B_Omega2(t, q, u)
         return self._Omega2
 
     def Omega1_q1(self, t, q, u):
@@ -525,51 +538,57 @@ class PositionOrientationBase:
         ).T
 
     def g(self, t, q):
-        g = np.zeros(self.nla_g, dtype=q.dtype)
-        g[:3] = self.r_OJ2(t, q) - self.r_OJ1(t, q)
+        g = self._g
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            g[:3] = self.r_OJ2(t, q) - self.r_OJ1(t, q)
 
-        if self.constrain_orientation:
-            A_IJ1 = self.A_IJ1(t, q)
-            A_IJ2 = self.A_IJ2(t, q)
-            for i, (a, b) in enumerate(self.projection_pairs):
-                g[3 + i] = A_IJ1[:, a] @ A_IJ2[:, b]
+            if self.constrain_orientation:
+                A_IJ1 = self.A_IJ1(t, q)
+                A_IJ2 = self.A_IJ2(t, q)
+                for i, (a, b) in enumerate(self.projection_pairs):
+                    g[3 + i] = A_IJ1[:, a] @ A_IJ2[:, b]
 
         return g
 
     def g_q(self, t, q):
-        nq1 = self._nq1
-        g_q = np.zeros((self.nla_g, self._nq), dtype=q.dtype)
+        g_q = self._g_q
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            nq1 = self._nq1
 
-        g_q[:3, :nq1] = -self.r_OJ1_q1(t, q)
-        g_q[:3, nq1:] = self.r_OJ2_q2(t, q)
+            g_q[:3, :nq1] = -self.r_OJ1_q1(t, q)
+            g_q[:3, nq1:] = self.r_OJ2_q2(t, q)
 
-        if self.constrain_orientation:
-            A_IJ1 = self.A_IJ1(t, q)
-            A_IJ2 = self.A_IJ2(t, q)
+            if self.constrain_orientation:
+                A_IJ1 = self.A_IJ1(t, q)
+                A_IJ2 = self.A_IJ2(t, q)
 
-            A_IJ1_q1 = self.A_IJ1_q1(t, q)
-            A_IJ2_q2 = self.A_IJ2_q2(t, q)
+                A_IJ1_q1 = self.A_IJ1_q1(t, q)
+                A_IJ2_q2 = self.A_IJ2_q2(t, q)
 
-            for i, (a, b) in enumerate(self.projection_pairs):
-                g_q[3 + i, :nq1] = A_IJ2[:, b] @ A_IJ1_q1[:, a]
-                g_q[3 + i, nq1:] = A_IJ1[:, a] @ A_IJ2_q2[:, b]
+                for i, (a, b) in enumerate(self.projection_pairs):
+                    g_q[3 + i, :nq1] = A_IJ2[:, b] @ A_IJ1_q1[:, a]
+                    g_q[3 + i, nq1:] = A_IJ1[:, a] @ A_IJ2_q2[:, b]
 
         return g_q
 
     def g_dot(self, t, q, u):
-        g_dot = np.zeros(self.nla_g, dtype=np.float64)
-        g_dot[:3] = self.v_J2(t, q, u) - self.v_J1(t, q, u)
+        g_dot = self._g_dot
+        if (
+            self._t != t
+            or self._q.tobytes() != q.tobytes()
+            or self._u.tobytes() != u.tobytes()
+        ):
+            g_dot[:3] = self.v_J2(t, q, u) - self.v_J1(t, q, u)
 
-        if self.constrain_orientation:
-            A_IJ1 = self.A_IJ1(t, q)
-            A_IJ2 = self.A_IJ2(t, q)
+            if self.constrain_orientation:
+                A_IJ1 = self.A_IJ1(t, q)
+                A_IJ2 = self.A_IJ2(t, q)
 
-            Omega21 = self.Omega1(t, q, u) - self.Omega2(t, q, u)
+                Omega21 = self.Omega1(t, q, u) - self.Omega2(t, q, u)
 
-            for i, (a, b) in enumerate(self.projection_pairs):
-                n = cross3(A_IJ1[:, a], A_IJ2[:, b])
-                g_dot[3 + i] = n @ Omega21
-
+                for i, (a, b) in enumerate(self.projection_pairs):
+                    n = cross3(A_IJ1[:, a], A_IJ2[:, b])
+                    g_dot[3 + i] = n @ Omega21
         return g_dot
 
     def g_dot_q(self, t, q, u):
@@ -628,26 +647,27 @@ class PositionOrientationBase:
         return g_ddot
 
     def W_g(self, t, q):
-        nu1 = self._nu1
-        W_g = np.zeros((self._nu, self.nla_g), dtype=q.dtype)
-        W_g[:nu1, :3] = -self.J_J1(t, q).T
-        W_g[nu1:, :3] = self.J_J2(t, q).T
+        W_g = self._W_g
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            nu1 = self._nu1
+            W_g[:nu1, :3] = -self.J_J1(t, q).T
+            W_g[nu1:, :3] = self.J_J2(t, q).T
 
-        if self.constrain_orientation:
-            A_IJ1 = self.A_IJ1(t, q)
-            A_IJ2 = self.A_IJ2(t, q)
-            J_R1 = self.J_R1(t, q)
-            J_R2 = self.J_R2(t, q)
+            if self.constrain_orientation:
+                A_IJ1 = self.A_IJ1(t, q)
+                A_IJ2 = self.A_IJ2(t, q)
+                J_R1 = self.J_R1(t, q)
+                J_R2 = self.J_R2(t, q)
 
-            n = np.array(
-                [cross3(A_IJ1[:, a], A_IJ2[:, b]) for a, b in self.projection_pairs]
-            )
-            W_g[:nu1, 3:] = (n @ J_R1).T
-            W_g[nu1:, 3:] = (-n @ J_R2).T
-            # for i, (a, b) in enumerate(self.projection_pairs):
-            #     n = cross3(A_IJ1[:, a], A_IJ2[:, b])
-            #     W_g[:nu1, 3 + i] = n @ J_R1
-            #     W_g[nu1:, 3 + i] = -n @ J_R2
+                n = np.array(
+                    [cross3(A_IJ1[:, a], A_IJ2[:, b]) for a, b in self.projection_pairs]
+                )
+                W_g[:nu1, 3:] = (n @ J_R1).T
+                W_g[nu1:, 3:] = (-n @ J_R2).T
+                # for i, (a, b) in enumerate(self.projection_pairs):
+                #     n = cross3(A_IJ1[:, a], A_IJ2[:, b])
+                #     W_g[:nu1, 3 + i] = n @ J_R1
+                #     W_g[nu1:, 3 + i] = -n @ J_R2
         return W_g
 
     def Wla_g_q(self, t, q, la_g):
@@ -694,18 +714,57 @@ class PositionOrientationBase:
     def update(self, keys, t=None, q=None, u=None, **kwargs):
         A_IB1 = self.A_IB1(t, q)
         A_IB2 = self.A_IB2(t, q)
-        A_IB_q1 = self.A_IB_q1(t, q)
-        A_IB_q2 = self.A_IB_q2(t, q)
-        self._A_IJ1 = A_IB1 @ self.A_K1J0
-        self._A_IJ2 = A_IB2 @ self.A_K2J0
-        self._A_IJ1_q1 = self.A_K1J0.T @ A_IB_q1
-        self._A_IJ2_q2 = self.A_K2J0.T @ A_IB_q2
+        A_IJ1 = A_IB1 @ self.A_K1J0
+        A_IJ2 = A_IB2 @ self.A_K2J0
+        if "g" in keys:
+            g = self._g
+            g[:3] = self.r_OJ2(t, q) - self.r_OJ1(t, q)
 
-        B_Omega1 = self.B_Omega1(t, q, u)
-        B_Omega2 = self.B_Omega2(t, q, u)
-        self._Omega1 = A_IB1 @ B_Omega1
-        self._Omega2 = A_IB2 @ B_Omega2
+        if "g_q" in keys:
+            nq1 = self._nq1
+            g_q = self._g_q
 
+            g_q[:3, :nq1] = -self.r_OJ1_q1(t, q)
+            g_q[:3, nq1:] = self.r_OJ2_q2(t, q)
+
+        if "g_dot" in keys:
+            g_dot = self._g_dot
+            g_dot[:3] = self.v_J2(t, q, u) - self.v_J1(t, q, u)
+        if "W_g" in keys:
+            nu1 = self._nu1
+            W_g = self._W_g
+            W_g[:nu1, :3] = -self.J_J1(t, q).T
+            W_g[nu1:, :3] = self.J_J2(t, q).T
+
+        if self.constrain_orientation:
+            if "g" in keys:
+                for i, (a, b) in enumerate(self.projection_pairs):
+                    g[3 + i] = A_IJ1[:, a] @ A_IJ2[:, b]
+            if "g_q" in keys:
+                A_IJ1_q1 = self.A_K1J0.T @ self.A_IB_q1(t, q)
+                A_IJ2_q2 = self.A_K2J0.T @ self.A_IB_q2(t, q)
+
+                for i, (a, b) in enumerate(self.projection_pairs):
+                    g_q[3 + i, :nq1] = A_IJ2[:, b] @ A_IJ1_q1[:, a]
+                    g_q[3 + i, nq1:] = A_IJ1[:, a] @ A_IJ2_q2[:, b]
+
+            if "g_dot" in keys:
+                Omega21 = A_IB1 @ self.B_Omega1(t, q, u) - A_IB2 @ self.B_Omega2(
+                    t, q, u
+                )
+                for i, (a, b) in enumerate(self.projection_pairs):
+                    cross = cross3(A_IJ1[:, a], A_IJ2[:, b])
+                    g_dot[3 + i] = cross @ Omega21
+
+            if "W_g" in keys:
+                J_R1 = A_IB1 @ self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1)
+                J_R2 = A_IB2 @ self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2)
+
+                cross = np.array(
+                    [cross3(A_IJ1[:, a], A_IJ2[:, b]) for a, b in self.projection_pairs]
+                )
+                W_g[:nu1, 3:] = (cross @ J_R1).T
+                W_g[nu1:, 3:] = (-cross @ J_R2).T
         self._t = t
         self._q = q
         self._u = u

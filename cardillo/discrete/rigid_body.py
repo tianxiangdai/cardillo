@@ -98,6 +98,8 @@ class RigidBody:
         self._B_J_R = np.zeros((3, self.nu), dtype=float)
         self._B_J_R[:, 3:] = eye3
         self._B_J_R_q = np.zeros((3, self.nu, self.nq), dtype=float)
+        self._A_IB_q = np.zeros((3, 3, self.nq), dtype=float)
+        self._r_OP_q = np.zeros((3, self.nq), dtype=float)
 
     #####################
     # utility
@@ -182,9 +184,8 @@ class RigidBody:
     #     key=lambda self, t, q, xi=None: q.tobytes(),
     # )
     def A_IB_q(self, t, q, xi=None):
-        A_IB_q = np.zeros((3, 3, self.nq), dtype=q.dtype)
-        A_IB_q[:, :, 3:] = Exp_SO3_quat_P(q[3:])
-        return A_IB_q
+        self._A_IB_q[:, :, 3:] = Exp_SO3_quat_P(q[3:])
+        return self._A_IB_q
 
     # @cachedmethod(
     #     lambda self: self.r_OP_cache,
@@ -197,11 +198,11 @@ class RigidBody:
         return q[:3] + self.A_IB(t, q) @ B_r_CP if B_r_CP.any() else q[:3]
 
     def r_OP_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
-        r_OP_q = np.zeros((3, self.nq), dtype=q.dtype)
-        r_OP_q[:, :3] = eye3
+        self._r_OP_q.fill(0.0)
+        self._r_OP_q[:, :3] = eye3
         if B_r_CP.any():
-            r_OP_q += B_r_CP @ self.A_IB_q(t, q)
-        return r_OP_q
+            self._r_OP_q += B_r_CP @ self.A_IB_q(t, q)
+        return self._r_OP_q
 
     # @cachedmethod(
     #     lambda self: self.v_P_cache,

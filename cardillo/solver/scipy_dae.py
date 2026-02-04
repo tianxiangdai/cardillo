@@ -267,7 +267,13 @@ class ScipyDAE:
 
         system = self.system
 
-        system.update(["g_dot", "q_dot", "c", "h", "W_c"], t, q=q, u=u, la_c=la_c)
+        system.update(
+            ["g", "g_q", "W_g", "g_dot", "q_dot", "c", "h", "W_c"],
+            t,
+            q=q,
+            u=u,
+            la_c=la_c,
+        )
         ####################
         # kinematic equation
         ####################
@@ -323,7 +329,13 @@ class ScipyDAE:
 
         # evaluate commonly used quantities
         system = self.system
-        system.update(["W_c", "q_dot_q", "q_dot_u", "c_q", "h_q", "h_u", "Wla_c_q"], t, q=q, u=u, la_c=la_c)
+        system.update(
+            ["g_q", "W_g", "W_c", "q_dot_q", "q_dot_u", "c_q", "h_q", "h_u", "Wla_c_q"],
+            t,
+            q=q,
+            u=u,
+            la_c=la_c,
+        )
         # first Jacobian w.r.t. y
         Jy_coo = self._Jy_coo
         if Jy_coo.data_allocation_length(0):
