@@ -215,6 +215,9 @@ class PositionOrientationBase:
         if "name" in kwargs:
             self.name = kwargs.get("name")
 
+        self._t = np.nan
+        self._q = self._u = np.empty(0)
+
     def assembler_callback(self):
         local_qDOF1, local_qDOF2 = concatenate_qDOF(self)
         concatenate_uDOF(self)
@@ -266,21 +269,37 @@ class PositionOrientationBase:
 
         # auxiliary_functions(self, B1_r_P1J0, B2_r_P2J0, A_K1J0, A_K2J0)
 
-    # auxiliary functions for subsystem 1
+    # auxiliary functions
     def r_OJ1(self, t, q):
         return self.subsystem1.r_OP(t, q[: self._nq1], self.xi1, self.B1_r_P1J0)
 
+    def r_OJ2(self, t, q):
+        return self.subsystem2.r_OP(t, q[self._nq1 :], self.xi2, self.B2_r_P2J0)
+
     def r_OJ1_q1(self, t, q):
         return self.subsystem1.r_OP_q(t, q[: self._nq1], self.xi1, self.B1_r_P1J0)
+
+    def r_OJ2_q2(self, t, q):
+        return self.subsystem2.r_OP_q(t, q[self._nq1 :], self.xi2, self.B2_r_P2J0)
 
     def v_J1(self, t, q, u):
         return self.subsystem1.v_P(
             t, q[: self._nq1], u[: self._nu1], self.xi1, self.B1_r_P1J0
         )
 
+    def v_J2(self, t, q, u):
+        return self.subsystem2.v_P(
+            t, q[self._nq1 :], u[self._nu1 :], self.xi2, self.B2_r_P2J0
+        )
+
     def v_J1_q1(self, t, q, u):
         return self.subsystem1.v_P_q(
             t, q[: self._nq1], u[: self._nu1], self.xi1, self.B1_r_P1J0
+        )
+
+    def v_J2_q2(self, t, q, u):
+        return self.subsystem2.v_P_q(
+            t, q[self._nq1 :], u[self._nu1 :], self.xi2, self.B2_r_P2J0
         )
 
     def a_J1(self, t, q, u, u_dot):
@@ -293,110 +312,6 @@ class PositionOrientationBase:
             self.B1_r_P1J0,
         )
 
-    def a_J1_q1(self, t, q, u, u_dot):
-        return self.subsystem1.a_P_q(
-            t,
-            q[: self._nq1],
-            u[: self._nu1],
-            u_dot[: self._nu1],
-            self.xi1,
-            self.B1_r_P1J0,
-        )
-
-    def a_J1_u1(self, t, q, u, u_dot):
-        return self.subsystem1.a_P_u(
-            t,
-            q[: self._nq1],
-            u[: self._nu1],
-            u_dot[: self._nu1],
-            self.xi1,
-            self.B1_r_P1J0,
-        )
-
-    def J_J1(self, t, q):
-        return self.subsystem1.J_P(t, q[: self._nq1], self.xi1, self.B1_r_P1J0)
-
-    def J_J1_q1(self, t, q):
-        return self.subsystem1.J_P_q(t, q[: self._nq1], self.xi1, self.B1_r_P1J0)
-
-    def A_IJ1(self, t, q):
-        return self.subsystem1.A_IB(t, q[: self._nq1], self.xi1) @ self.A_K1J0
-
-    def A_IJ1_q1(self, t, q):
-        return self.A_K1J0.T @ self.subsystem1.A_IB_q(t, q[: self._nq1], self.xi1)
-
-    def Omega1(self, t, q, u):
-        return self.subsystem1.A_IB(
-            t, q[: self._nq1], self.xi1
-        ) @ self.subsystem1.B_Omega(t, q[: self._nq1], u[: self._nu1], self.xi1)
-
-    def Omega1_q1(self, t, q, u):
-        return (
-            self.subsystem1.B_Omega(t, q[: self._nq1], u[: self._nu1], self.xi1)
-            @ self.subsystem1.A_IB_q(t, q[: self._nq1], xi=self.xi1)
-        ) + self.subsystem1.A_IB(
-            t, q[: self._nq1], xi=self.xi1
-        ) @ self.subsystem1.B_Omega_q(
-            t, q[: self._nq1], u[: self._nu1], self.xi1
-        )
-
-    def Psi1(self, t, q, u, u_dot):
-        return self.subsystem1.A_IB(
-            t, q[: self._nq1], self.xi1
-        ) @ self.subsystem1.B_Psi(
-            t, q[: self._nq1], u[: self._nu1], u_dot[: self._nu1], self.xi1
-        )
-
-    def Psi1_q1(self, t, q, u, u_dot):
-        return (
-            self.subsystem1.B_Psi(
-                t, q[: self._nq1], u[: self._nu1], u_dot[: self._nu1], self.xi1
-            )
-            @ self.subsystem1.A_IB_q(t, q[: self._nq1], xi=self.xi1)
-        ) + self.subsystem1.A_IB(
-            t, q[: self._nq1], xi=self.xi1
-        ) @ self.subsystem1.B_Psi_q(
-            t, q[: self._nq1], u[: self._nu1], u_dot[: self._nu1], self.xi1
-        )
-
-    def Psi1_u1(self, t, q, u, u_dot):
-        return self.subsystem1.A_IB(
-            t, q[: self._nq1], xi=self.xi1
-        ) @ self.subsystem1.B_Psi_u(
-            t, q[: self._nq1], u[: self._nu1], u_dot[: self._nu1], self.xi1
-        )
-
-    def J_R1(self, t, q):
-        return self.subsystem1.A_IB(
-            t, q[: self._nq1], self.xi1
-        ) @ self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1)
-
-    def J_R1_q1(self, t, q):
-        return (
-            self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1).T
-            @ self.subsystem1.A_IB_q(t, q[: self._nq1], self.xi1)
-        ) + (
-            self.subsystem1.B_J_R_q(t, q[: self._nq1], self.xi1).T
-            @ self.subsystem1.A_IB(t, q[: self._nq1], self.xi1).T
-        ).T
-
-    # auxiliary functions for subsystem 2
-    def r_OJ2(self, t, q):
-        return self.subsystem2.r_OP(t, q[self._nq1 :], self.xi2, self.B2_r_P2J0)
-
-    def r_OJ2_q2(self, t, q):
-        return self.subsystem2.r_OP_q(t, q[self._nq1 :], self.xi2, self.B2_r_P2J0)
-
-    def v_J2(self, t, q, u):
-        return self.subsystem2.v_P(
-            t, q[self._nq1 :], u[self._nu1 :], self.xi2, self.B2_r_P2J0
-        )
-
-    def v_J2_q2(self, t, q, u):
-        return self.subsystem2.v_P_q(
-            t, q[self._nq1 :], u[self._nu1 :], self.xi2, self.B2_r_P2J0
-        )
-
     def a_J2(self, t, q, u, u_dot):
         return self.subsystem2.a_P(
             t,
@@ -405,6 +320,16 @@ class PositionOrientationBase:
             u_dot[self._nu1 :],
             self.xi2,
             self.B2_r_P2J0,
+        )
+
+    def a_J1_q1(self, t, q, u, u_dot):
+        return self.subsystem1.a_P_q(
+            t,
+            q[: self._nq1],
+            u[: self._nu1],
+            u_dot[: self._nu1],
+            self.xi1,
+            self.B1_r_P1J0,
         )
 
     def a_J2_q2(self, t, q, u, u_dot):
@@ -417,6 +342,16 @@ class PositionOrientationBase:
             self.B2_r_P2J0,
         )
 
+    def a_J1_u1(self, t, q, u, u_dot):
+        return self.subsystem1.a_P_u(
+            t,
+            q[: self._nq1],
+            u[: self._nu1],
+            u_dot[: self._nu1],
+            self.xi1,
+            self.B1_r_P1J0,
+        )
+
     def a_J2_u2(self, t, q, u, u_dot):
         return self.subsystem2.a_P_u(
             t,
@@ -427,38 +362,126 @@ class PositionOrientationBase:
             self.B2_r_P2J0,
         )
 
+    def J_J1(self, t, q):
+        return self.subsystem1.J_P(t, q[: self._nq1], self.xi1, self.B1_r_P1J0)
+
     def J_J2(self, t, q):
         return self.subsystem2.J_P(t, q[self._nq1 :], self.xi2, self.B2_r_P2J0)
+
+    def J_J1_q1(self, t, q):
+        return self.subsystem1.J_P_q(t, q[: self._nq1], self.xi1, self.B1_r_P1J0)
 
     def J_J2_q2(self, t, q):
         return self.subsystem2.J_P_q(t, q[self._nq1 :], self.xi2, self.B2_r_P2J0)
 
+    def A_IB1(self, t, q):
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            self._A_IB1 = self.subsystem1.A_IB(t, q[: self._nq1], self.xi1)
+        return self._A_IB1
+
+    def A_IB2(self, t, q):
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            self._A_IB2 = self.subsystem2.A_IB(t, q[self._nq1 :], self.xi2)
+        return self._A_IB2
+
+    def A_IB_q1(self, t, q):
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            self._A_IB_q1 = self.subsystem1.A_IB_q(t, q[: self._nq1], self.xi1)
+        return self._A_IB_q1
+
+    def A_IB_q2(self, t, q):
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            self._A_IB_q2 = self.subsystem2.A_IB_q(t, q[self._nq1 :], self.xi2)
+        return self._A_IB_q2
+
+    def A_IJ1(self, t, q):
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            self._A_IJ1 = self.A_IB1(t, q) @ self.A_K1J0
+        return self._A_IJ1
+
     def A_IJ2(self, t, q):
-        return self.subsystem2.A_IB(t, q[self._nq1 :], self.xi2) @ self.A_K2J0
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            self._A_IJ2 = self.A_IB2(t, q) @ self.A_K2J0
+        return self._A_IJ2
+
+    def A_IJ1_q1(self, t, q):
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            self._A_IJ1_q1 = self.A_K1J0.T @ self.A_IB_q1(t, q)
+        return self._A_IJ1_q1
 
     def A_IJ2_q2(self, t, q):
-        return self.A_K2J0.T @ self.subsystem2.A_IB_q(t, q[self._nq1 :], self.xi2)
+        if self._t != t or self._q.tobytes() != q.tobytes():
+            self._A_IJ2_q2 = self.A_K2J0.T @ self.A_IB_q2(t, q)
+        return self._A_IJ2_q2
+
+    def B_Omega1(self, t, q, u):
+        if (
+            self._t != t
+            or self._q.tobytes() != q.tobytes()
+            or self._u.tobytes() != u.tobytes()
+        ):
+            self._B_Omega1 = self.subsystem1.B_Omega(
+                t, q[: self._nq1], u[: self._nu1], self.xi1
+            )
+        return self._B_Omega1
+
+    def B_Omega2(self, t, q, u):
+        if (
+            self._t != t
+            or self._q.tobytes() != q.tobytes()
+            or self._u.tobytes() != u.tobytes()
+        ):
+            self._B_Omega2 = self.subsystem2.B_Omega(
+                t, q[self._nq1 :], u[self._nu1 :], self.xi2
+            )
+        return self._B_Omega2
+
+    def Omega1(self, t, q, u):
+        if (
+            self._t != t
+            or self._q.tobytes() != q.tobytes()
+            or self._u.tobytes() != u.tobytes()
+        ):
+            self._Omega1 = self.A_IB1(t, q) @ self.B_Omega1(t, q, u)
+        return self._Omega1
 
     def Omega2(self, t, q, u):
-        return self.subsystem2.A_IB(
-            t, q[self._nq1 :], self.xi2
-        ) @ self.subsystem2.B_Omega(t, q[self._nq1 :], u[self._nu1 :], self.xi2)
+        if (
+            self._t != t
+            or self._q.tobytes() != q.tobytes()
+            or self._u.tobytes() != u.tobytes()
+        ):
+            self._Omega2 = self.A_IB2(t, q) @ self.B_Omega2(t, q, u)
+        return self._Omega2
+
+    def Omega1_q1(self, t, q, u):
+        return (self.B_Omega1(t, q, u) @ self.A_IB_q1(t, q)) + self.A_IB1(
+            t, q
+        ) @ self.subsystem1.B_Omega_q(t, q[: self._nq1], u[: self._nu1], self.xi1)
 
     def Omega2_q2(self, t, q, u):
-        return (
-            self.subsystem2.B_Omega(t, q[self._nq1 :], u[self._nu1 :], self.xi2)
-            @ self.subsystem2.A_IB_q(t, q[self._nq1 :], xi=self.xi2)
-        ) + self.subsystem2.A_IB(
-            t, q[self._nq1 :], xi=self.xi2
-        ) @ self.subsystem2.B_Omega_q(
-            t, q[self._nq1 :], u[self._nu1 :], self.xi2
+        return (self.B_Omega2(t, q, u) @ self.A_IB_q2(t, q)) + self.A_IB2(
+            t, q
+        ) @ self.subsystem2.B_Omega_q(t, q[self._nq1 :], u[self._nu1 :], self.xi2)
+
+    def Psi1(self, t, q, u, u_dot):
+        return self.A_IB1(t, q) @ self.subsystem1.B_Psi(
+            t, q[: self._nq1], u[: self._nu1], u_dot[: self._nu1], self.xi1
         )
 
     def Psi2(self, t, q, u, u_dot):
-        return self.subsystem2.A_IB(
-            t, q[self._nq1 :], self.xi2
-        ) @ self.subsystem2.B_Psi(
+        return self.A_IB2(t, q) @ self.subsystem2.B_Psi(
             t, q[self._nq1 :], u[self._nu1 :], u_dot[self._nu1 :], self.xi2
+        )
+
+    def Psi1_q1(self, t, q, u, u_dot):
+        return (
+            self.subsystem1.B_Psi(
+                t, q[: self._nq1], u[: self._nu1], u_dot[: self._nu1], self.xi1
+            )
+            @ self.A_IB_q1(t, q)
+        ) + self.A_IB1(t, q) @ self.subsystem1.B_Psi_q(
+            t, q[: self._nq1], u[: self._nu1], u_dot[: self._nu1], self.xi1
         )
 
     def Psi2_q2(self, t, q, u, u_dot):
@@ -466,35 +489,40 @@ class PositionOrientationBase:
             self.subsystem2.B_Psi(
                 t, q[self._nq1 :], u[self._nu1 :], u_dot[self._nu1 :], self.xi2
             )
-            @ self.subsystem2.A_IB_q(t, q[self._nq1 :], xi=self.xi2)
-        ) + self.subsystem2.A_IB(
-            t, q[self._nq1 :], xi=self.xi2
-        ) @ self.subsystem2.B_Psi_q(
+            @ self.A_IB_q2(t, q)
+        ) + self.A_IB2(t, q) @ self.subsystem2.B_Psi_q(
             t, q[self._nq1 :], u[self._nu1 :], u_dot[self._nu1 :], self.xi2
+        )
+
+    def Psi1_u1(self, t, q, u, u_dot):
+        return self.A_IB1(t, q) @ self.subsystem1.B_Psi_u(
+            t, q[: self._nq1], u[: self._nu1], u_dot[: self._nu1], self.xi1
         )
 
     def Psi2_u2(self, t, q, u, u_dot):
-        return self.subsystem2.A_IB(
-            t, q[self._nq1 :], xi=self.xi2
-        ) @ self.subsystem2.B_Psi_u(
+        return self.A_IB2(t, q) @ self.subsystem2.B_Psi_u(
             t, q[self._nq1 :], u[self._nu1 :], u_dot[self._nu1 :], self.xi2
         )
 
+    def J_R1(self, t, q):
+        return self.A_IB1(t, q) @ self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1)
+
     def J_R2(self, t, q):
-        return self.subsystem2.A_IB(
-            t, q[self._nq1 :], self.xi2
-        ) @ self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2)
+        return self.A_IB2(t, q) @ self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2)
+
+    def J_R1_q1(self, t, q):
+        return (
+            self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1).T @ self.A_IB_q1(t, q)
+        ) + (
+            self.subsystem1.B_J_R_q(t, q[: self._nq1], self.xi1).T @ self.A_IB1(t, q).T
+        ).T
 
     def J_R2_q2(self, t, q):
         return (
-            self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2).T
-            @ self.subsystem2.A_IB_q(t, q[self._nq1 :], self.xi2)
+            self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2).T @ self.A_IB_q2(t, q)
         ) + (
-            (
-                self.subsystem2.B_J_R_q(t, q[self._nq1 :], self.xi2).T
-                @ self.subsystem2.A_IB(t, q[self._nq1 :], self.xi2).T
-            ).T
-        )
+            self.subsystem2.B_J_R_q(t, q[self._nq1 :], self.xi2).T @ self.A_IB2(t, q).T
+        ).T
 
     def g(self, t, q):
         g = np.zeros(self.nla_g, dtype=q.dtype)
@@ -662,6 +690,25 @@ class PositionOrientationBase:
     def g_q_T_mu_q(self, t, q, mu):
         warnings.warn("'PositionOrientationBase.g_q_T_mu_q' uses numerical derivative.")
         return approx_fprime(q, lambda q: self.g_q(t, q).T @ mu)
+
+    def update(self, t, q=None, u=None, **kwargs):
+        A_IB1 = self.A_IB1(t, q)
+        A_IB2 = self.A_IB2(t, q)
+        A_IB_q1 = self.A_IB_q1(t, q)
+        A_IB_q2 = self.A_IB_q2(t, q)
+        self._A_IJ1 = A_IB1 @ self.A_K1J0
+        self._A_IJ2 = A_IB2 @ self.A_K2J0
+        self._A_IJ1_q1 = self.A_K1J0.T @ A_IB_q1
+        self._A_IJ2_q2 = self.A_K2J0.T @ A_IB_q2
+
+        B_Omega1 = self.B_Omega1(t, q, u)
+        B_Omega2 = self.B_Omega2(t, q, u)
+        self._Omega1 = A_IB1 @ B_Omega1
+        self._Omega2 = A_IB2 @ B_Omega2
+
+        self._t = t
+        self._q = q
+        self._u = u
 
 
 class ProjectedPositionOrientationBase:

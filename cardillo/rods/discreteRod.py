@@ -26,7 +26,6 @@ from cardillo.rods import CrossSectionInertias
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
 
-
 jax.config.update("jax_enable_x64", True)
 
 eye3 = jnp.eye(3, dtype=jnp.float64)
@@ -104,6 +103,7 @@ class DiscreteRod(RodExportBase):
         self._B_Theta_C = np.array(self._B_Theta_C)
 
         # allocate memery
+        self._q = self._u = self._la_c = np.empty(0)
         self._B_Omega_q = np.zeros((3, 14), dtype=float)
         self._B_J_R = np.zeros((3, 12), dtype=float)
         self._B_J_R_q = np.zeros((3, 12, 14), dtype=float)
@@ -300,6 +300,16 @@ class DiscreteRod(RodExportBase):
     def assembler_callback(self):
         self._c_la_c_coo()
 
+    def update(self, t, q=None, u=None, la_c=None, **kwargs):
+        return
+        self.W_c(t, q)
+        self.c(t, q, u, la_c)
+        self.h(t, q, u)
+
+        self._q = q
+        self._u = u
+        self._la_c = la_c
+
     #####################
     # kinematic equations
     #####################
@@ -335,9 +345,11 @@ class DiscreteRod(RodExportBase):
         return self.__M
 
     def h(self, t, q, u):
-        u = self._view_nodal_u(u)
-        h = _h_node_batch(u, self._B_Theta_C)
-        return np.asarray(h).ravel()
+        if self._u.tobytes() != u.tobytes():
+            u = self._view_nodal_u(u)
+            h = _h_node_batch(u, self._B_Theta_C)
+            self._h = np.asarray(h).ravel()
+        return self._h
 
     def h_u(self, t, q, u):
         for n in range(self.nnode):
@@ -377,16 +389,18 @@ class DiscreteRod(RodExportBase):
         return np.asarray(la_c_el).ravel()
 
     def c(self, t, q, u, la_c):
-        _c_els = _c_el_batch(
-            self._view_element_q(q),
-            self._view_element_la_c(la_c),
-            self.L,
-            self.B_Gamma0,
-            self.B_Kappa0,
-            self.C_n_inv,
-            self.C_m_inv,
-        )
-        return np.asarray(_c_els).ravel()
+        if self._la_c.tobytes() != la_c.tobytes() or self._q.tobytes() != q.tobytes():
+            _c_els = _c_el_batch(
+                self._view_element_q(q),
+                self._view_element_la_c(la_c),
+                self.L,
+                self.B_Gamma0,
+                self.B_Kappa0,
+                self.C_n_inv,
+                self.C_m_inv,
+            )
+            self._c = np.asarray(_c_els).ravel()
+        return self._c
 
     def c_la_c(self):
         return self.__c_la_c
@@ -412,8 +426,9 @@ class DiscreteRod(RodExportBase):
         return self._c_q_coo
 
     def W_c(self, t, q):
-        _W_c_els = _W_c_el_batch(self._view_element_q(q), self.L)
-        self._W_c_coo.data[:] = np.asarray(_W_c_els).ravel()
+        if self._q.tobytes() != q.tobytes():
+            _W_c_els = _W_c_el_batch(self._view_element_q(q), self.L)
+            self._W_c_coo.data[:] = np.asarray(_W_c_els).ravel()
         return self._W_c_coo
 
     def Wla_c_q(self, t, q, la_c):
@@ -588,11 +603,7 @@ class DiscreteRod(RodExportBase):
 
 @njit(cache=True)
 def _eval_kinematics(alpha, qe, B_r_CP):
-    r_OC0 = qe[:3]
-    P0 = qe[3:7]
-
-    r_OC1 = qe[7:10]
-    P1 = qe[10:]
+    r_OC0, P0, r_OC1, P1 = np.split(qe, [3, 7, 10])
 
     r_OP = (1 - alpha) * r_OC0 + alpha * r_OC1
     P = (1 - alpha) * P0 + alpha * P1
@@ -683,8 +694,7 @@ _la_c_el_batch = jit(vmap(_la_c_el))
 
 def _Wla_c_el_qe(qe, la_c, Le):
     A_IB_qe, B_Gamma_qe, B_Kappa_qe = _deval(qe, Le)
-    B_n = la_c[:3]
-    B_m = la_c[3:]
+    B_n, B_m = jnp.split(la_c, [3])
 
     W0 = B_n @ A_IB_qe
 
@@ -703,10 +713,8 @@ _Wla_c_el_qe_batch = jit(vmap(_Wla_c_el_qe))
 
 def _c_el(qe, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
     _, B_Gamma, B_Kappa = _eval(qe, Le)
-    c_el = jnp.zeros(_nla_c_el, dtype=jnp.float64)
     #
-    B_n = la_c[:3]
-    B_m = la_c[3:6]
+    B_n, B_m = jnp.split(la_c, [3])
 
     c_n = (C_n_inv @ B_n - (B_Gamma - B_Gamma0)) * Le
     c_m = (C_m_inv @ B_m - (B_Kappa - B_Kappa0)) * Le
@@ -749,11 +757,7 @@ _W_c_el_batch = jit(vmap(_W_c_el))
 
 
 def _eval(qe, Le):
-    r_OC0 = qe[:3]
-    P0 = qe[3:7]
-
-    r_OC1 = qe[7:10]
-    P1 = qe[10:]
+    r_OC0, P0, r_OC1, P1 = jnp.split(qe, [3, 7, 10])
 
     r_OC_s = (r_OC1 - r_OC0) / Le
 
@@ -773,11 +777,7 @@ _eval_batch = jit(vmap(_eval))
 
 
 def _deval(qe, Le):
-    r_OC0 = qe[:3]
-    P0 = qe[3:7]
-
-    r_OC1 = qe[7:10]
-    P1 = qe[10:]
+    r_OC0, P0, r_OC1, P1 = jnp.split(qe, [3, 7, 10])
 
     r_OC_s = (r_OC1 - r_OC0) / Le
     r_OC_s_qe = (

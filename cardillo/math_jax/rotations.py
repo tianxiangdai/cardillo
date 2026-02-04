@@ -140,7 +140,7 @@ def T_SO3_inv_quat(P, normalize=True):
     )
 
 
-T_SO3_inv_quat_batch = jit(vmap(T_SO3_inv_quat))
+T_SO3_inv_quat_batch = jit(vmap(T_SO3_inv_quat, in_axes=(0, None)))
 
 T_SO3_inv_quat_P = jit(jacfwd(T_SO3_inv_quat, argnums=0))
-T_SO3_inv_quat_P_batch = jit(vmap(jacfwd(T_SO3_inv_quat, argnums=0)))
+T_SO3_inv_quat_P_batch = jit(vmap(jacfwd(T_SO3_inv_quat, argnums=0), in_axes=(0, None)))

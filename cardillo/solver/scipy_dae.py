@@ -265,45 +265,48 @@ class ScipyDAE:
         la_gamma = yp[i3:i4]
         la_c = yp[i4:]
 
+        system = self.system
+
+        system.update(t, q=q, u=u, la_c=la_c)
         ####################
         # kinematic equation
         ####################
-        q_dot = q_dot - self.system.q_dot(t, q, u)
+        q_dot = q_dot - system.q_dot(t, q, u)
         if mu_g.size > 0:
-            q_dot -= mu_g @ self.system.g_q(t, q)
+            q_dot -= mu_g @ system.g_q(t, q)
         self._F[:i0] = q_dot
 
         #####################
         # equations of motion
         #####################
-        h = self.system.M(t, q) @ u_dot
-        h -= self.system.h(t, q, u)
-        la_tau = self.system.la_tau(t, q, u)
+        h = system.M(t, q) @ u_dot
+        h -= system.h(t, q, u)
+        la_tau = system.la_tau(t, q, u)
         if la_tau.size > 0:
-            h -= self.system.W_tau(t, q) @ la_tau
+            h -= system.W_tau(t, q) @ la_tau
         if la_g.size > 0:
-            h -= self.system.W_g(t, q) @ la_g
+            h -= system.W_g(t, q) @ la_g
         if la_gamma.size > 0:
-            h -= self.system.W_gamma(t, q) @ la_gamma
+            h -= system.W_gamma(t, q) @ la_gamma
         if la_c.size > 0:
-            h -= self.system.W_c(t, q) @ la_c
+            h -= system.W_c(t, q) @ la_c
         self._F[i0:i1] = h
 
         #######################
         # bilateral constraints
         #######################
         if i2 > i1:
-            self._F[i1:i2] = self.system.g(t, q)
+            self._F[i1:i2] = system.g(t, q)
         if i3 > i2:
-            self._F[i2:i3] = self.system.g_dot(t, q, u)
+            self._F[i2:i3] = system.g_dot(t, q, u)
         if i4 > i3:
-            self._F[i3:i4] = self.system.gamma(t, q, u)
+            self._F[i3:i4] = system.gamma(t, q, u)
 
         ############
         # compliance
         ############
         if y.size > i4:
-            self._F[i4:] = self.system.c(t, q, u, la_c)
+            self._F[i4:] = system.c(t, q, u, la_c)
 
         return self._F
 
@@ -319,59 +322,60 @@ class ScipyDAE:
         la_c = yp[i4:]
 
         # evaluate commonly used quantities
-
+        system = self.system
+        system.update(t, q=q, u=u, la_c=la_c)
         # first Jacobian w.r.t. y
         Jy_coo = self._Jy_coo
         if Jy_coo.data_allocation_length(0):
-            q_dot_q = self.system.q_dot_q(t, q, u)
+            q_dot_q = system.q_dot_q(t, q, u)
             Jy_coo.set_allocated(0, -q_dot_q)
         if Jy_coo.data_allocation_length(1):
-            q_dot_u = self.system.q_dot_u(t, q)
+            q_dot_u = system.q_dot_u(t, q)
             Jy_coo.set_allocated(1, -q_dot_u)
         if Jy_coo.data_allocation_length(2):
-            Mu_q = self.system.Mu_q(t, q, u_dot, "CooMatrix")
+            Mu_q = system.Mu_q(t, q, u_dot, "CooMatrix")
             Jy_coo.set_allocated(2, Mu_q)
         if Jy_coo.data_allocation_length(3):
-            h_q = self.system.h_q(t, q, u, "CooMatrix")
+            h_q = system.h_q(t, q, u, "CooMatrix")
             Jy_coo.set_allocated(3, -h_q)
         if Jy_coo.data_allocation_length(4):
-            Wla_tau_q = self.system.Wla_tau_q(t, q, u, "CooMatrix")
+            Wla_tau_q = system.Wla_tau_q(t, q, u, "CooMatrix")
             Jy_coo.set_allocated(4, -Wla_tau_q)
         if Jy_coo.data_allocation_length(5):
-            Wla_gamma_q = self.system.Wla_gamma_q(t, q, la_gamma, "CooMatrix")
+            Wla_gamma_q = system.Wla_gamma_q(t, q, la_gamma, "CooMatrix")
             Jy_coo.set_allocated(5, -Wla_gamma_q)
         if Jy_coo.data_allocation_length(6):
-            Wla_g_q = self.system.Wla_g_q(t, q, la_g, "CooMatrix")
+            Wla_g_q = system.Wla_g_q(t, q, la_g, "CooMatrix")
             Jy_coo.set_allocated(6, -Wla_g_q)
         if Jy_coo.data_allocation_length(7):
-            Wla_c_q = self.system.Wla_c_q(t, q, la_c, "CooMatrix")
+            Wla_c_q = system.Wla_c_q(t, q, la_c, "CooMatrix")
             Jy_coo.set_allocated(7, -Wla_c_q)
         if Jy_coo.data_allocation_length(8):
-            h_u = self.system.h_u(t, q, u, "CooMatrix")
+            h_u = system.h_u(t, q, u, "CooMatrix")
             Jy_coo.set_allocated(8, -h_u)
         if Jy_coo.data_allocation_length(9):
-            Wla_tau_u = self.system.Wla_tau_u(t, q, u, "CooMatrix")
+            Wla_tau_u = system.Wla_tau_u(t, q, u, "CooMatrix")
             Jy_coo.set_allocated(9, -Wla_tau_u)
         if Jy_coo.data_allocation_length(10):
-            g_q = self.system.g_q(t, q, "CooMatrix")
+            g_q = system.g_q(t, q, "CooMatrix")
             Jy_coo.set_allocated(10, g_q)
         if Jy_coo.data_allocation_length(11):
-            g_dot_q = self.system.g_dot_q(t, q, u, "CooMatrix")
+            g_dot_q = system.g_dot_q(t, q, u, "CooMatrix")
             Jy_coo.set_allocated(11, g_dot_q)
         if Jy_coo.data_allocation_length(12):
-            g_dot_u = self.system.g_dot_u(t, q, "CooMatrix")
+            g_dot_u = system.g_dot_u(t, q, "CooMatrix")
             Jy_coo.set_allocated(12, g_dot_u)
         if Jy_coo.data_allocation_length(13):
-            gamma_q = self.system.gamma_q(t, q, u, "CooMatrix")
+            gamma_q = system.gamma_q(t, q, u, "CooMatrix")
             Jy_coo.set_allocated(13, gamma_q)
         if Jy_coo.data_allocation_length(14):
-            gamma_u = self.system.gamma_u(t, q, "CooMatrix")
+            gamma_u = system.gamma_u(t, q, "CooMatrix")
             Jy_coo.set_allocated(14, gamma_u)
         if Jy_coo.data_allocation_length(15):
-            c_q = self.system.c_q(t, q, u, la_c, "CooMatrix")
+            c_q = system.c_q(t, q, u, la_c, "CooMatrix")
             Jy_coo.set_allocated(15, c_q)
         if Jy_coo.data_allocation_length(16):
-            c_u = self.system.c_u(t, q, u, la_c, "CooMatrix")
+            c_u = system.c_u(t, q, u, la_c, "CooMatrix")
             Jy_coo.set_allocated(16, c_u)
 
         # second Jacobian w.r.t. yp
@@ -381,18 +385,18 @@ class ScipyDAE:
         if Jyp_coo.data_allocation_length(1):
             Jyp_coo.set_allocated(1, -g_q.T)
         if Jyp_coo.data_allocation_length(2):
-            M = self.system.M(t, q)
+            M = system.M(t, q)
             Jyp_coo.set_allocated(2, M)
         if Jyp_coo.data_allocation_length(3):
-            W_g = self.system.W_g(t, q, "CooMatrix")
+            W_g = system.W_g(t, q, "CooMatrix")
             Jyp_coo.set_allocated(3, -W_g)
         if Jyp_coo.data_allocation_length(4):
-            W_gamma = self.system.W_gamma(t, q, "CooMatrix")
+            W_gamma = system.W_gamma(t, q, "CooMatrix")
             Jyp_coo.set_allocated(4, -W_gamma)
         if Jyp_coo.data_allocation_length(5):
-            W_c = self.system.W_c(t, q, "CooMatrix")
+            W_c = system.W_c(t, q, "CooMatrix")
             Jyp_coo.set_allocated(5, -W_c)
-        # c_la_c = self.system.c_la_c()
+        # c_la_c = system.c_la_c()
         # Jyp_coo.set_allocated(6, c_la_c)
 
         return Jy_coo.asformat("coo"), Jyp_coo.asformat("coo")

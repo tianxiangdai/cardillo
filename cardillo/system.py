@@ -474,11 +474,40 @@ class System:
         self._g_N_dot_u_coo.fix_size()
         self._Wla_N_q_coo.fix_size()
 
+        #
+        self._qdot = np.zeros(self.nq, dtype=float)
+        self._h = np.zeros(self.nu, dtype=float)
+        self._la_c = np.zeros(self.nla_c, dtype=float)
+        self._c = np.zeros(self.nla_c, dtype=float)
+        self._la_tau = np.zeros(self.nla_tau, dtype=float)
+        self._tau = np.zeros(self.ntau, dtype=float)
+        self._g_dot = np.zeros(self.nla_g, dtype=float)
+        self._g_ddot = np.zeros(self.nla_g, dtype=float)
+        self._g = np.zeros(self.nla_g, dtype=float)
+        self._gamma = np.zeros(self.nla_gamma, dtype=float)
+        self._gamma_dot = np.zeros(self.nla_gamma, dtype=float)
+        self._g_S = np.zeros(self.nla_S, dtype=float)
+        self._g_N = np.zeros(self.nla_N, dtype=float)
+        self._g_N_dot = np.zeros(self.nla_N, dtype=float)
+        self._g_N_ddot = np.zeros(self.nla_N, dtype=float)
+        self._xi_N = np.zeros(self.nla_N, dtype=float)
+        self._gamma_F = np.zeros(self.nla_F, dtype=float)
+        self._gamma_F_dot = np.zeros(self.nla_F, dtype=float)
+        self._xi_F = np.zeros(self.nla_F, dtype=float)
+
+    def update(self, t, q=None, u=None, la_c=None):
+        for contr in self.contributions:
+            if hasattr(contr, "update"):
+                q_contr = q[contr.qDOF] if hasattr(contr, "qDOF") else q
+                u_contr = u[contr.uDOF] if hasattr(contr, "uDOF") else u
+                la_c_contr = la_c[contr.la_cDOF] if hasattr(contr, "la_cDOF") else la_c
+                contr.update(t, q=q_contr, u=u_contr, la_c=la_c_contr)
+
     #####################
     # kinematic equations
     #####################
     def q_dot(self, t, q, u):
-        q_dot = np.zeros(self.nq, dtype=float)
+        q_dot = self._qdot
         for contr in self.__q_dot_contr:
             q_dot[contr.my_qDOF] = contr.q_dot(t, q[contr.qDOF], u[contr.uDOF])
         return q_dot
@@ -536,7 +565,8 @@ class System:
         return coo.asformat(format)
 
     def h(self, t, q, u):
-        h = np.zeros(self.nu, dtype=float)
+        h = self._h
+        h *= 0
         for contr in self.__h_contr:
             h[contr.uDOF] += contr.h(t, q[contr.qDOF], u[contr.uDOF])
         return h
@@ -555,13 +585,13 @@ class System:
     # compliance
     ############
     def la_c(self, t, q, u):
-        la_c = np.zeros(self.nla_c, dtype=float)
+        la_c = self._la_c
         for contr in self.__c_contr:
             la_c[contr.la_cDOF] = contr.la_c(t, q[contr.qDOF], u[contr.uDOF])
         return la_c
 
     def c(self, t, q, u, la_c):
-        c = np.zeros(self.nla_c, dtype=float)
+        c = self._c
         for contr in self.__c_contr:
             c[contr.la_cDOF] = contr.c(
                 t, q[contr.qDOF], u[contr.uDOF], la_c[contr.la_cDOF]
@@ -606,7 +636,7 @@ class System:
         return self._W_tau_coo.asformat(format)
 
     def la_tau(self, t, q, u):
-        la_tau = np.zeros(self.nla_tau, dtype=float)
+        la_tau = self._la_tau
         for contr in self.__la_tau_contr:
             la_tau[contr.la_tauDOF] = contr.la_tau(t, q[contr.qDOF], u[contr.uDOF])
         return la_tau
@@ -626,7 +656,7 @@ class System:
         return self._Wla_tau_u_coo.asformat(format)
 
     def tau(self, t):
-        tau = np.zeros(self.ntau)
+        tau = self._tau
         for contr in self.__tau_contr:
             tau[contr.tauDOF] = contr.tau(t)
         return tau
@@ -653,7 +683,7 @@ class System:
     # bilateral constraints on position level
     #########################################
     def g(self, t, q):
-        g = np.zeros(self.nla_g, dtype=q.dtype)
+        g = self._g
         for contr in self.__g_contr:
             g[contr.la_gDOF] = contr.g(t, q[contr.qDOF])
         return g
@@ -687,7 +717,7 @@ class System:
         return self._Wla_g_q_coo.asformat(format)
 
     def g_dot(self, t, q, u):
-        g_dot = np.zeros(self.nla_g, dtype=float)
+        g_dot = self._g_dot
         for contr in self.__g_contr:
             g_dot[contr.la_gDOF] = contr.g_dot(t, q[contr.qDOF], u[contr.uDOF])
         return g_dot
@@ -709,7 +739,7 @@ class System:
         return self._g_dot_q_coo.asformat(format)
 
     def g_ddot(self, t, q, u, u_dot):
-        g_ddot = np.zeros(self.nla_g, dtype=float)
+        g_ddot = self._g_ddot
         for contr in self.__g_contr:
             g_ddot[contr.la_gDOF] = contr.g_ddot(
                 t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
@@ -724,7 +754,7 @@ class System:
     # bilateral constraints on velocity level
     #########################################
     def gamma(self, t, q, u):
-        gamma = np.zeros(self.nla_gamma, dtype=float)
+        gamma = self._gamma
         for contr in self.__gamma_contr:
             gamma[contr.la_gammaDOF] = contr.gamma(t, q[contr.qDOF], u[contr.uDOF])
         return gamma
@@ -748,7 +778,7 @@ class System:
         return coo.asformat(format)
 
     def gamma_dot(self, t, q, u, u_dot):
-        gamma_dot = np.zeros(self.nla_gamma, dtype=float)
+        gamma_dot = self._gamma_dot
         for contr in self.__gamma_contr:
             gamma_dot[contr.la_gammaDOF] = contr.gamma_dot(
                 t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
@@ -793,7 +823,7 @@ class System:
     # stabilization conditions for the kinematic equation
     #####################################################
     def g_S(self, t, q):
-        g_S = np.zeros(self.nla_S, dtype=q.dtype)
+        g_S = self._g_S
         for contr in self.__g_S_contr:
             g_S[contr.la_SDOF] = contr.g_S(t, q[contr.qDOF])
         return g_S
@@ -807,7 +837,7 @@ class System:
     # normal contacts
     #################
     def g_N(self, t, q):
-        g_N = np.zeros(self.nla_N, dtype=q.dtype)
+        g_N = self._g_N
         for contr in self.__g_N_contr:
             g_N[contr.la_NDOF] = contr.g_N(t, q[contr.qDOF])
         return g_N
@@ -823,13 +853,13 @@ class System:
         return self._W_N_coo.asformat(format)
 
     def g_N_dot(self, t, q, u):
-        g_N_dot = np.zeros(self.nla_N, dtype=float)
+        g_N_dot = self._g_N_dot
         for contr in self.__g_N_contr:
             g_N_dot[contr.la_NDOF] = contr.g_N_dot(t, q[contr.qDOF], u[contr.uDOF])
         return g_N_dot
 
     def g_N_ddot(self, t, q, u, u_dot):
-        g_N_ddot = np.zeros(self.nla_N, dtype=float)
+        g_N_ddot = self._g_N_ddot
         for contr in self.__g_N_contr:
             g_N_ddot[contr.la_NDOF] = contr.g_N_ddot(
                 t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
@@ -837,7 +867,7 @@ class System:
         return g_N_ddot
 
     def xi_N(self, t_pre, t_post, q_pre, q_post, u_pre, u_post):
-        xi_N = np.zeros(self.nla_N, dtype=float)
+        xi_N = self._xi_N
         for contr in self.__g_N_contr:
             xi_N[contr.la_NDOF] = contr.g_N_dot(
                 t_post, q_post[contr.qDOF], u_post[contr.uDOF]
@@ -874,13 +904,13 @@ class System:
     # friction
     #################
     def gamma_F(self, t, q, u):
-        gamma_F = np.zeros(self.nla_F, dtype=float)
+        gamma_F = self._gamma_F
         for contr in self.__gamma_F_contr:
             gamma_F[contr.la_FDOF] = contr.gamma_F(t, q[contr.qDOF], u[contr.uDOF])
         return gamma_F
 
     def gamma_F_dot(self, t, q, u, u_dot):
-        gamma_F_dot = np.zeros(self.nla_F, dtype=float)
+        gamma_F_dot = self._gamma_F_dot
         for contr in self.__gamma_F_contr:
             gamma_F_dot[contr.la_FDOF] = contr.gamma_F_dot(
                 t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
@@ -888,7 +918,7 @@ class System:
         return gamma_F_dot
 
     def xi_F(self, t_pre, t_post, q_pre, q_post, u_pre, u_post):
-        xi_F = np.zeros(self.nla_F, dtype=float)
+        xi_F = self._xi_F
         for contr in self.__gamma_F_contr:
             xi_F[contr.la_FDOF] = contr.gamma_F(
                 t_post, q_post[contr.qDOF], u_post[contr.uDOF]
