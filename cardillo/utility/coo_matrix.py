@@ -295,18 +295,21 @@ class CooMatrix(_CooMatrix):
         return result
 
     def __neg__(self):
+        coo = CooMatrix(self.shape)
         if isinstance(self._CooMatrix__data, array):
-            self._CooMatrix__data = array("d", [-el for el in self._CooMatrix__data])
+            coo._CooMatrix__data = array("d", [-el for el in self._CooMatrix__data])
         elif isinstance(self._CooMatrix__data, np.ndarray):
-            self._CooMatrix__data *= -1
-        return self
+            coo._CooMatrix__data = -self._CooMatrix__data
+        coo._CooMatrix__row = self._CooMatrix__row
+        coo._CooMatrix__col = self._CooMatrix__col
+        return coo
 
     def transpose(self, copy=False):
         coo = CooMatrix((self.shape[1], self.shape[0]))
         if copy:
             coo._CooMatrix__data = self._CooMatrix__data.copy()
-            coo._CooMatrix__row = self._CooMatrix__col.copy()
-            coo._CooMatrix__col = self._CooMatrix__row.copy()
+            coo._CooMatrix__row = self._CooMatrix__col
+            coo._CooMatrix__col = self._CooMatrix__row
         else:
             coo._CooMatrix__data = self._CooMatrix__data
             coo._CooMatrix__row = self._CooMatrix__col
@@ -315,7 +318,7 @@ class CooMatrix(_CooMatrix):
 
     @property
     def T(self):
-        return self.transpose(copy=False)
+        return self.transpose(copy=True)
 
     def __repr__(self):
         print("nrow:", len(self.row))

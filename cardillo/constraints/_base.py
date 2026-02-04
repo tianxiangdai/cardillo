@@ -691,7 +691,7 @@ class PositionOrientationBase:
         warnings.warn("'PositionOrientationBase.g_q_T_mu_q' uses numerical derivative.")
         return approx_fprime(q, lambda q: self.g_q(t, q).T @ mu)
 
-    def update(self, t, q=None, u=None, **kwargs):
+    def update(self, keys, t=None, q=None, u=None, **kwargs):
         A_IB1 = self.A_IB1(t, q)
         A_IB2 = self.A_IB2(t, q)
         A_IB_q1 = self.A_IB_q1(t, q)

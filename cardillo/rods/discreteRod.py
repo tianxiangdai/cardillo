@@ -300,12 +300,47 @@ class DiscreteRod(RodExportBase):
     def assembler_callback(self):
         self._c_la_c_coo()
 
-    def update(self, t, q=None, u=None, la_c=None, **kwargs):
-        return
-        self.W_c(t, q)
-        self.c(t, q, u, la_c)
-        self.h(t, q, u)
+    def update(self, keys, t=None, q=None, u=None, la_c=None, **kwargs):
+        q_els = self._view_element_q(q)
+        la_c_els = self._view_element_la_c(la_c)
+        q_nodes, u_nodes = self._view_nodal_q(q), self._view_nodal_u(u)
+        # W_c
+        if "W_c" in keys:
+            self._W_c_coo.data[:] = np.asarray(_W_c_el_batch(q_els, self.L)).ravel()
+        if "Wla_c_q" in keys:
+            self._Wla_c_q_coo.data[:] = np.asarray(_Wla_c_el_qe_batch(q_els, la_c_els, self.L)).ravel()
+        # c
+        if "c" in keys:
+            self._c = np.asarray(
+                _c_el_batch(q_els, la_c_els, self.L, self.B_Gamma0, self.B_Kappa0, self.C_n_inv, self.C_m_inv)
+                ).ravel()
+        if "c_q" in keys:
+            c_el_qes = _c_el_qe_batch(self._view_element_q(q), self.L)
+            self._c_q_coo.data[:] = np.asarray(c_el_qes).ravel()
+        # h
+        if "h" in keys:
+            self._h = np.asarray(_h_node_batch(u_nodes, self._B_Theta_C)).ravel()
+        if "h_u" in keys:
+            for n in range(self.nnode):
+                B_omega_IB = u_nodes[n, 3:]
+                self._h_u_coo.set_allocated(
+                    n,
+                    ax2skew(self._B_Theta_C[n] @ B_omega_IB)
+                    - ax2skew(B_omega_IB) @ self._B_Theta_C[n],
+                )
+        # q_dot
+        if "q_dot" in keys:
+            self._q_dot = np.asarray(_q_dot_node_batch(q_nodes, u_nodes)).ravel()
+        if "q_dot_q" in keys:
+            self._q_dot_q_coo.data[:] = np.asarray(_p_dot_p_node_batch(q_nodes, u_nodes)).ravel()
+        if "q_dot_u" in keys:
+            for n in range(self.nnode):
+                p = q_nodes[n, 3:]
+                self._q_dot_u_coo.set_allocated(
+                    2 * n + 1, T_SO3_inv_quat(p, normalize=False)
+                )
 
+        #
         self._q = q
         self._u = u
         self._la_c = la_c
@@ -314,23 +349,26 @@ class DiscreteRod(RodExportBase):
     # kinematic equations
     #####################
     def q_dot(self, t, q, u):
-        q, u = self._view_nodal_q(q), self._view_nodal_u(u)
-        q_dot = _q_dot_node_batch(q, u)
-        return np.asarray(q_dot).ravel()
+        if self._q.tobytes() != q.tobytes() or self._u.tobytes() != u.tobytes():
+            q, u = self._view_nodal_q(q), self._view_nodal_u(u)
+            q_dot = _q_dot_node_batch(q, u)
+            self._q_dot = np.asarray(q_dot).ravel()
+        return self._q_dot
 
     def q_dot_q(self, t, q, u):
-        q, u = self._view_nodal_q(q), self._view_nodal_u(u)
-        self._q_dot_q_coo.data[:] = np.asarray(_p_dot_p_node_batch(q, u)).ravel()
+        if self._q.tobytes() != q.tobytes() or self._u.tobytes() != u.tobytes():
+            q, u = self._view_nodal_q(q), self._view_nodal_u(u)
+            self._q_dot_q_coo.data[:] = np.asarray(_p_dot_p_node_batch(q, u)).ravel()
         return self._q_dot_q_coo
 
     def q_dot_u(self, t, q):
-        for n in range(self.nnode):
-            nodalDOF_p = self.nodalDOF_p[n]
-
-            p = q[nodalDOF_p]
-            self._q_dot_u_coo.set_allocated(
-                2 * n + 1, T_SO3_inv_quat(p, normalize=False)
-            )
+        if self._q.tobytes() != q.tobytes():
+            q = self._view_nodal_q(q)
+            for n in range(self.nnode):
+                p = q[n, 3:]
+                self._q_dot_u_coo.set_allocated(
+                    2 * n + 1, T_SO3_inv_quat(p, normalize=False)
+                )
         return self._q_dot_u_coo
 
     def step_callback(self, t, q, u):
@@ -352,14 +390,15 @@ class DiscreteRod(RodExportBase):
         return self._h
 
     def h_u(self, t, q, u):
-        for n in range(self.nnode):
-            nodalDOF_p_u = self.nodalDOF_p_u[n]
-            B_omega_IB = u[nodalDOF_p_u]
-            self._h_u_coo.set_allocated(
-                n,
-                ax2skew(self._B_Theta_C[n] @ B_omega_IB)
-                - ax2skew(B_omega_IB) @ self._B_Theta_C[n],
-            )
+        if self._u.tobytes() != u.tobytes():
+            for n in range(self.nnode):
+                nodalDOF_p_u = self.nodalDOF_p_u[n]
+                B_omega_IB = u[nodalDOF_p_u]
+                self._h_u_coo.set_allocated(
+                    n,
+                    ax2skew(self._B_Theta_C[n] @ B_omega_IB)
+                    - ax2skew(B_omega_IB) @ self._B_Theta_C[n],
+                )
         return self._h_u_coo
 
     #####################################################
@@ -420,8 +459,9 @@ class DiscreteRod(RodExportBase):
         self.__c_la_c_el_inv = np.array(self.__c_la_c_el_inv)
 
     def c_q(self, t, q, u, la_c):
-        c_el_qes = _c_el_qe_batch(self._view_element_q(q), self.L)
-        self._c_q_coo.data[:] = np.asarray(c_el_qes).ravel()
+        if self._q.tobytes() != q.tobytes():
+            c_el_qes = _c_el_qe_batch(self._view_element_q(q), self.L)
+            self._c_q_coo.data[:] = np.asarray(c_el_qes).ravel()
 
         return self._c_q_coo
 
@@ -432,10 +472,11 @@ class DiscreteRod(RodExportBase):
         return self._W_c_coo
 
     def Wla_c_q(self, t, q, la_c):
-        W = _Wla_c_el_qe_batch(
-            self._view_element_q(q), self._view_element_la_c(la_c), self.L
-        )
-        self._Wla_c_q_coo.data[:] = np.asarray(W).ravel()
+        if self._q.tobytes() != q.tobytes() or self._la_c.tobytes() != la_c.tobytes():
+            W = _Wla_c_el_qe_batch(
+                self._view_element_q(q), self._view_element_la_c(la_c), self.L
+            )
+            self._Wla_c_q_coo.data[:] = np.asarray(W).ravel()
         return self._Wla_c_q_coo
 
     @cachedmethod(lambda self: self._alpha_cache, key=lambda self, xi: xi)
