@@ -8,8 +8,8 @@ class Sensor:
     def __init__(self, xi, alpha):
         self.xi = xi
         self.alpha = alpha
-        self._local_qDOF_P = np.arange(14)
-        self._local_uDOF_P = np.arange(12)
+        self._local_qDOF_P = slice(0, 14)
+        self._local_uDOF_P = slice(0, 12)
 
         # allocate memery
         self._B_Omega_q = np.zeros((3, 14), dtype=float)

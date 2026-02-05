@@ -500,13 +500,11 @@ class DiscreteRod(RodExportBase):
     ####################################################
     def elDOF_P(self, xi):
         el = self.element_number(xi)
-        elDOF = self.elDOF[el]
-        return np.arange(elDOF.start, elDOF.stop)
+        return self.elDOF[el]
 
     def elDOF_P_u(self, xi):
-        num = self.element_number(xi)
-        elDOF_u = self.elDOF_u[num]
-        return np.arange(elDOF_u.start, elDOF_u.stop)
+        el = self.element_number(xi)
+        return self.elDOF_u[el]
 
     def local_qDOF_P(self, xi):
         return self.elDOF_P(xi)
