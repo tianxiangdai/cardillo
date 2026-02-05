@@ -24,6 +24,8 @@ from cardillo.rods import CrossSectionInertias
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
 
+from .sensor import Sensor
+
 jax.config.update("jax_enable_x64", True)
 
 eye3 = jnp.eye(3, dtype=jnp.float64)
@@ -99,6 +101,8 @@ class DiscreteRod(RodExportBase):
             self.__M[nodalDOF_r_u, nodalDOF_r_u] = mass * np.eye(3, dtype=float)
             self.__M[nodalDOF_p_u, nodalDOF_p_u] = B_Theta_C
         self._B_Theta_C = np.array(self._B_Theta_C)
+
+        self._sensors = []
 
         # allocate memery
         self._q = self._u = self._la_c = np.empty(0)
@@ -209,6 +213,12 @@ class DiscreteRod(RodExportBase):
         q_body = q[self.qDOF]
         return np.array([q_body[nodalDOF] for nodalDOF in self.nodalDOF_r]).T
 
+    def get_sensor(self, xi):
+        alpha = self._alpha(xi)
+        s = Sensor(xi, alpha)
+        self._sensors.append(s)
+        return s
+
     @staticmethod
     def straight_configuration(
         nelement,
@@ -302,6 +312,12 @@ class DiscreteRod(RodExportBase):
 
     def assembler_callback(self):
         self._c_la_c_coo()
+        for s in self._sensors:
+            num = self.element_number(s.xi)
+            s.t0 = self.t0
+            s.q0 = self.q0[self.elDOF[num]]
+            s.qDOF = self.qDOF[self.elDOF[num]]
+            s.uDOF = self.qDOF[self.elDOF_u[num]]
 
     def update(self, keys, t=None, q=None, u=None, la_c=None, **kwargs):
         q_els, la_c_els = self._view_element_q(q), self._view_element_la_c(la_c)
@@ -325,14 +341,12 @@ class DiscreteRod(RodExportBase):
                 )
             ).ravel()
         if "c_q" in keys:
-            self._c_q_coo.data[:] = np.asarray(
-                _c_el_qe_batch(self._view_element_q(q), self.L)
-            ).ravel()
+            self._c_q_coo.data[:] = np.asarray(_c_el_qe_batch(q_els, self.L)).ravel()
         if "h" in keys:
             self._h = np.asarray(_h_node_batch(u_nodes, self._B_Theta_C)).ravel()
         if "h_u" in keys:
             self._h_u_coo.data[:] = np.asarray(
-                _h_u_node_batch(self._view_nodal_u(u)[:, 3:], self._B_Theta_C)
+                _h_u_node_batch(u_nodes[:, 3:], self._B_Theta_C)
             ).ravel()
         if "q_dot" in keys:
             self._q_dot = np.asarray(_q_dot_node_batch(q_nodes, u_nodes)).ravel()

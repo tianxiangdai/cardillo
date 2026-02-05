@@ -4,7 +4,7 @@ import numpy as np
 
 from cardillo.math import ax2skew, cross3
 from cardillo.math.approx_fprime import approx_fprime
-from ..rods._base_export import RodExportBase
+from ..rods.discreteRod import DiscreteRod
 
 
 def concatenate_qDOF(object):
@@ -194,12 +194,14 @@ class PositionOrientationBase:
         xi2=None,
         **kwargs,
     ):
-        if isinstance(subsystem2, RodExportBase):
+        if isinstance(subsystem2, DiscreteRod):
             subsystem1, subsystem2 = subsystem2, subsystem1
             xi1, xi2 = xi2, xi1
             projection_pairs_rotation = [
                 (pair[1], pair[0]) for pair in projection_pairs_rotation
             ]
+        if isinstance(subsystem1, DiscreteRod):
+            subsystem1 = subsystem1.get_sensor(xi1)
         self.subsystem1 = subsystem1
         self.subsystem2 = subsystem2
         self.xi1 = xi1
@@ -280,6 +282,7 @@ class PositionOrientationBase:
         self._g = np.zeros(self.nla_g, dtype=float)
         self._g_q = np.zeros((self.nla_g, self._nq), dtype=float)
         self._g_dot = np.zeros(self.nla_g, dtype=float)
+        self._g_dot_q = np.zeros((self.nla_g, self._nq), dtype=float)
         self._W_g = np.zeros((self._nu, self.nla_g), dtype=float)
 
     # auxiliary functions
@@ -593,31 +596,35 @@ class PositionOrientationBase:
 
     def g_dot_q(self, t, q, u):
         nq1 = self._nq1
-        g_dot_q = np.zeros((self.nla_g, self._nq), dtype=np.float64)
+        g_dot_q = self._g_dot_q
+        if (
+            self._t != t
+            or self._q.tobytes() != q.tobytes()
+            or self._u.tobytes() != u.tobytes()
+        ):
+            g_dot_q[:3, :nq1] = -self.v_J1_q1(t, q, u)
+            g_dot_q[:3, nq1:] = self.v_J2_q2(t, q, u)
 
-        g_dot_q[:3, :nq1] = -self.v_J1_q1(t, q, u)
-        g_dot_q[:3, nq1:] = self.v_J2_q2(t, q, u)
+            if self.constrain_orientation:
+                A_IJ1 = self.A_IJ1(t, q)
+                A_IJ2 = self.A_IJ2(t, q)
 
-        if self.constrain_orientation:
-            A_IJ1 = self.A_IJ1(t, q)
-            A_IJ2 = self.A_IJ2(t, q)
+                A_IJ1_q1 = self.A_IJ1_q1(t, q)
+                A_IJ2_q2 = self.A_IJ2_q2(t, q)
 
-            A_IJ1_q1 = self.A_IJ1_q1(t, q)
-            A_IJ2_q2 = self.A_IJ2_q2(t, q)
+                Omega21 = self.Omega1(t, q, u) - self.Omega2(t, q, u)
+                Omega1_q1 = self.Omega1_q1(t, q, u)
+                Omega2_q2 = self.Omega2_q2(t, q, u)
 
-            Omega21 = self.Omega1(t, q, u) - self.Omega2(t, q, u)
-            Omega1_q1 = self.Omega1_q1(t, q, u)
-            Omega2_q2 = self.Omega2_q2(t, q, u)
-
-            for i, (a, b) in enumerate(self.projection_pairs):
-                e_a, e_b = A_IJ1[:, a], A_IJ2[:, b]
-                n = cross3(e_a, e_b)
-                g_dot_q[3 + i, :nq1] = (
-                    n @ Omega1_q1 - Omega21 @ ax2skew(e_b) @ A_IJ1_q1[:, a]
-                )
-                g_dot_q[3 + i, nq1:] = (
-                    -n @ Omega2_q2 + Omega21 @ ax2skew(e_a) @ A_IJ2_q2[:, b]
-                )
+                for i, (a, b) in enumerate(self.projection_pairs):
+                    e_a, e_b = A_IJ1[:, a], A_IJ2[:, b]
+                    n = cross3(e_a, e_b)
+                    g_dot_q[3 + i, :nq1] = (
+                        n @ Omega1_q1 - Omega21 @ ax2skew(e_b) @ A_IJ1_q1[:, a]
+                    )
+                    g_dot_q[3 + i, nq1:] = (
+                        -n @ Omega2_q2 + Omega21 @ ax2skew(e_a) @ A_IJ2_q2[:, b]
+                    )
 
         return g_dot_q
 
@@ -719,6 +726,10 @@ class PositionOrientationBase:
         if "g" in keys:
             g = self._g
             g[:3] = self.r_OJ2(t, q) - self.r_OJ1(t, q)
+            if self.constrain_orientation:
+                if "g" in keys:
+                    for i, (a, b) in enumerate(self.projection_pairs):
+                        g[3 + i] = A_IJ1[:, a] @ A_IJ2[:, b]
 
         if "g_q" in keys:
             nq1 = self._nq1
@@ -726,45 +737,71 @@ class PositionOrientationBase:
 
             g_q[:3, :nq1] = -self.r_OJ1_q1(t, q)
             g_q[:3, nq1:] = self.r_OJ2_q2(t, q)
+            if self.constrain_orientation:
+                if "g_q" in keys:
+                    A_IJ1_q1 = self.A_K1J0.T @ self.A_IB_q1(t, q)
+                    A_IJ2_q2 = self.A_K2J0.T @ self.A_IB_q2(t, q)
+
+                    for i, (a, b) in enumerate(self.projection_pairs):
+                        g_q[3 + i, :nq1] = A_IJ2[:, b] @ A_IJ1_q1[:, a]
+                        g_q[3 + i, nq1:] = A_IJ1[:, a] @ A_IJ2_q2[:, b]
 
         if "g_dot" in keys:
             g_dot = self._g_dot
             g_dot[:3] = self.v_J2(t, q, u) - self.v_J1(t, q, u)
+            if self.constrain_orientation:
+                if "g_dot" in keys:
+                    Omega21 = A_IB1 @ self.B_Omega1(t, q, u) - A_IB2 @ self.B_Omega2(
+                        t, q, u
+                    )
+                    g_dot[3:] = [
+                        cross3(A_IJ1[:, a], A_IJ2[:, b])
+                        for a, b in self.projection_pairs
+                    ] @ Omega21
+
+        if "g_dot_q" in keys:
+            nq1 = self._nq1
+            g_dot_q = self._g_dot_q
+
+            g_dot_q[:3, :nq1] = -self.v_J1_q1(t, q, u)
+            g_dot_q[:3, nq1:] = self.v_J2_q2(t, q, u)
+            if self.constrain_orientation:
+                if "g_dot_q" in keys:
+                    A_IJ1_q1 = self.A_K1J0.T @ self.A_IB_q1(t, q)
+                    A_IJ2_q2 = self.A_K2J0.T @ self.A_IB_q2(t, q)
+
+                    Omega21 = self.Omega1(t, q, u) - self.Omega2(t, q, u)
+                    Omega1_q1 = self.Omega1_q1(t, q, u)
+                    Omega2_q2 = self.Omega2_q2(t, q, u)
+
+                    for i, (a, b) in enumerate(self.projection_pairs):
+                        e_a, e_b = A_IJ1[:, a], A_IJ2[:, b]
+                        n = cross3(e_a, e_b)
+                        g_dot_q[3 + i, :nq1] = (
+                            n @ Omega1_q1 - Omega21 @ ax2skew(e_b) @ A_IJ1_q1[:, a]
+                        )
+                        g_dot_q[3 + i, nq1:] = (
+                            -n @ Omega2_q2 + Omega21 @ ax2skew(e_a) @ A_IJ2_q2[:, b]
+                        )
+
         if "W_g" in keys:
             nu1 = self._nu1
             W_g = self._W_g
             W_g[:nu1, :3] = -self.J_J1(t, q).T
             W_g[nu1:, :3] = self.J_J2(t, q).T
+            if self.constrain_orientation:
+                if "W_g" in keys:
+                    J_R1 = A_IB1 @ self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1)
+                    J_R2 = A_IB2 @ self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2)
 
-        if self.constrain_orientation:
-            if "g" in keys:
-                for i, (a, b) in enumerate(self.projection_pairs):
-                    g[3 + i] = A_IJ1[:, a] @ A_IJ2[:, b]
-            if "g_q" in keys:
-                A_IJ1_q1 = self.A_K1J0.T @ self.A_IB_q1(t, q)
-                A_IJ2_q2 = self.A_K2J0.T @ self.A_IB_q2(t, q)
-
-                for i, (a, b) in enumerate(self.projection_pairs):
-                    g_q[3 + i, :nq1] = A_IJ2[:, b] @ A_IJ1_q1[:, a]
-                    g_q[3 + i, nq1:] = A_IJ1[:, a] @ A_IJ2_q2[:, b]
-
-            if "g_dot" in keys:
-                Omega21 = A_IB1 @ self.B_Omega1(t, q, u) - A_IB2 @ self.B_Omega2(
-                    t, q, u
-                )
-                g_dot[3:] = [
-                    cross3(A_IJ1[:, a], A_IJ2[:, b]) for a, b in self.projection_pairs
-                ] @ Omega21
-
-            if "W_g" in keys:
-                J_R1 = A_IB1 @ self.subsystem1.B_J_R(t, q[: self._nq1], self.xi1)
-                J_R2 = A_IB2 @ self.subsystem2.B_J_R(t, q[self._nq1 :], self.xi2)
-
-                cross = np.array(
-                    [cross3(A_IJ1[:, a], A_IJ2[:, b]) for a, b in self.projection_pairs]
-                )
-                W_g[:nu1, 3:] = (cross @ J_R1).T
-                W_g[nu1:, 3:] = (-cross @ J_R2).T
+                    cross = np.array(
+                        [
+                            cross3(A_IJ1[:, a], A_IJ2[:, b])
+                            for a, b in self.projection_pairs
+                        ]
+                    )
+                    W_g[:nu1, 3:] = (cross @ J_R1).T
+                    W_g[nu1:, 3:] = (-cross @ J_R2).T
         self._t = t
         self._q = q
         self._u = u

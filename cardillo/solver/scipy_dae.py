@@ -330,7 +330,18 @@ class ScipyDAE:
         # evaluate commonly used quantities
         system = self.system
         system.update(
-            ["g_q", "W_g", "W_c", "q_dot_q", "q_dot_u", "c_q", "h_q", "h_u", "Wla_c_q"],
+            [
+                "g_q",
+                "g_dot_q",
+                "W_g",
+                "W_c",
+                "q_dot_q",
+                "q_dot_u",
+                "c_q",
+                "h_q",
+                "h_u",
+                "Wla_c_q",
+            ],
             t,
             q=q,
             u=u,
