@@ -133,7 +133,7 @@ class Sensor:
         return self._B_Psi_u
 
 
-@njit
+@njit(cache=True)
 def _r_OP(alpha, q, B_r_CP):
     r_OC0, r_OC1 = q[:3], q[7:10]
 
@@ -144,7 +144,7 @@ def _r_OP(alpha, q, B_r_CP):
     return r_OP
 
 
-@njit
+@njit(cache=True)
 def _r_OP_q(alpha, q, B_r_CP):
     r_OP_q = np.zeros((3, 14), dtype=float)
     r_OP_q[0, 0] = r_OP_q[1, 1] = r_OP_q[2, 2] = 1 - alpha
@@ -156,7 +156,7 @@ def _r_OP_q(alpha, q, B_r_CP):
     return r_OP_q
 
 
-@njit
+@njit(cache=True)
 def _v_P(alpha, q, u, B_Omega, B_r_CP):
     v_C0 = u[:3]
     v_C1 = u[6:9]
@@ -168,7 +168,7 @@ def _v_P(alpha, q, u, B_Omega, B_r_CP):
         return v_C
 
 
-@njit
+@njit(cache=True)
 def _v_P_q(alpha, q, u, B_r_CP):
     v_P_q = np.zeros((3, 14), dtype=float)
     if B_r_CP.any():
@@ -180,7 +180,7 @@ def _v_P_q(alpha, q, u, B_r_CP):
     return v_P_q
 
 
-@njit
+@njit(cache=True)
 def _J_P(alpha, q, B_r_CP):
     J_P = np.zeros((3, 12), dtype=float)
     J_P[0, 0] = J_P[1, 1] = J_P[2, 2] = 1 - alpha
@@ -193,7 +193,7 @@ def _J_P(alpha, q, B_r_CP):
     return J_P
 
 
-@njit
+@njit(cache=True)
 def _J_P_q(alpha, q, B_r_CP):
     J_P_q = np.zeros((3, 12, 14), dtype=float)
     if B_r_CP.any():
@@ -207,14 +207,14 @@ def _J_P_q(alpha, q, B_r_CP):
     return J_P_q
 
 
-@njit
+@njit(cache=True)
 def _A_IB(alpha, q):
     P0, P1 = q[3:7], q[10:]
     P = (1 - alpha) * P0 + alpha * P1
     return Exp_SO3_quat(P, normalize=True)
 
 
-@njit
+@njit(cache=True)
 def _A_IB_q(alpha, q):
     P0, P1 = q[3:7], q[10:]
     P = (1 - alpha) * P0 + alpha * P1
@@ -231,7 +231,7 @@ def _A_IB_q(alpha, q):
     return A_IB_q
 
 
-@njit
+@njit(cache=True)
 def _B_Omega(alpha, u):
     B_Omega_1 = u[3:6]
     B_Omega_2 = u[9:12]

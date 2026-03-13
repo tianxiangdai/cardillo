@@ -88,10 +88,10 @@ def Exp_SO3_quat(P, normalize: bool = True):
     )
 
 
-Exp_SO3_quat_batch = jit(vmap(Exp_SO3_quat))
+Exp_SO3_quat_batch = jit(vmap(Exp_SO3_quat, in_axes=(0, None)))
 
 Exp_SO3_quat_P = jit(jacfwd(Exp_SO3_quat, argnums=0))
-Exp_SO3_quat_P_batch = jit(vmap(jacfwd(Exp_SO3_quat, argnums=0)))
+Exp_SO3_quat_P_batch = jit(vmap(jacfwd(Exp_SO3_quat, argnums=0), in_axes=(0, None)))
 
 
 Log_SO3_quat = Spurrier
@@ -114,10 +114,10 @@ def T_SO3_quat(P, normalize=True):
     )
 
 
-T_SO3_quat_batch = jit(vmap(T_SO3_quat))
+T_SO3_quat_batch = jit(vmap(T_SO3_quat, in_axes=(0, None)))
 
 T_SO3_quat_P = jit(jacfwd(T_SO3_quat, argnums=0))
-T_SO3_quat_P_batch = jit(vmap(jacfwd(T_SO3_quat, argnums=0)))
+T_SO3_quat_P_batch = jit(vmap(jacfwd(T_SO3_quat, argnums=0), in_axes=(0, None)))
 
 
 @jit
