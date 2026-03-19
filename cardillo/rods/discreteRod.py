@@ -640,7 +640,6 @@ class DiscreteRod(RodExportBase):
         return _eval_deval_els(q_els, self.L)
 
     def update(self, keys, t=None, q=None, u=None, la_c=None, **kwargs):
-        return
         q_els, la_c_els = self._view_element_q(q), self._view_element_la_c(la_c)
         q_nodes, u_nodes = self._view_nodal_q(q), self._view_nodal_u(u)
 
