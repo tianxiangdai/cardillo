@@ -148,7 +148,8 @@ class DiscreteRod(RodExportBase):
             nodalDOF_p_u = np.arange(nodalDOF_p_u.start, nodalDOF_p_u.stop)
 
             self._q_dot_q_coo.allocate(nodalDOF_p, nodalDOF_p)
-            self._q_dot_u_coo.allocate(nodalDOF_r, nodalDOF_r_u)
+            for a, b in zip(nodalDOF_r, nodalDOF_r_u):
+                self._q_dot_u_coo.allocate([a], [b])
             self._h_u_coo.allocate(nodalDOF_p_u, nodalDOF_p_u)
             self._g_S_q_coo.allocate([n], nodalDOF_p)
         for n in range(self.nnode):
@@ -163,7 +164,8 @@ class DiscreteRod(RodExportBase):
         self._g_S_q_coo.fix_size()
         # constant terms
         for n in range(self.nnode):
-            self._q_dot_u_coo.set_allocated(n, np.eye(3, dtype=float))
+            for i in range(3):
+                self._q_dot_u_coo.set_allocated(3 * n + i, np.array([1.0]))
 
         # cache
         self._alpha_cache = LRUCache(maxsize=self.nnode * 10)
@@ -178,10 +180,7 @@ class DiscreteRod(RodExportBase):
         )
         self.B_Gamma0 = []
         self.B_Kappa0 = []
-        A_IB0, B_Gamma0, B_Kappa0 = _eval_batch(self._view_element_q(Q), self.L)
-        A_IB0 = np.asarray(A_IB0)
-        self.B_Gamma0 = np.asarray(B_Gamma0)
-        self.B_Kappa0 = np.asarray(B_Kappa0)
+        _, self.B_Gamma0, self.B_Kappa0 = self._eval_els(self._view_element_q(Q))
 
     def element_number(self, xi):
         num = int(xi * self.nelement)
@@ -314,92 +313,39 @@ class DiscreteRod(RodExportBase):
             s.qDOF = self.qDOF[self.elDOF[num]]
             s.uDOF = self.qDOF[self.elDOF_u[num]]
 
-    def update(self, keys, t=None, q=None, u=None, la_c=None, **kwargs):
-        q_els, la_c_els = self._view_element_q(q), self._view_element_la_c(la_c)
-        q_nodes, u_nodes = self._view_nodal_q(q), self._view_nodal_u(u)
-        # _eval
-        if "W_c" in keys or "c" in keys:
-            _eval = True
-        else:
-            _eval = False
-        if "Wla_c_q" in keys or "c_q" in keys:
-            _deval = True
-        else:
-            _deval = False
-        if _eval and _deval:
-            A_IB, B_Gamma, B_Kappa, A_IB_qe, B_Gamma_qe, B_Kappa_qe = _eval_deval_batch(
-                q_els, self.L
-            )
-        elif _eval:
-            A_IB, B_Gamma, B_Kappa = _eval_batch(q_els, self.L)
-        elif _deval:
-            A_IB_qe, B_Gamma_qe, B_Kappa_qe = _deval_batch(q_els, self.L)
-
-        if "W_c" in keys:
-            self._W_c_coo.data[:] = (
-                _W_c_el_batch(A_IB, B_Gamma, B_Kappa, self.L)
-            ).ravel()
-        if "Wla_c_q" in keys:
-            self._Wla_c_q_coo.data[:] = (
-                _Wla_c_el_qe_batch(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c_els, self.L)
-            ).ravel()
-        if "c" in keys:
-            self._c = (
-                _c_el_batch(
-                    B_Gamma,
-                    B_Kappa,
-                    la_c_els,
-                    self.L,
-                    self.B_Gamma0,
-                    self.B_Kappa0,
-                    self.C_n_inv,
-                    self.C_m_inv,
-                )
-            ).ravel()
-        if "c_q" in keys:
-            self._c_q_coo.data[:] = (
-                _c_el_qe_batch(B_Gamma_qe, B_Kappa_qe, self.L)
-            ).ravel()
-        if "h" in keys:
-            self._h = (_h_node_batch(u_nodes, self._B_Theta_C)).ravel()
-        if "h_u" in keys:
-            self._h_u_coo.data[:] = (
-                _h_u_node_batch(u_nodes[:, 3:], self._B_Theta_C)
-            ).ravel()
-        if "q_dot" in keys:
-            self._q_dot = (_q_dot_node_batch(q_nodes, u_nodes)).ravel()
-        if "q_dot_q" in keys:
-            self._q_dot_q_coo.data[:] = (_p_dot_p_node_batch(q_nodes, u_nodes)).ravel()
-        if "q_dot_u" in keys:
-            self._q_dot_u_coo.data[-self.nnode * 12 :] = (
-                math_jax.T_SO3_inv_quat_batch(q_nodes[:, 3:], False)
-            ).ravel()
-
-        self._q = q
-        self._u = u
-        self._la_c = la_c
-
     #####################
     # kinematic equations
     #####################
+    @staticmethod
+    def _q_dot_nodes(q_nodes, u_nodes):
+        return _q_dot_nodes(q_nodes, u_nodes)
+
     def q_dot(self, t, q, u):
         if self._q.tobytes() != q.tobytes() or self._u.tobytes() != u.tobytes():
-            q, u = self._view_nodal_q(q), self._view_nodal_u(u)
-            q_dot = _q_dot_node_batch(q, u)
-            self._q_dot = np.asarray(q_dot).ravel()
+            self._q_dot = self._q_dot_nodes(
+                self._view_nodal_q(q), self._view_nodal_u(u)
+            ).ravel()
         return self._q_dot
+
+    @staticmethod
+    def _p_dot_q_nodes(q_nodes, u_nodes):
+        return _p_dot_q_nodes(q_nodes, u_nodes)
 
     def q_dot_q(self, t, q, u):
         if self._q.tobytes() != q.tobytes() or self._u.tobytes() != u.tobytes():
-            q, u = self._view_nodal_q(q), self._view_nodal_u(u)
-            self._q_dot_q_coo.data[:] = np.asarray(_p_dot_p_node_batch(q, u)).ravel()
+            self._q_dot_q_coo.data[:] = self._p_dot_q_nodes(
+                self._view_nodal_q(q), self._view_nodal_u(u)
+            ).ravel()
         return self._q_dot_q_coo
+
+    @staticmethod
+    def _p_dot_u_nodes(q_nodes):
+        return math_jax.T_SO3_inv_quat_batch(q_nodes[:, 3:], False)
 
     def q_dot_u(self, t, q):
         if self._q.tobytes() != q.tobytes():
-            q = self._view_nodal_q(q)
-            self._q_dot_u_coo.data[-self.nnode * 12 :] = np.asarray(
-                math_jax.T_SO3_inv_quat_batch(q[:, 3:], False)
+            self._q_dot_u_coo.data[-self.nnode * 12 :] = self._p_dot_u_nodes(
+                self._view_nodal_q(q)
             ).ravel()
         return self._q_dot_u_coo
 
@@ -414,18 +360,20 @@ class DiscreteRod(RodExportBase):
     def M(self, t, q):
         return self.__M
 
+    def _h_nodes(self, u_nodes):
+        return _h_nodes(u_nodes, self._B_Theta_C)
+
     def h(self, t, q, u):
         if self._u.tobytes() != u.tobytes():
-            u = self._view_nodal_u(u)
-            h = _h_node_batch(u, self._B_Theta_C)
-            self._h = np.asarray(h).ravel()
+            self._h = self._h_nodes(self._view_nodal_u(u)).ravel()
         return self._h
+
+    def _h_u_nodes(self, u_nodes):
+        return _h_u_nodes(u_nodes[:, 3:], self._B_Theta_C)
 
     def h_u(self, t, q, u):
         if self._u.tobytes() != u.tobytes():
-            self._h_u_coo.data[:] = np.asarray(
-                _h_u_node_batch(self._view_nodal_u(u)[:, 3:], self._B_Theta_C)
-            ).ravel()
+            self._h_u_coo.data[:] = self._h_u_nodes(self._view_nodal_u(u)).ravel()
         return self._h_u_coo
 
     #####################################################
@@ -445,8 +393,8 @@ class DiscreteRod(RodExportBase):
     # compliance
     ############
     def la_c(self, t, q, u):
-        _, B_Gamma, B_Kappa = _eval_batch(self._view_element_q(q), self.L)
-        la_c_el = _la_c_el_batch(
+        _, B_Gamma, B_Kappa = self._eval_els(self._view_element_q(q))
+        la_c_el = _la_c_els(
             B_Gamma,
             B_Kappa,
             self.L,
@@ -454,22 +402,25 @@ class DiscreteRod(RodExportBase):
             self.B_Kappa0,
             self.__c_la_c_el_inv,
         )
-        return np.asarray(la_c_el).ravel()
+        return la_c_el.ravel()
+
+    def _c_els(self, B_Gamma, B_Kappa, la_c_els):
+        return _c_els(
+            B_Gamma,
+            B_Kappa,
+            la_c_els,
+            self.L,
+            self.B_Gamma0,
+            self.B_Kappa0,
+            self.C_n_inv,
+            self.C_m_inv,
+        )
 
     def c(self, t, q, u, la_c):
         if self._la_c.tobytes() != la_c.tobytes() or self._q.tobytes() != q.tobytes():
-            _, B_Gamma, B_Kappa = _eval_batch(self._view_element_q(q), self.L)
-            _c_els = _c_el_batch(
-                B_Gamma,
-                B_Kappa,
-                self._view_element_la_c(la_c),
-                self.L,
-                self.B_Gamma0,
-                self.B_Kappa0,
-                self.C_n_inv,
-                self.C_m_inv,
-            )
-            self._c = np.asarray(_c_els).ravel()
+            _, B_Gamma, B_Kappa = self._eval_els(self._view_element_q(q))
+            c_els = self._c_els(B_Gamma, B_Kappa, self._view_element_la_c(la_c))
+            self._c = c_els.ravel()
         return self._c
 
     def c_la_c(self):
@@ -489,30 +440,34 @@ class DiscreteRod(RodExportBase):
             self.__c_la_c_el_inv.append(np.linalg.inv(c_la_c_el))
         self.__c_la_c_el_inv = np.array(self.__c_la_c_el_inv)
 
+    def _c_q_els(self, B_Gamma_qe, B_Kappa_qe):
+        return _c_q_els(B_Gamma_qe, B_Kappa_qe, self.L)
+
     def c_q(self, t, q, u, la_c):
         if self._q.tobytes() != q.tobytes():
-            _, B_Gamma_qe, B_Kappa_qe = _deval_batch(self._view_element_q(q), self.L)
-            c_el_qes = _c_el_qe_batch(B_Gamma_qe, B_Kappa_qe, self.L)
-            self._c_q_coo.data[:] = np.asarray(c_el_qes).ravel()
+            _, B_Gamma_qe, B_Kappa_qe = self._deval_els(self._view_element_q(q))
+            self._c_q_coo.data[:] = self._c_q_els(B_Gamma_qe, B_Kappa_qe).ravel()
 
         return self._c_q_coo
 
+    def _W_c_els(self, A_IB, B_Gamma, B_Kappa):
+        return _W_c_els(A_IB, B_Gamma, B_Kappa, self.L)
+
     def W_c(self, t, q):
         if self._q.tobytes() != q.tobytes():
-            A_IB, B_Gamma, B_Kappa = _eval_batch(self._view_element_q(q), self.L)
-            _W_c_els = _W_c_el_batch(A_IB, B_Gamma, B_Kappa, self.L)
-            self._W_c_coo.data[:] = np.asarray(_W_c_els).ravel()
+            A_IB, B_Gamma, B_Kappa = self._eval_els(self._view_element_q(q))
+            self._W_c_coo.data[:] = self._W_c_els(A_IB, B_Gamma, B_Kappa).ravel()
         return self._W_c_coo
+
+    def _Wla_c_q_els(self, A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c_els):
+        return _Wla_c_q_els(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c_els, self.L)
 
     def Wla_c_q(self, t, q, la_c):
         if self._q.tobytes() != q.tobytes() or self._la_c.tobytes() != la_c.tobytes():
-            A_IB_qe, B_Gamma_qe, B_Kappa_qe = _deval_batch(
-                self._view_element_q(q), self.L
-            )
-            W = _Wla_c_el_qe_batch(
-                A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c), self.L
-            )
-            self._Wla_c_q_coo.data[:] = np.asarray(W).ravel()
+            A_IB_qe, B_Gamma_qe, B_Kappa_qe = self._deval_els(self._view_element_q(q))
+            self._Wla_c_q_coo.data[:] = self._Wla_c_q_els(
+                A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c)
+            ).ravel()
         return self._Wla_c_q_coo
 
     # @cachedmethod(lambda self: self._alpha_cache, key=lambda self, xi: xi)
@@ -675,6 +630,64 @@ class DiscreteRod(RodExportBase):
     def B_Psi_u(self, t, qe, ue, ue_dot, xi):
         return self._B_Psi_u
 
+    def _eval_els(self, q_els):
+        return _eval_els(q_els, self.L)
+
+    def _deval_els(self, q_els):
+        return _deval_els(q_els, self.L)
+
+    def _eval_deval_els(self, q_els):
+        return _eval_deval_els(q_els, self.L)
+
+    def update(self, keys, t=None, q=None, u=None, la_c=None, **kwargs):
+        return
+        q_els, la_c_els = self._view_element_q(q), self._view_element_la_c(la_c)
+        q_nodes, u_nodes = self._view_nodal_q(q), self._view_nodal_u(u)
+
+        if "W_c" in keys or "c" in keys:
+            _eval = True
+        else:
+            _eval = False
+        if "Wla_c_q" in keys or "c_q" in keys:
+            _deval = True
+        else:
+            _deval = False
+        if _eval and _deval:
+            A_IB, B_Gamma, B_Kappa, A_IB_qe, B_Gamma_qe, B_Kappa_qe = (
+                self._eval_deval_els(q_els)
+            )
+        elif _eval:
+            A_IB, B_Gamma, B_Kappa = self._eval_els(q_els)
+        elif _deval:
+            A_IB_qe, B_Gamma_qe, B_Kappa_qe = self._deval_els(q_els)
+
+        if "W_c" in keys:
+            self._W_c_coo.data[:] = (self._W_c_els(A_IB, B_Gamma, B_Kappa)).ravel()
+        if "Wla_c_q" in keys:
+            self._Wla_c_q_coo.data[:] = (
+                self._Wla_c_q_els(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c_els)
+            ).ravel()
+        if "c" in keys:
+            self._c = self._c_els(B_Gamma, B_Kappa, la_c_els).ravel()
+        if "c_q" in keys:
+            self._c_q_coo.data[:] = self._c_q_els(B_Gamma_qe, B_Kappa_qe).ravel()
+        if "h" in keys:
+            self._h = self._h_nodes(u_nodes).ravel()
+        if "h_u" in keys:
+            self._h_u_coo.data[:] = self._h_u_nodes(u_nodes).ravel()
+        if "q_dot" in keys:
+            self._q_dot = self._q_dot_nodes(q_nodes, u_nodes).ravel()
+        if "q_dot_q" in keys:
+            self._q_dot_q_coo.data[:] = self._p_dot_q_nodes(q_nodes, u_nodes).ravel()
+        if "q_dot_u" in keys:
+            self._q_dot_u_coo.data[-self.nnode * 12 :] = self._p_dot_u_nodes(
+                q_nodes
+            ).ravel()
+
+        self._q = q
+        self._u = u
+        self._la_c = la_c
+
 
 @njit(cache=True)
 def _eval_kinematics(alpha, qe, B_r_CP):
@@ -728,7 +741,7 @@ def _h_node(u, B_Theta_C):
     return jnp.array([0.0, 0.0, 0.0, cross[0], cross[1], cross[2]], dtype=jnp.float64)
 
 
-_h_node_batch = jit(vmap(_h_node))
+_h_nodes = jit(vmap(_h_node))
 
 
 def _h_u_node(B_omega_IB, B_Theta_C):
@@ -738,7 +751,7 @@ def _h_u_node(B_omega_IB, B_Theta_C):
     )
 
 
-_h_u_node_batch = jit(vmap(_h_u_node))
+_h_u_nodes = jit(vmap(_h_u_node))
 
 
 def _q_dot_node(q, u):
@@ -746,14 +759,14 @@ def _q_dot_node(q, u):
     return jnp.array([u[0], u[1], u[2], T[0], T[1], T[2], T[3]], dtype=jnp.float64)
 
 
-_q_dot_node_batch = jit(vmap(_q_dot_node))
+_q_dot_nodes = jit(vmap(_q_dot_node))
 
 
 def _p_dot_p_node(q, u):
     return u[3:] @ math_jax.T_SO3_inv_quat_P(q[3:], normalize=False)
 
 
-_p_dot_p_node_batch = jit(vmap(_p_dot_p_node))
+_p_dot_q_nodes = jit(vmap(_p_dot_p_node))
 
 
 def _la_c_el(
@@ -774,7 +787,7 @@ def _la_c_el(
     return c_la_c_el_inv @ eps
 
 
-_la_c_el_batch = jit(vmap(_la_c_el))
+_la_c_els = jit(vmap(_la_c_el))
 
 
 def _Wla_c_el_qe(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c, Le):
@@ -792,7 +805,7 @@ def _Wla_c_el_qe(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c, Le):
     return W
 
 
-_Wla_c_el_qe_batch = jit(vmap(_Wla_c_el_qe))
+_Wla_c_q_els = jit(vmap(_Wla_c_el_qe))
 
 
 def _c_el(B_Gamma, B_Kappa, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
@@ -806,16 +819,16 @@ def _c_el(B_Gamma, B_Kappa, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
     return jnp.concatenate([c_n, c_m], dtype=jnp.float64)
 
 
-_c_el_batch = jit(vmap(_c_el, in_axes=(0, 0, 0, 0, 0, 0, None, None)))
+_c_els = jit(vmap(_c_el, in_axes=(0, 0, 0, 0, 0, 0, None, None)))
 
 
-def _c_el_qe(B_Gamma_qe, B_Kappa_qe, Le):
+def _c_q_el(B_Gamma_qe, B_Kappa_qe, Le):
     c_n_qe = -B_Gamma_qe * Le
     c_m_qe = -B_Kappa_qe * Le
     return jnp.concatenate([c_n_qe, c_m_qe], dtype=jnp.float64)
 
 
-_c_el_qe_batch = jit(vmap(_c_el_qe))
+_c_q_els = jit(vmap(_c_q_el))
 
 
 def _W_c_el(A_IB, B_Gamma, B_Kappa, Le):
@@ -835,7 +848,7 @@ def _W_c_el(A_IB, B_Gamma, B_Kappa, Le):
     return W_c_el
 
 
-_W_c_el_batch = jit(vmap(_W_c_el))
+_W_c_els = jit(vmap(_W_c_el))
 
 
 def _eval(qe, Le):
@@ -855,7 +868,7 @@ def _eval(qe, Le):
     return A_IB, B_Gamma, B_Kappa
 
 
-_eval_batch = jit(vmap(_eval))
+_eval_els = jit(vmap(_eval))
 
 
 def _deval(qe, Le):
@@ -889,7 +902,7 @@ def _deval(qe, Le):
     return A_IB_qe, B_Gamma_qe, B_Kappa_qe
 
 
-_deval_batch = jit(vmap(_deval))
+_deval_els = jit(vmap(_deval))
 
 
 def _eval_deval(qe, Le):
@@ -923,4 +936,4 @@ def _eval_deval(qe, Le):
     return A_IB, B_Gamma, B_Kappa, A_IB_qe, B_Gamma_qe, B_Kappa_qe
 
 
-_eval_deval_batch = jit(vmap(_eval_deval))
+_eval_deval_els = jit(vmap(_eval_deval))
