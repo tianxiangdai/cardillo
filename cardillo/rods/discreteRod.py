@@ -317,15 +317,13 @@ class DiscreteRod(RodExportBase):
     # kinematic equations
     #####################
     @staticmethod
-    def _q_dot_nodes(q_nodes, u_nodes):
-        return _q_dot_nodes(q_nodes, u_nodes)
+    def _q_dot(q_nodes, u_nodes):
+        return np.asarray(_q_dot_nodes(q_nodes, u_nodes)).ravel()
 
     def q_dot(self, t, q, u):
         if self._q.tobytes() != q.tobytes() or self._u.tobytes() != u.tobytes():
-            self._q_dot = self._q_dot_nodes(
-                self._view_nodal_q(q), self._view_nodal_u(u)
-            ).ravel()
-        return self._q_dot
+            self._q_dot_vec = self._q_dot(self._view_nodal_q(q), self._view_nodal_u(u))
+        return self._q_dot_vec
 
     @staticmethod
     def _p_dot_q_nodes(q_nodes, u_nodes):
@@ -360,13 +358,13 @@ class DiscreteRod(RodExportBase):
     def M(self, t, q):
         return self.__M
 
-    def _h_nodes(self, u_nodes):
-        return _h_nodes(u_nodes, self._B_Theta_C)
+    def _h(self, u_nodes):
+        return np.asarray(_h_nodes(u_nodes, self._B_Theta_C)).ravel()
 
     def h(self, t, q, u):
         if self._u.tobytes() != u.tobytes():
-            self._h = self._h_nodes(self._view_nodal_u(u)).ravel()
-        return self._h
+            self._h_vec = self._h(self._view_nodal_u(u))
+        return self._h_vec
 
     def _h_u_nodes(self, u_nodes):
         return _h_u_nodes(u_nodes[:, 3:], self._B_Theta_C)
@@ -403,24 +401,25 @@ class DiscreteRod(RodExportBase):
         )
         return la_c_el.ravel()
 
-    def _c_els(self, B_Gamma, B_Kappa, la_c_els):
-        return _c_els(
-            B_Gamma,
-            B_Kappa,
-            la_c_els,
-            self.L,
-            self.B_Gamma0,
-            self.B_Kappa0,
-            self.C_n_inv,
-            self.C_m_inv,
-        )
+    def _c(self, B_Gamma, B_Kappa, la_c_els):
+        return np.asarray(
+            _c_els(
+                B_Gamma,
+                B_Kappa,
+                la_c_els,
+                self.L,
+                self.B_Gamma0,
+                self.B_Kappa0,
+                self.C_n_inv,
+                self.C_m_inv,
+            )
+        ).ravel()
 
     def c(self, t, q, u, la_c):
         if self._la_c.tobytes() != la_c.tobytes() or self._q.tobytes() != q.tobytes():
             _, B_Gamma, B_Kappa = self._eval_els(self._view_element_q(q))
-            c_els = self._c_els(B_Gamma, B_Kappa, self._view_element_la_c(la_c))
-            self._c = c_els.ravel()
-        return self._c
+            self._c_vec = self._c(B_Gamma, B_Kappa, self._view_element_la_c(la_c))
+        return self._c_vec
 
     def c_la_c(self):
         return self.__c_la_c
@@ -666,15 +665,15 @@ class DiscreteRod(RodExportBase):
                 self._Wla_c_q_els(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c_els)
             ).ravel()
         if "c" in keys:
-            self._c = self._c_els(B_Gamma, B_Kappa, la_c_els).ravel()
+            self._c_vec = self._c(B_Gamma, B_Kappa, la_c_els)
         if "c_q" in keys:
             self._c_q_coo.data[:] = self._c_q_els(B_Gamma_qe, B_Kappa_qe).ravel()
         if "h" in keys:
-            self._h = self._h_nodes(u_nodes).ravel()
+            self._h_vec = self._h(u_nodes)
         if "h_u" in keys:
             self._h_u_coo.data[:] = self._h_u_nodes(u_nodes).ravel()
         if "q_dot" in keys:
-            self._q_dot = self._q_dot_nodes(q_nodes, u_nodes).ravel()
+            self._q_dot_vec = self._q_dot(q_nodes, u_nodes)
         if "q_dot_q" in keys:
             self._q_dot_q_coo.data[:] = self._p_dot_q_nodes(q_nodes, u_nodes).ravel()
         if "q_dot_u" in keys:
