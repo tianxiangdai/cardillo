@@ -122,11 +122,11 @@ def helix(
     # create solver
     from cProfile import Profile
 
-    prof = Profile()
-    prof.enable()
+    # prof = Profile()
+    # prof.enable()
     sol = solver.solve()  # solve static equilibrium equations
-    prof.disable()
-    prof.dump_stats("rod.prof")
+    # prof.disable()
+    # prof.dump_stats("rod.prof")
 
     # read solution
     t = sol.t
@@ -217,13 +217,14 @@ if __name__ == "__main__":
         name="helix",
     )
 
-    # from cardillo.rods.discreteRod import DiscreteRod as Rod
+    from cardillo.rods.discreteRod import DiscreteRod as Rod
+
     rod2, q2 = helix(
         Rod,
         Simo1986,
         nelements=99,
         slenderness=1e1,
-        n_load_steps=100,
+        n_load_steps=1,
         show_plots=True,
         name="helix",
     )
@@ -237,11 +238,25 @@ if __name__ == "__main__":
 
     print(np.linalg.norm(r_OC1s - r_OC2s, np.inf))
 
-    plt.subplot(2, 1, 1)
-    plt.plot(r_OC1s[:, 0], r_OC1s[:, 2], "-xr")
-    plt.plot(r_OC2s[:, 0], r_OC2s[:, 2], "-b.")
-    plt.axis("equal")
-    plt.subplot(2, 1, 2)
-    plt.plot(np.linalg.norm(r_OC1s - r_OC2s, axis=1), "-b.")
-    plt.yscale("log")
+    fig = plt.figure()
+
+    from mpl_toolkits.mplot3d import Axes3D
+
+    ax1 = fig.add_subplot(2, 1, 1, projection="3d")
+
+    ax1.plot(r_OC1s[:, 0], r_OC1s[:, 1], r_OC1s[:, 2], "-xr", label="rod1")
+    ax1.plot(r_OC2s[:, 0], r_OC2s[:, 1], r_OC2s[:, 2], "-b.", label="rod2")
+
+    ax1.set_xlabel("X")
+    ax1.set_ylabel("Y")
+    ax1.set_zlabel("Z")
+    ax1.legend()
+
+    ax1.set_box_aspect([1, 1, 1])
+
+    ax2 = fig.add_subplot(2, 1, 2)
+
+    ax2.plot(np.linalg.norm(r_OC1s - r_OC2s, axis=1), "-b.")
+    ax2.set_yscale("log")
+
     plt.show(block=True)
