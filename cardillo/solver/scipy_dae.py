@@ -132,73 +132,73 @@ class ScipyDAE:
 
         # first Jacobian w.r.t. y
         self._Jy_coo = CooMatrix((self.ny, self.ny))
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0]), np.arange(self.split[0]), -q_dot_q
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0]), np.arange(self.split[0], self.split[1]), -q_dot_u
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0]),
             Mu_q,
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0]),
             -h_q,
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0]),
             -Wla_tau_q,
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0]),
             -Wla_gamma_q,
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0], self.split[1]), np.arange(self.split[0]), -Wla_g_q
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0]),
             -Wla_c_q,
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0], self.split[1]),
             -h_u,
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0], self.split[1]),
             -Wla_tau_u,
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[1], self.split[2]), np.arange(self.split[0]), g_q
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[2], self.split[3]), np.arange(self.split[0]), g_dot_q
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[2], self.split[3]),
             np.arange(self.split[0], self.split[1]),
             g_dot_u,
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[3], self.split[4]), np.arange(self.split[0]), gamma_q
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[3], self.split[4]),
             np.arange(self.split[0], self.split[1]),
             gamma_u,
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[4], self.ny), np.arange(self.split[0]), c_q
         )
-        self._Jy_coo.allocate(
+        self._Jy_coo.allocate_data(
             np.arange(self.split[4], self.ny),
             np.arange(self.split[0], self.split[1]),
             c_u,
@@ -206,38 +206,38 @@ class ScipyDAE:
         self._Jy_coo.fix_size()
 
         self._Jyp_coo = CooMatrix((self.ny, self.ny))
-        self._Jyp_coo.allocate(
+        self._Jyp_coo.allocate_data(
             np.arange(self.split[0]), np.arange(self.split[0]), eye_q
         )
-        self._Jyp_coo.allocate(
+        self._Jyp_coo.allocate_data(
             np.arange(self.split[0]), np.arange(self.split[1], self.split[2]), -g_q.T
         )
-        self._Jyp_coo.allocate(
+        self._Jyp_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[0], self.split[1]),
             M,
         )
-        self._Jyp_coo.allocate(
+        self._Jyp_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[2], self.split[3]),
             -W_g,
         )
-        self._Jyp_coo.allocate(
+        self._Jyp_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[3], self.split[4]),
             -W_gamma,
         )
-        self._Jyp_coo.allocate(
+        self._Jyp_coo.allocate_data(
             np.arange(self.split[0], self.split[1]),
             np.arange(self.split[4], self.ny),
             -W_c,
         )
-        self._Jyp_coo.allocate(
+        self._Jyp_coo.allocate_data(
             np.arange(self.split[4], self.ny), np.arange(self.split[4], self.ny), c_la_c
         )
         self._Jyp_coo.fix_size()
-        self._Jyp_coo.set_allocated(0, eye_q)
-        self._Jyp_coo.set_allocated(6, c_la_c)
+        self._Jyp_coo.set_allocated_data(0, eye_q)
+        self._Jyp_coo.set_allocated_data(6, c_la_c)
 
     def event(self, t, y, yp):
         i0, i1 = self.split[:2]
@@ -273,6 +273,7 @@ class ScipyDAE:
             q=q,
             u=u,
             la_c=la_c,
+            la_g=la_g,
         )
         ####################
         # kinematic equation
@@ -346,79 +347,80 @@ class ScipyDAE:
             q=q,
             u=u,
             la_c=la_c,
+            la_g=la_g,
         )
         # first Jacobian w.r.t. y
         Jy_coo = self._Jy_coo
         if Jy_coo.data_allocation_length(0):
             q_dot_q = system.q_dot_q(t, q, u)
-            Jy_coo.set_allocated(0, -q_dot_q)
+            Jy_coo.set_allocated_data(0, -q_dot_q)
         if Jy_coo.data_allocation_length(1):
             q_dot_u = system.q_dot_u(t, q)
-            Jy_coo.set_allocated(1, -q_dot_u)
+            Jy_coo.set_allocated_data(1, -q_dot_u)
         if Jy_coo.data_allocation_length(2):
             Mu_q = system.Mu_q(t, q, u_dot, "CooMatrix")
-            Jy_coo.set_allocated(2, Mu_q)
+            Jy_coo.set_allocated_data(2, Mu_q)
         if Jy_coo.data_allocation_length(3):
             h_q = system.h_q(t, q, u, "CooMatrix")
-            Jy_coo.set_allocated(3, -h_q)
+            Jy_coo.set_allocated_data(3, -h_q)
         if Jy_coo.data_allocation_length(4):
             Wla_tau_q = system.Wla_tau_q(t, q, u, "CooMatrix")
-            Jy_coo.set_allocated(4, -Wla_tau_q)
+            Jy_coo.set_allocated_data(4, -Wla_tau_q)
         if Jy_coo.data_allocation_length(5):
             Wla_gamma_q = system.Wla_gamma_q(t, q, la_gamma, "CooMatrix")
-            Jy_coo.set_allocated(5, -Wla_gamma_q)
+            Jy_coo.set_allocated_data(5, -Wla_gamma_q)
         if Jy_coo.data_allocation_length(6):
             Wla_g_q = system.Wla_g_q(t, q, la_g, "CooMatrix")
-            Jy_coo.set_allocated(6, -Wla_g_q)
+            Jy_coo.set_allocated_data(6, -Wla_g_q)
         if Jy_coo.data_allocation_length(7):
             Wla_c_q = system.Wla_c_q(t, q, la_c, "CooMatrix")
-            Jy_coo.set_allocated(7, -Wla_c_q)
+            Jy_coo.set_allocated_data(7, -Wla_c_q)
         if Jy_coo.data_allocation_length(8):
             h_u = system.h_u(t, q, u, "CooMatrix")
-            Jy_coo.set_allocated(8, -h_u)
+            Jy_coo.set_allocated_data(8, -h_u)
         if Jy_coo.data_allocation_length(9):
             Wla_tau_u = system.Wla_tau_u(t, q, u, "CooMatrix")
-            Jy_coo.set_allocated(9, -Wla_tau_u)
+            Jy_coo.set_allocated_data(9, -Wla_tau_u)
         if Jy_coo.data_allocation_length(10):
             g_q = system.g_q(t, q, "CooMatrix")
-            Jy_coo.set_allocated(10, g_q)
+            Jy_coo.set_allocated_data(10, g_q)
         if Jy_coo.data_allocation_length(11):
             g_dot_q = system.g_dot_q(t, q, u, "CooMatrix")
-            Jy_coo.set_allocated(11, g_dot_q)
+            Jy_coo.set_allocated_data(11, g_dot_q)
         if Jy_coo.data_allocation_length(12):
             g_dot_u = system.g_dot_u(t, q, "CooMatrix")
-            Jy_coo.set_allocated(12, g_dot_u)
+            Jy_coo.set_allocated_data(12, g_dot_u)
         if Jy_coo.data_allocation_length(13):
             gamma_q = system.gamma_q(t, q, u, "CooMatrix")
-            Jy_coo.set_allocated(13, gamma_q)
+            Jy_coo.set_allocated_data(13, gamma_q)
         if Jy_coo.data_allocation_length(14):
             gamma_u = system.gamma_u(t, q, "CooMatrix")
-            Jy_coo.set_allocated(14, gamma_u)
+            Jy_coo.set_allocated_data(14, gamma_u)
         if Jy_coo.data_allocation_length(15):
             c_q = system.c_q(t, q, u, la_c, "CooMatrix")
-            Jy_coo.set_allocated(15, c_q)
+            Jy_coo.set_allocated_data(15, c_q)
         if Jy_coo.data_allocation_length(16):
             c_u = system.c_u(t, q, u, la_c, "CooMatrix")
-            Jy_coo.set_allocated(16, c_u)
+            Jy_coo.set_allocated_data(16, c_u)
 
         # second Jacobian w.r.t. yp
         Jyp_coo = self._Jyp_coo
         # eye_q = eye_array(self.nq)
         # Jyp_coo.set_allocated(0, eye_q)
         if Jyp_coo.data_allocation_length(1):
-            Jyp_coo.set_allocated(1, -g_q.T)
+            Jyp_coo.set_allocated_data(1, -g_q.T)
         if Jyp_coo.data_allocation_length(2):
             M = system.M(t, q)
-            Jyp_coo.set_allocated(2, M)
+            Jyp_coo.set_allocated_data(2, M)
         if Jyp_coo.data_allocation_length(3):
             W_g = system.W_g(t, q, "CooMatrix")
-            Jyp_coo.set_allocated(3, -W_g)
+            Jyp_coo.set_allocated_data(3, -W_g)
         if Jyp_coo.data_allocation_length(4):
             W_gamma = system.W_gamma(t, q, "CooMatrix")
-            Jyp_coo.set_allocated(4, -W_gamma)
+            Jyp_coo.set_allocated_data(4, -W_gamma)
         if Jyp_coo.data_allocation_length(5):
             W_c = system.W_c(t, q, "CooMatrix")
-            Jyp_coo.set_allocated(5, -W_c)
+            Jyp_coo.set_allocated_data(5, -W_c)
         # c_la_c = system.c_la_c()
         # Jyp_coo.set_allocated(6, c_la_c)
 

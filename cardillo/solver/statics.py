@@ -92,46 +92,46 @@ class Newton:
             else:
                 Rla_N_q[i] = g_N_q[i]
         self._jac_coo = CooMatrix((nx, nx))
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(self.split_f[0]), np.arange(self.split_x[0]), h_q
         )
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(self.split_f[0]), np.arange(self.split_x[0]), Wla_g_q
         )
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(self.split_f[0]), np.arange(self.split_x[0]), Wla_c_q
         )
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(self.split_f[0]), np.arange(self.split_x[0]), Wla_N_q
         )
 
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(self.split_f[0]), np.arange(*self.split_x[0:2]), W_g
         )
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(self.split_f[0]), np.arange(*self.split_x[1:3]), W_c
         )
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(self.split_f[0]), np.arange(self.split_x[2], nx), W_N
         )
 
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(*self.split_f[0:2]), np.arange(self.split_x[0]), g_q
         )
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(*self.split_f[1:3]), np.arange(self.split_x[0]), c_q
         )
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(*self.split_f[2:4]), np.arange(self.split_x[0]), g_S_q
         )
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(self.split_f[3], nx), np.arange(self.split_x[0]), Rla_N_q
         )
 
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(*self.split_f[1:3]), np.arange(*self.split_x[1:3]), c_la_c
         )
-        self._jac_coo.allocate(
+        self._jac_coo.allocate_data(
             np.arange(self.split_f[3], nx), np.arange(self.split_x[2], nx), Rla_N_la_N
         )
         self._jac_coo.fix_size()
@@ -214,40 +214,40 @@ class Newton:
         )
         if allocation_length(0):
             h_q = self.system.h_q(t, q, self.u0, format="CooMatrix")
-            jac.set_allocated(0, h_q)
+            jac.set_allocated_data(0, h_q)
 
         if allocation_length(1):
             Wla_g_q = self.system.Wla_g_q(t, q, la_g, format="CooMatrix")
-            jac.set_allocated(1, Wla_g_q)
+            jac.set_allocated_data(1, Wla_g_q)
 
         if allocation_length(2):
             Wla_c_q = self.system.Wla_c_q(t, q, la_c, format="CooMatrix")
-            jac.set_allocated(2, Wla_c_q)
+            jac.set_allocated_data(2, Wla_c_q)
 
         if allocation_length(3):
             Wla_N_q = self.system.Wla_N_q(t, q, la_N, format="CooMatrix")
-            jac.set_allocated(3, Wla_N_q)
+            jac.set_allocated_data(3, Wla_N_q)
 
         if allocation_length(4):
-            jac.set_allocated(4, self.W_g)
+            jac.set_allocated_data(4, self.W_g)
 
         if allocation_length(5):
-            jac.set_allocated(5, self.W_c)
+            jac.set_allocated_data(5, self.W_c)
 
         if allocation_length(6):
-            jac.set_allocated(6, self.W_N)
+            jac.set_allocated_data(6, self.W_N)
 
         if allocation_length(7):
             g_q = self.system.g_q(t, q, format="CooMatrix")
-            jac.set_allocated(7, g_q)
+            jac.set_allocated_data(7, g_q)
 
         if allocation_length(8):
             c_q = self.system.c_q(t, q, self.u0, la_c, format="CooMatrix")
-            jac.set_allocated(8, c_q)
+            jac.set_allocated_data(8, c_q)
 
         if allocation_length(9):
             g_S_q = self.system.g_S_q(t, q, format="CooMatrix")
-            jac.set_allocated(9, g_S_q)
+            jac.set_allocated_data(9, g_S_q)
 
         if allocation_length(10):
             # note: csr_matrix is best for row slicing, see
@@ -258,18 +258,18 @@ class Newton:
             for i in range(self.nla_N):
                 if la_N[i] >= self.g_N[i]:
                     Rla_N_q[i] = g_N_q[i]
-            jac.set_allocated(10, Rla_N_q)
+            jac.set_allocated_data(10, Rla_N_q)
 
         if allocation_length(11):
             c_la_c = self.system.c_la_c()
-            jac.set_allocated(11, c_la_c)
+            jac.set_allocated_data(11, c_la_c)
 
         if allocation_length(12):
             Rla_N_la_N = lil_array((self.nla_N, self.nla_N), dtype=float)
             for i in range(self.nla_N):
                 if la_N[i] < self.g_N[i]:
                     Rla_N_la_N[i, i] = 1.0
-            jac.set_allocated(12, Rla_N_la_N)
+            jac.set_allocated_data(12, Rla_N_la_N)
 
         return jac.asformat("csc")
 

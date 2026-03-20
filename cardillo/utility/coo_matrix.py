@@ -5,6 +5,7 @@ from scipy.sparse import spmatrix, sparray
 import numpy as np
 from numpy import repeat, tile, atleast_1d, atleast_2d, arange
 from array import array
+from copy import copy, deepcopy
 
 
 class _CooMatrix:
@@ -190,16 +191,14 @@ class CooMatrix(_CooMatrix):
         self._data_allocation_index = {}
         self._size_fixed = False
         self._coo = None
+        self._data_allocation_lenth = []
 
     def fix_size(self):
         self._CooMatrix__data = np.empty(len(self.row), dtype=np.float64)
         self._coo = super().tocoo(copy=False)
-        self._data_allocation_lenth = [
-            self.data_allocation_length(i) for i in range(self._nallocation)
-        ]
         self._size_fixed = True
 
-    def _allocate(self, rows, cols):
+    def __allocate_data(self, rows, cols):
         allocation_id = self._nallocation
         self._nallocation = allocation_id + 1
         idx1 = len(self.row)
@@ -207,12 +206,14 @@ class CooMatrix(_CooMatrix):
         self.col.extend(cols)
         idx2 = len(self.row)
         self._data_allocation_index[allocation_id] = (idx1, idx2)
+        self._data_allocation_lenth.append(idx2 - idx1)
         return allocation_id
 
-    def allocate(self, rows, cols, target=None):
+    def allocate_data(self, rows, cols, target=None):
         if self._size_fixed:
-            raise Exception("size fixed!")
+            raise Exception("size already fixed!")
 
+        rows, cols = np.atleast_1d(rows), np.atleast_1d(cols)
         if target is None or isinstance(target, np.ndarray):
             _rows = np.repeat(rows, len(cols))
             _cols = np.tile(cols, len(rows))
@@ -225,22 +226,20 @@ class CooMatrix(_CooMatrix):
             _cols = cols[coo.col]
         else:
             raise NotImplementedError
-        return self._allocate(_rows, _cols)
+        return self.__allocate_data(_rows, _cols)
 
     def data_allocation_length(self, allocation_id):
-        if self._size_fixed:
-            return self._data_allocation_lenth[allocation_id]
-        else:
-            idx1, idx2 = self._data_allocation_index[allocation_id]
-            return idx2 - idx1
+        return self._data_allocation_lenth[allocation_id]
 
-    def set_allocated(self, allocation_id, target):
+    def set_allocated_data(self, allocation_id, target):
         if isinstance(target, np.ndarray):
             data = target.reshape(-1)
         elif isinstance(target, CooMatrix):
             data = target.data
         elif isinstance(target, sparray):
             data = target.tocoo().data if len(target.data) else target.data
+        elif isinstance(target, (int, float)):
+            data = target
         else:
             raise NotImplementedError
         idx1, idx2 = self._data_allocation_index[allocation_id]
@@ -254,71 +253,36 @@ class CooMatrix(_CooMatrix):
         else:
             return super().asformat(format, copy=copy)
 
-    def __add__(self, other):
-        """(A + B)"""
-        if self.shape != other.shape:
-            raise ValueError(
-                f"Matrices shapes {self.shape} and {other.shape} do not match."
-            )
-
-        result = CooMatrix(self.shape)
-
-        result._CooMatrix__data.extend(self._CooMatrix__data)
-        result._CooMatrix__row.extend(self._CooMatrix__row)
-        result._CooMatrix__col.extend(self._CooMatrix__col)
-
-        result._CooMatrix__data.extend(other._CooMatrix__data)
-        result._CooMatrix__row.extend(other._CooMatrix__row)
-        result._CooMatrix__col.extend(other._CooMatrix__col)
-
-        return result
-
-    def __sub__(self, other):
-        """(A - B)"""
-        if self.shape != other.shape:
-            raise ValueError(
-                f"Matrices shapes {self.shape} and {other.shape} do not match."
-            )
-
-        result = CooMatrix(self.shape)
-
-        result._CooMatrix__data.extend(self._CooMatrix__data)
-        result._CooMatrix__row.extend(self._CooMatrix__row)
-        result._CooMatrix__col.extend(self._CooMatrix__col)
-
-        result._CooMatrix__data.extend(
-            array("d", [-el for el in other._CooMatrix__data])
-        )
-        result._CooMatrix__row.extend(other._CooMatrix__row)
-        result._CooMatrix__col.extend(other._CooMatrix__col)
-
-        return result
-
     def __neg__(self):
-        coo = CooMatrix(self.shape)
+        ret = CooMatrix(self.shape)
+        # copy data
+        ret._CooMatrix__row = self._CooMatrix__row[:]
+        ret._CooMatrix__col = self._CooMatrix__col[:]
         if isinstance(self._CooMatrix__data, array):
-            coo._CooMatrix__data = array("d", [-el for el in self._CooMatrix__data])
+            ret._CooMatrix__data = array("d", [-el for el in self._CooMatrix__data])
         elif isinstance(self._CooMatrix__data, np.ndarray):
-            coo._CooMatrix__data = -self._CooMatrix__data
-        coo._CooMatrix__row = self._CooMatrix__row
-        coo._CooMatrix__col = self._CooMatrix__col
-        return coo
+            ret._CooMatrix__data = -self._CooMatrix__data
+        return ret
 
     def transpose(self, copy=False):
-        coo = CooMatrix((self.shape[1], self.shape[0]))
+        ret = CooMatrix(self.shape)
         if copy:
-            coo._CooMatrix__data = self._CooMatrix__data.copy()
-            coo._CooMatrix__row = self._CooMatrix__col
-            coo._CooMatrix__col = self._CooMatrix__row
+            ret._CooMatrix__row = self._CooMatrix__col[:]
+            ret._CooMatrix__col = self._CooMatrix__row[:]
+            if isinstance(self._CooMatrix__data, array):
+                ret._CooMatrix__data = self._CooMatrix__data[:]
+            elif isinstance(self._CooMatrix__data, np.ndarray):
+                ret._CooMatrix__data = self._CooMatrix__data.copy()
+
         else:
-            coo._CooMatrix__data = self._CooMatrix__data
-            coo._CooMatrix__row = self._CooMatrix__col
-            coo._CooMatrix__col = self._CooMatrix__row
-        return coo
+            ret._CooMatrix__row = self._CooMatrix__col
+            ret._CooMatrix__col = self._CooMatrix__row
+            ret._CooMatrix__data = self._CooMatrix__data
+        return ret
 
     @property
     def T(self):
-        return self.transpose(copy=True)
+        return self.transpose(copy=False)
 
     def __repr__(self):
         print("nrow:", len(self.row))

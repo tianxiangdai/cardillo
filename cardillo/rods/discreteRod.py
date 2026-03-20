@@ -124,10 +124,10 @@ class DiscreteRod(RodExportBase):
             elDOF_u = np.arange(elDOF_u.start, elDOF_u.stop)
             elDOF_la_c = np.arange(elDOF_la_c.start, elDOF_la_c.stop)
             #
-            self._c_q_coo.allocate(elDOF_la_c, elDOF)
-            self._W_c_coo.allocate(elDOF_u, elDOF_la_c)
-            self._Wla_c_q_coo.allocate(elDOF_u, elDOF)
-            self.__c_la_c.allocate(elDOF_la_c, elDOF_la_c)
+            self._c_q_coo.allocate_data(elDOF_la_c, elDOF)
+            self._W_c_coo.allocate_data(elDOF_u, elDOF_la_c)
+            self._Wla_c_q_coo.allocate_data(elDOF_u, elDOF)
+            self.__c_la_c.allocate_data(elDOF_la_c, elDOF_la_c)
         self._c_q_coo.fix_size()
         self._W_c_coo.fix_size()
         self._Wla_c_q_coo.fix_size()
@@ -147,17 +147,17 @@ class DiscreteRod(RodExportBase):
             nodalDOF_p = np.arange(nodalDOF_p.start, nodalDOF_p.stop)
             nodalDOF_p_u = np.arange(nodalDOF_p_u.start, nodalDOF_p_u.stop)
 
-            self._q_dot_q_coo.allocate(nodalDOF_p, nodalDOF_p)
+            self._q_dot_q_coo.allocate_data(nodalDOF_p, nodalDOF_p)
             for a, b in zip(nodalDOF_r, nodalDOF_r_u):
-                self._q_dot_u_coo.allocate([a], [b])
-            self._h_u_coo.allocate(nodalDOF_p_u, nodalDOF_p_u)
-            self._g_S_q_coo.allocate([n], nodalDOF_p)
+                self._q_dot_u_coo.allocate_data([a], [b])
+            self._h_u_coo.allocate_data(nodalDOF_p_u, nodalDOF_p_u)
+            self._g_S_q_coo.allocate_data([n], nodalDOF_p)
         for n in range(self.nnode):
             nodalDOF_p = self.nodalDOF_p[n]
             nodalDOF_p_u = self.nodalDOF_p_u[n]
             nodalDOF_p = np.arange(nodalDOF_p.start, nodalDOF_p.stop)
             nodalDOF_p_u = np.arange(nodalDOF_p_u.start, nodalDOF_p_u.stop)
-            self._q_dot_u_coo.allocate(nodalDOF_p, nodalDOF_p_u)
+            self._q_dot_u_coo.allocate_data(nodalDOF_p, nodalDOF_p_u)
         self._q_dot_q_coo.fix_size()
         self._q_dot_u_coo.fix_size()
         self._h_u_coo.fix_size()
@@ -165,7 +165,7 @@ class DiscreteRod(RodExportBase):
         # constant terms
         for n in range(self.nnode):
             for i in range(3):
-                self._q_dot_u_coo.set_allocated(3 * n + i, np.array([1.0]))
+                self._q_dot_u_coo.set_allocated_data(3 * n + i, 1.0)
 
         # cache
         self._alpha_cache = LRUCache(maxsize=self.nnode * 10)
@@ -435,7 +435,7 @@ class DiscreteRod(RodExportBase):
                 c_la_c_el[6:9, 6:9] = self.C_n_inv
                 c_la_c_el[9:, 9:] = self.C_m_inv
             c_la_c_el *= self.L[el]
-            self.__c_la_c.set_allocated(el, c_la_c_el)
+            self.__c_la_c.set_allocated_data(el, c_la_c_el)
             self.__c_la_c_el_inv.append(np.linalg.inv(c_la_c_el))
         self.__c_la_c_el_inv = np.array(self.__c_la_c_el_inv)
 

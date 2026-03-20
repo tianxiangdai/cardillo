@@ -348,49 +348,49 @@ class System:
         self._q_dot_q_coo = CooMatrix((self.nq, self.nq))
         for contr in self.__q_dot_q_contr:
             value = contr.q_dot_q(t, q[contr.qDOF], u[contr.uDOF])
-            self._q_dot_q_coo.allocate(contr.my_qDOF, contr.qDOF, value)
+            self._q_dot_q_coo.allocate_data(contr.my_qDOF, contr.qDOF, value)
         self._q_dot_q_coo.fix_size()
         # q_dot_u
         self._q_dot_u_coo = CooMatrix((self.nq, self.nu))
         for contr in self.__q_dot_u_contr:
             value = contr.q_dot_u(t, q[contr.qDOF])
-            self._q_dot_u_coo.allocate(contr.my_qDOF, contr.uDOF, value)
+            self._q_dot_u_coo.allocate_data(contr.my_qDOF, contr.uDOF, value)
         self._q_dot_u_coo.fix_size()
         # h_q
         self._h_q_coo = CooMatrix((self.nu, self.nq))
         for contr in self.__h_q_contr:
             value = contr.h_q(t, q[contr.qDOF], u[contr.uDOF])
-            self._h_q_coo.allocate(contr.uDOF, contr.qDOF, value)
+            self._h_q_coo.allocate_data(contr.uDOF, contr.qDOF, value)
         self._h_q_coo.fix_size()
         # h_u
         self._h_u_coo = CooMatrix((self.nu, self.nu))
         for contr in self.__h_u_contr:
             value = contr.h_u(t, q[contr.qDOF], u[contr.uDOF])
-            self._h_u_coo.allocate(contr.uDOF, contr.uDOF, value)
+            self._h_u_coo.allocate_data(contr.uDOF, contr.uDOF, value)
         self._h_u_coo.fix_size()
         # compliance
         self._c_q_coo = CooMatrix((self.nla_c, self.nq))
         for contr in self.__c_q_contr:
             value = contr.c_q(t, q[contr.qDOF], u[contr.uDOF], la_c[contr.la_cDOF])
-            self._c_q_coo.allocate(contr.la_cDOF, contr.qDOF, value)
+            self._c_q_coo.allocate_data(contr.la_cDOF, contr.qDOF, value)
         self._c_q_coo.fix_size()
         # c_u
         self._c_u_coo = CooMatrix((self.nla_c, self.nu))
         for contr in self.__c_u_contr:
             value = contr.c_u(t, q[contr.qDOF], u[contr.uDOF], la_c[contr.la_cDOF])
-            self._c_u_coo.allocate(contr.la_cDOF, contr.uDOF, value)
+            self._c_u_coo.allocate_data(contr.la_cDOF, contr.uDOF, value)
         self._c_u_coo.fix_size()
         # W_c
         self._W_c_coo = CooMatrix((self.nu, self.nla_c))
         for contr in self.__c_contr:
             value = contr.W_c(t, q[contr.qDOF])
-            self._W_c_coo.allocate(contr.uDOF, contr.la_cDOF, value)
+            self._W_c_coo.allocate_data(contr.uDOF, contr.la_cDOF, value)
         self._W_c_coo.fix_size()
         # Wla_c_q
         self._Wla_c_q_coo = CooMatrix((self.nu, self.nq))
         for contr in self.__c_q_contr:
             value = contr.Wla_c_q(t, q[contr.qDOF], la_c[contr.la_cDOF])
-            self._Wla_c_q_coo.allocate(contr.uDOF, contr.qDOF, value)
+            self._Wla_c_q_coo.allocate_data(contr.uDOF, contr.qDOF, value)
         self._Wla_c_q_coo.fix_size()
         # bilateral constraints on position level
         self._g_q_coo = CooMatrix((self.nla_g, self.nq))
@@ -403,22 +403,22 @@ class System:
         for contr in self.__g_contr:
             # g_q
             value = contr.g_q(t, q[contr.qDOF])
-            self._g_q_coo.allocate(contr.la_gDOF, contr.qDOF, value)
+            self._g_q_coo.allocate_data(contr.la_gDOF, contr.qDOF, value)
             # g_q_T_mu_q
             # value = contr.g_q_T_mu_q(t, q[contr.qDOF], mu_g[contr.la_gDOF])
             # self._g_q_T_mu_q_coo.allocate(contr.qDOF, contr.qDOF, value)
             # W_g
             value = contr.W_g(t, q[contr.qDOF])
-            self._W_g_coo.allocate(contr.uDOF, contr.la_gDOF, value)
+            self._W_g_coo.allocate_data(contr.uDOF, contr.la_gDOF, value)
             # Wla_g_q
             value = contr.Wla_g_q(t, q[contr.qDOF], la_g[contr.la_gDOF])
-            self._Wla_g_q_coo.allocate(contr.uDOF, contr.qDOF, value)
+            self._Wla_g_q_coo.allocate_data(contr.uDOF, contr.qDOF, value)
             # g_dot_u
             value = contr.g_dot_u(t, q[contr.qDOF])
-            self._g_dot_u_coo.allocate(contr.la_gDOF, contr.uDOF, value)
+            self._g_dot_u_coo.allocate_data(contr.la_gDOF, contr.uDOF, value)
             # g_dot_q
             value = contr.g_dot_q(t, q[contr.qDOF], u[contr.uDOF])
-            self._g_dot_q_coo.allocate(contr.la_gDOF, contr.qDOF, value)
+            self._g_dot_q_coo.allocate_data(contr.la_gDOF, contr.qDOF, value)
         self._g_q_coo.fix_size()
         # self._g_q_T_mu_q_coo.fix_size()
         self._W_g_coo.fix_size()
@@ -433,13 +433,13 @@ class System:
         for contr in self.__la_tau_contr:
             # W_tau
             value = contr.W_tau(t, q[contr.qDOF])
-            self._W_tau_coo.allocate(contr.uDOF, contr.la_tauDOF, value)
+            self._W_tau_coo.allocate_data(contr.uDOF, contr.la_tauDOF, value)
             # Wla_tau_q
             value = contr.Wla_tau_q(t, q[contr.qDOF], u[contr.uDOF])
-            self._Wla_tau_q_coo.allocate(contr.uDOF, contr.la_tauDOF, value)
+            self._Wla_tau_q_coo.allocate_data(contr.uDOF, contr.la_tauDOF, value)
             # Wla_tau_u
             value = contr.Wla_tau_u(t, q[contr.qDOF], u[contr.uDOF])
-            self._Wla_tau_u_coo.allocate(contr.uDOF, contr.la_tauDOF, value)
+            self._Wla_tau_u_coo.allocate_data(contr.uDOF, contr.la_tauDOF, value)
         self._W_tau_coo.fix_size()
         self._Wla_tau_q_coo.fix_size()
         self._Wla_tau_u_coo.fix_size()
@@ -448,7 +448,7 @@ class System:
         self._g_S_q_coo = CooMatrix((self.nla_S, self.nq))
         for contr in self.__g_S_contr:
             value = contr.g_S_q(t, q[contr.qDOF])
-            self._g_S_q_coo.allocate(contr.la_SDOF, contr.qDOF, value)
+            self._g_S_q_coo.allocate_data(contr.la_SDOF, contr.qDOF, value)
         self._g_S_q_coo.fix_size()
 
         # normal contacts
@@ -459,15 +459,15 @@ class System:
         self._Wla_N_q_coo = CooMatrix((self.nu, self.nq))
         for contr in self.__g_N_contr:
             value = contr.g_N_q(t, q[contr.qDOF])
-            self._g_N_q_coo.allocate(contr.la_NDOF, contr.qDOF, value)
+            self._g_N_q_coo.allocate_data(contr.la_NDOF, contr.qDOF, value)
             value = contr.W_N(t, q[contr.qDOF])
-            self._W_N_coo.allocate(contr.uDOF, contr.la_NDOF, value)
+            self._W_N_coo.allocate_data(contr.uDOF, contr.la_NDOF, value)
             value = contr.g_N_dot_q(t, q[contr.qDOF], u[contr.uDOF])
-            self._xi_N_q_coo.allocate(contr.la_NDOF, contr.qDOF, value)
+            self._xi_N_q_coo.allocate_data(contr.la_NDOF, contr.qDOF, value)
             value = contr.g_N_dot_u(t, q[contr.qDOF])
-            self._g_N_dot_u_coo.allocate(contr.la_NDOF, contr.uDOF, value)
+            self._g_N_dot_u_coo.allocate_data(contr.la_NDOF, contr.uDOF, value)
             value = contr.Wla_N_q(t, q[contr.qDOF], la_N[contr.la_NDOF])
-            self._Wla_N_q_coo.allocate(contr.uDOF, contr.qDOF, value)
+            self._Wla_N_q_coo.allocate_data(contr.uDOF, contr.qDOF, value)
         self._g_N_q_coo.fix_size()
         self._W_N_coo.fix_size()
         self._xi_N_q_coo.fix_size()
@@ -517,14 +517,14 @@ class System:
 
     def q_dot_q(self, t, q, u, format="coo"):
         for i, contr in enumerate(self.__q_dot_q_contr):
-            self._q_dot_q_coo.set_allocated(
+            self._q_dot_q_coo.set_allocated_data(
                 i, contr.q_dot_q(t, q[contr.qDOF], u[contr.uDOF])
             )
         return self._q_dot_q_coo.asformat(format)
 
     def q_dot_u(self, t, q, format="coo"):
         for i, contr in enumerate(self.__q_dot_u_contr):
-            self._q_dot_u_coo.set_allocated(i, contr.q_dot_u(t, q[contr.qDOF]))
+            self._q_dot_u_coo.set_allocated_data(i, contr.q_dot_u(t, q[contr.qDOF]))
         return self._q_dot_u_coo.asformat(format)
 
     def step_callback(self, t, q, u):
@@ -576,12 +576,16 @@ class System:
 
     def h_q(self, t, q, u, format="coo"):
         for i, contr in enumerate(self.__h_q_contr):
-            self._h_q_coo.set_allocated(i, contr.h_q(t, q[contr.qDOF], u[contr.uDOF]))
+            self._h_q_coo.set_allocated_data(
+                i, contr.h_q(t, q[contr.qDOF], u[contr.uDOF])
+            )
         return self._h_q_coo.asformat(format)
 
     def h_u(self, t, q, u, format="coo"):
         for i, contr in enumerate(self.__h_u_contr):
-            self._h_u_coo.set_allocated(i, contr.h_u(t, q[contr.qDOF], u[contr.uDOF]))
+            self._h_u_coo.set_allocated_data(
+                i, contr.h_u(t, q[contr.qDOF], u[contr.uDOF])
+            )
         return self._h_u_coo.asformat(format)
 
     ############
@@ -603,14 +607,14 @@ class System:
 
     def c_q(self, t, q, u, la_c, format="coo"):
         for i, contr in enumerate(self.__c_q_contr):
-            self._c_q_coo.set_allocated(
+            self._c_q_coo.set_allocated_data(
                 i, contr.c_q(t, q[contr.qDOF], u[contr.uDOF], la_c[contr.la_cDOF])
             )
         return self._c_q_coo.asformat(format)
 
     def c_u(self, t, q, u, la_c, format="coo"):
         for i, contr in enumerate(self.__c_u_contr):
-            self._c_u_coo.set_allocated(
+            self._c_u_coo.set_allocated_data(
                 i, contr.c_u(t, q[contr.qDOF], u[contr.uDOF], la_c[contr.la_cDOF])
             )
         return self._c_u_coo.asformat(format)
@@ -620,12 +624,12 @@ class System:
 
     def W_c(self, t, q, format="coo"):
         for i, contr in enumerate(self.__c_contr):
-            self._W_c_coo.set_allocated(i, contr.W_c(t, q[contr.qDOF]))
+            self._W_c_coo.set_allocated_data(i, contr.W_c(t, q[contr.qDOF]))
         return self._W_c_coo.asformat(format)
 
     def Wla_c_q(self, t, q, la_c, format="coo"):
         for i, contr in enumerate(self.__c_q_contr):
-            self._Wla_c_q_coo.set_allocated(
+            self._Wla_c_q_coo.set_allocated_data(
                 i, contr.Wla_c_q(t, q[contr.qDOF], la_c[contr.la_cDOF])
             )
         return self._Wla_c_q_coo.asformat(format)
@@ -635,7 +639,7 @@ class System:
     ###########
     def W_tau(self, t, q, format="coo"):
         for i, contr in enumerate(self.__la_tau_contr):
-            self._W_tau_coo.set_allocated(i, contr.W_tau(t, q[contr.qDOF]))
+            self._W_tau_coo.set_allocated_data(i, contr.W_tau(t, q[contr.qDOF]))
         return self._W_tau_coo.asformat(format)
 
     def la_tau(self, t, q, u):
@@ -646,14 +650,14 @@ class System:
 
     def Wla_tau_q(self, t, q, u, format="coo"):
         for i, contr in enumerate(self.__la_tau_contr):
-            self._Wla_tau_q_coo.set_allocated(
+            self._Wla_tau_q_coo.set_allocated_data(
                 i, contr.Wla_tau_q(t, q[contr.qDOF], u[contr.uDOF])
             )
         return self._Wla_tau_q_coo.asformat(format)
 
     def Wla_tau_u(self, t, q, u, format="coo"):
         for i, contr in enumerate(self.__la_tau_contr):
-            self._Wla_tau_u_coo.set_allocated(
+            self._Wla_tau_u_coo.set_allocated_data(
                 i, contr.Wla_tau_u(t, q[contr.qDOF], u[contr.uDOF])
             )
         return self._Wla_tau_u_coo.asformat(format)
@@ -693,7 +697,7 @@ class System:
 
     def g_q(self, t, q, format="coo"):
         for i, contr in enumerate(self.__g_contr):
-            self._g_q_coo.set_allocated(i, contr.g_q(t, q[contr.qDOF]))
+            self._g_q_coo.set_allocated_data(i, contr.g_q(t, q[contr.qDOF]))
         return self._g_q_coo.asformat(format)
 
     def g_q_T_mu_q(self, t, q, mu_g, format="coo"):
@@ -709,12 +713,12 @@ class System:
 
     def W_g(self, t, q, format="coo"):
         for i, contr in enumerate(self.__g_contr):
-            self._W_g_coo.set_allocated(i, contr.W_g(t, q[contr.qDOF]))
+            self._W_g_coo.set_allocated_data(i, contr.W_g(t, q[contr.qDOF]))
         return self._W_g_coo.asformat(format)
 
     def Wla_g_q(self, t, q, la_g, format="coo"):
         for i, contr in enumerate(self.__g_contr):
-            self._Wla_g_q_coo.set_allocated(
+            self._Wla_g_q_coo.set_allocated_data(
                 i, contr.Wla_g_q(t, q[contr.qDOF], la_g[contr.la_gDOF])
             )
         return self._Wla_g_q_coo.asformat(format)
@@ -731,12 +735,12 @@ class System:
 
     def g_dot_u(self, t, q, format="coo"):
         for i, contr in enumerate(self.__g_contr):
-            self._g_dot_u_coo.set_allocated(i, contr.g_dot_u(t, q[contr.qDOF]))
+            self._g_dot_u_coo.set_allocated_data(i, contr.g_dot_u(t, q[contr.qDOF]))
         return self._g_dot_u_coo.asformat(format)
 
     def g_dot_q(self, t, q, u, format="coo"):
         for i, contr in enumerate(self.__g_contr):
-            self._g_dot_q_coo.set_allocated(
+            self._g_dot_q_coo.set_allocated_data(
                 i, contr.g_dot_q(t, q[contr.qDOF], u[contr.uDOF])
             )
         return self._g_dot_q_coo.asformat(format)
@@ -833,7 +837,7 @@ class System:
 
     def g_S_q(self, t, q, format="coo"):
         for i, contr in enumerate(self.__g_S_contr):
-            self._g_S_q_coo.set_allocated(i, contr.g_S_q(t, q[contr.qDOF]))
+            self._g_S_q_coo.set_allocated_data(i, contr.g_S_q(t, q[contr.qDOF]))
         return self._g_S_q_coo.asformat(format)
 
     #################
@@ -847,12 +851,12 @@ class System:
 
     def g_N_q(self, t, q, format="coo"):
         for i, contr in enumerate(self.__g_N_contr):
-            self._g_N_q_coo.set_allocated(i, contr.g_N_q(t, q[contr.qDOF]))
+            self._g_N_q_coo.set_allocated_data(i, contr.g_N_q(t, q[contr.qDOF]))
         return self._g_N_q_coo.asformat(format)
 
     def W_N(self, t, q, format="coo"):
         for i, contr in enumerate(self.__g_N_contr):
-            self._W_N_coo.set_allocated(i, contr.W_N(t, q[contr.qDOF]))
+            self._W_N_coo.set_allocated_data(i, contr.W_N(t, q[contr.qDOF]))
         return self._W_N_coo.asformat(format)
 
     def g_N_dot(self, t, q, u):
@@ -879,7 +883,7 @@ class System:
 
     def xi_N_q(self, t_post, q_post, u_post, format="coo"):
         for i, contr in enumerate(self.__g_N_contr):
-            self._xi_N_q_coo.set_allocated(
+            self._xi_N_q_coo.set_allocated_data(
                 i, contr.g_N_dot_q(t_post, q_post[contr.qDOF], u_post[contr.uDOF])
             )
         return self._xi_N_q_coo.asformat(format)
@@ -893,12 +897,12 @@ class System:
             "We assume g_N_dot_u(t, q) == W_N(t, q).T. This function will be deleted soon!"
         )
         for i, contr in enumerate(self.__g_N_contr):
-            self._g_N_dot_u_coo.set_allocated(i, contr.g_N_dot_u(t, q[contr.qDOF]))
+            self._g_N_dot_u_coo.set_allocated_data(i, contr.g_N_dot_u(t, q[contr.qDOF]))
         return self._g_N_dot_u_coo.asformat(format)
 
     def Wla_N_q(self, t, q, la_N, format="coo"):
         for i, contr in enumerate(self.__g_N_contr):
-            self._Wla_N_q_coo.set_allocated(
+            self._Wla_N_q_coo.set_allocated_data(
                 i, contr.Wla_N_q(t, q[contr.qDOF], la_N[contr.la_NDOF])
             )
         return self._Wla_N_q_coo.asformat(format)
