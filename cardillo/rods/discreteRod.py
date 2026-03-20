@@ -134,7 +134,7 @@ class DiscreteRod(RodExportBase):
         self.__c_la_c.fix_size()
 
         self._q_dot_q_coo = CooMatrix((self.nq, self.nq))
-        self._q_dot_u_coo = CooMatrix((self.nq, self.nq))
+        self._q_dot_u_coo = CooMatrix((self.nq, self.nu))
         self._h_u_coo = CooMatrix((self.nu, self.nu))
         self._g_S_q_coo = CooMatrix((self.nla_S, self.nq))
         for n in range(self.nnode):
