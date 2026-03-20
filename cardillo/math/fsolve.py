@@ -6,6 +6,7 @@ from scipy.sparse.linalg._dsolve._superlu import SuperLU
 from scipy.optimize import OptimizeResult
 from warnings import warn
 
+from cardillo.math import norm
 from cardillo.math.approx_fprime import approx_fprime
 from cardillo.solver import SolverOptions
 
@@ -189,10 +190,10 @@ def fsolve(
         jac_args = (jac_args,)
 
     # wrap function
-    def fun(x, *args, f=fun):
+    def fun(x, f=fun):
         nonlocal nfev
         nfev += 1
-        return np.atleast_1d(f(x, *args))
+        return np.atleast_1d(f(x, *fun_args))
 
     # compute Jacobian matrix using finite differences
     if jac is None or options.numerical_jacobian_method:
@@ -237,36 +238,37 @@ def fsolve(
         def solve(x, rhs):
             return options.linear_solver(jacobian(x, *jac_args), rhs)
 
-    # eliminate round-off errors
-    Delta_x = np.zeros_like(x0)
-    x = x0 + Delta_x
+    # tolerences
+    tol_abs = options.newton_atol
+    tol_rel = options.newton_rtol
 
     # initial function value
-    f = np.atleast_1d(fun(x, *fun_args))
-
-    # scaling with relative and absolute tolerances
-    scale = options.newton_atol + np.abs(f) * options.newton_rtol
+    f = np.atleast_1d(fun(x0))
 
     # error of initial guess
-    error = np.linalg.norm(f / scale) / scale.size**0.5
-    converged = error < 1
+    error = error0 = norm(f) / f.size**0.5
+    converged = error0 < tol_abs
 
     # Newton loop
+    x = x0.copy()
     if not converged:
         for i in range(options.newton_max_iter):
-            # Newton update
-            dx = solve(x, f)
-            Delta_x -= dx
-            x = x0 + Delta_x
+            # Newton step
+            dx = solve(x, -f)
+            x += dx
 
-            # new function value, error and convergence check
-            f = np.atleast_1d(fun(x, *fun_args))
-            error = np.linalg.norm(f / scale) / scale.size**0.5
-            converged = error < 1
+            # new function value, error
+            f = np.atleast_1d(fun(x))
+            error = norm(f) / f.size**0.5
+
+            # convergence check
+            res_conv = (error < tol_abs) or (error < error0 * tol_rel)
+
+            dx_conv = norm(dx) < tol_rel * (norm(x) + 1e-12)
+            converged = res_conv and dx_conv
             if converged:
                 break
-
-        if not converged:
+        else:
             warn(f"fsolve is not converged after {i} iterations with error {error:.2e}")
 
         nit = i + 1

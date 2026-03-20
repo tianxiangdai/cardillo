@@ -238,7 +238,7 @@ class PositionOrientationBase:
             self.name = kwargs.get("name")
 
         self._t = np.nan
-        self._q = self._u = np.empty(0)
+        self._q = self._u = self._la_g = np.empty(0)
 
     def assembler_callback(self):
         local_qDOF1, local_qDOF2 = concatenate_qDOF(self)
@@ -297,6 +297,7 @@ class PositionOrientationBase:
         self._g_dot = np.zeros(self.nla_g, dtype=float)
         self._g_dot_q = np.zeros((self.nla_g, self._nq), dtype=float)
         self._W_g = np.zeros((self._nu, self.nla_g), dtype=float)
+        self._Wla_g_q = np.zeros((self._nu, self._nq), dtype=float)
 
     # auxiliary functions
     def r_OJ1(self, t, q):
@@ -691,38 +692,43 @@ class PositionOrientationBase:
         return W_g
 
     def Wla_g_q(self, t, q, la_g):
-        nq1 = self._nq1
-        nu1 = self._nu1
-        Wla_g_q = np.zeros((self._nu, self._nq), dtype=np.float64)
+        Wla_g_q = self._Wla_g_q
+        if (
+            self._t != t
+            or self._q.tobytes() != q.tobytes()
+            or self._la_g.tobytes() != la_g.tobytes()
+        ):
+            nq1 = self._nq1
+            nu1 = self._nu1
 
-        Wla_g_q[:nu1, :nq1] -= (self.J_J1_q1(t, q).T @ la_g[:3]).T
-        Wla_g_q[nu1:, nq1:] += (self.J_J2_q2(t, q).T @ la_g[:3]).T
+            Wla_g_q[:nu1, :nq1] -= (self.J_J1_q1(t, q).T @ la_g[:3]).T
+            Wla_g_q[nu1:, nq1:] += (self.J_J2_q2(t, q).T @ la_g[:3]).T
 
-        if self.constrain_orientation:
-            A_IJ1 = self.A_IJ1(t, q)
-            A_IJ2 = self.A_IJ2(t, q)
+            if self.constrain_orientation:
+                A_IJ1 = self.A_IJ1(t, q)
+                A_IJ2 = self.A_IJ2(t, q)
 
-            A_IJ1_q1 = self.A_IJ1_q1(t, q)
-            A_IJ2_q2 = self.A_IJ2_q2(t, q)
+                A_IJ1_q1 = self.A_IJ1_q1(t, q)
+                A_IJ2_q2 = self.A_IJ2_q2(t, q)
 
-            J_R1 = self.J_R1(t, q)
-            J_R2 = self.J_R2(t, q)
-            J_R1_q1 = self.J_R1_q1(t, q)
-            J_R2_q2 = self.J_R2_q2(t, q)
+                J_R1 = self.J_R1(t, q)
+                J_R2 = self.J_R2(t, q)
+                J_R1_q1 = self.J_R1_q1(t, q)
+                J_R2_q2 = self.J_R2_q2(t, q)
 
-            for i, (a, b) in enumerate(self.projection_pairs):
-                e_a, e_b = A_IJ1[:, a], A_IJ2[:, b]
-                n = cross3(e_a, e_b)
-                n_q1 = -ax2skew(e_b) @ A_IJ1_q1[:, a]
-                n_q2 = ax2skew(e_a) @ A_IJ2_q2[:, b]
-                Wla_g_q[:nu1, :nq1] += (
-                    la_g[3 + i] * (J_R1_q1.T @ n).T + la_g[3 + i] * J_R1.T @ n_q1
-                )
-                Wla_g_q[:nu1, nq1:] += la_g[3 + i] * J_R1.T @ n_q2
-                Wla_g_q[nu1:, :nq1] -= la_g[3 + i] * J_R2.T @ n_q1
-                Wla_g_q[nu1:, nq1:] -= (
-                    la_g[3 + i] * (J_R2_q2.T @ n).T + la_g[3 + i] * J_R2.T @ n_q2
-                )
+                for i, (a, b) in enumerate(self.projection_pairs):
+                    e_a, e_b = A_IJ1[:, a], A_IJ2[:, b]
+                    n = cross3(e_a, e_b)
+                    n_q1 = -ax2skew(e_b) @ A_IJ1_q1[:, a]
+                    n_q2 = ax2skew(e_a) @ A_IJ2_q2[:, b]
+                    Wla_g_q[:nu1, :nq1] += (
+                        la_g[3 + i] * (J_R1_q1.T @ n).T + la_g[3 + i] * J_R1.T @ n_q1
+                    )
+                    Wla_g_q[:nu1, nq1:] += la_g[3 + i] * J_R1.T @ n_q2
+                    Wla_g_q[nu1:, :nq1] -= la_g[3 + i] * J_R2.T @ n_q1
+                    Wla_g_q[nu1:, nq1:] -= (
+                        la_g[3 + i] * (J_R2_q2.T @ n).T + la_g[3 + i] * J_R2.T @ n_q2
+                    )
 
         return Wla_g_q
 
@@ -731,7 +737,7 @@ class PositionOrientationBase:
         warnings.warn("'PositionOrientationBase.g_q_T_mu_q' uses numerical derivative.")
         return approx_fprime(q, lambda q: self.g_q(t, q).T @ mu)
 
-    def update(self, keys, t=None, q=None, u=None, **kwargs):
+    def update(self, keys, t=None, q=None, u=None, la_g=None, **kwargs):
         A_IB1 = self.A_IB1(t, q)
         A_IB2 = self.A_IB2(t, q)
         A_IJ1 = A_IB1 @ self.A_K1J0
@@ -815,9 +821,43 @@ class PositionOrientationBase:
                     )
                     W_g[:nu1, 3:] = (cross @ J_R1).T
                     W_g[nu1:, 3:] = (-cross @ J_R2).T
+
+        if "Wla_g_q" in keys:
+            Wla_g_q = self._Wla_g_q
+            nq1 = self._nq1
+            nu1 = self._nu1
+
+            Wla_g_q[:nu1, :nq1] -= (self.J_J1_q1(t, q).T @ la_g[:3]).T
+            Wla_g_q[nu1:, nq1:] += (self.J_J2_q2(t, q).T @ la_g[:3]).T
+
+            if self.constrain_orientation:
+
+                A_IJ1_q1 = self.A_IJ1_q1(t, q)
+                A_IJ2_q2 = self.A_IJ2_q2(t, q)
+
+                J_R1 = self.J_R1(t, q)
+                J_R2 = self.J_R2(t, q)
+                J_R1_q1 = self.J_R1_q1(t, q)
+                J_R2_q2 = self.J_R2_q2(t, q)
+
+                for i, (a, b) in enumerate(self.projection_pairs):
+                    e_a, e_b = A_IJ1[:, a], A_IJ2[:, b]
+                    n = cross3(e_a, e_b)
+                    n_q1 = -ax2skew(e_b) @ A_IJ1_q1[:, a]
+                    n_q2 = ax2skew(e_a) @ A_IJ2_q2[:, b]
+                    Wla_g_q[:nu1, :nq1] += (
+                        la_g[3 + i] * (J_R1_q1.T @ n).T + la_g[3 + i] * J_R1.T @ n_q1
+                    )
+                    Wla_g_q[:nu1, nq1:] += la_g[3 + i] * J_R1.T @ n_q2
+                    Wla_g_q[nu1:, :nq1] -= la_g[3 + i] * J_R2.T @ n_q1
+                    Wla_g_q[nu1:, nq1:] -= (
+                        la_g[3 + i] * (J_R2_q2.T @ n).T + la_g[3 + i] * J_R2.T @ n_q2
+                    )
+
         self._t = t
         self._q = q
         self._u = u
+        self._la_g = la_g
 
 
 class ProjectedPositionOrientationBase:

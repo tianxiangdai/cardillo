@@ -145,11 +145,12 @@ class Newton:
         # csr is used for efficient matrix vector multiplication, see
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
         self.system.update(
-            ["W_g", "W_c", "W_N", "g_N", "h", "g", "c", "g_N"],
+            ["W_g", "W_c", "W_N", "g_N", "h", "g", "c", "g_S"],
             t,
             q=q,
             u=self.u0,
             la_c=la_c,
+            la_g=la_g,
         )
         self.W_g = self.system.W_g(t, q, format="coo")
         self.W_c = self.system.W_c(t, q, format="coo")
@@ -191,15 +192,6 @@ class Newton:
         if allocation_length(3):
             update_keys.append("Wla_N_q")
 
-        if allocation_length(4):
-            update_keys.append("W_g")
-
-        if allocation_length(5):
-            update_keys.append("W_c")
-
-        if allocation_length(6):
-            update_keys.append("W_N")
-
         if allocation_length(7):
             update_keys.append("g_q")
 
@@ -218,6 +210,7 @@ class Newton:
             q=q,
             u=self.u0,
             la_c=la_c,
+            la_g=la_g,
         )
         if allocation_length(0):
             h_q = self.system.h_q(t, q, self.u0, format="CooMatrix")

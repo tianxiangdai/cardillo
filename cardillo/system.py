@@ -495,13 +495,16 @@ class System:
         self._gamma_F_dot = np.zeros(self.nla_F, dtype=float)
         self._xi_F = np.zeros(self.nla_F, dtype=float)
 
-    def update(self, keys, t, q=None, u=None, la_c=None):
+    def update(self, keys, t, q=None, u=None, la_c=None, la_g=None):
         for contr in self.contributions:
             if hasattr(contr, "update"):
-                q_contr = q[contr.qDOF] if hasattr(contr, "qDOF") else q
-                u_contr = u[contr.uDOF] if hasattr(contr, "uDOF") else u
-                la_c_contr = la_c[contr.la_cDOF] if hasattr(contr, "la_cDOF") else la_c
-                contr.update(keys, t=t, q=q_contr, u=u_contr, la_c=la_c_contr)
+                q_contr = q[contr.qDOF] if hasattr(contr, "qDOF") else None
+                u_contr = u[contr.uDOF] if hasattr(contr, "uDOF") else None
+                la_c_contr = la_c[contr.la_cDOF] if hasattr(contr, "la_cDOF") else None
+                la_g_contr = la_g[contr.la_gDOF] if hasattr(contr, "la_gDOF") else None
+                contr.update(
+                    keys, t=t, q=q_contr, u=u_contr, la_c=la_c_contr, la_g=la_g_contr
+                )
 
     #####################
     # kinematic equations

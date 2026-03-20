@@ -381,12 +381,11 @@ class DiscreteRod(RodExportBase):
     #####################################################
     def g_S(self, t, q):
         p = q.reshape((self.nnode, 7))[:, 3:]
-        return np.array([pi @ pi - 1.0 for pi in p], dtype=float)
+        return np.sum(p**2, axis=1) - 1
 
     def g_S_q(self, t, q):
         p = q.reshape((self.nnode, 7))[:, 3:]
-        for n in range(self.nnode):
-            self._g_S_q_coo.set_allocated(n, 2 * p[n])
+        self._g_S_q_coo.data[:] = 2 * p.flatten()
         return self._g_S_q_coo
 
     ############
