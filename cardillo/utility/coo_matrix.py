@@ -1,11 +1,10 @@
 import warnings
+import numpy as np
 from scipy.sparse import csc_array, csr_array, coo_array
 from scipy.sparse._sputils import isshape, check_shape
 from scipy.sparse import spmatrix, sparray
-import numpy as np
 from numpy import repeat, tile, atleast_1d, atleast_2d, arange
 from array import array
-from copy import copy, deepcopy
 
 
 class _CooMatrix:

@@ -10,6 +10,7 @@ from cardillo.math import e1, e3
 from cardillo.rods import CircularCrossSection, animate_beam, Simo1986
 from cardillo.rods.cosseratRod import make_CosseratRod
 from cardillo.solver import Newton, SolverOptions
+from cProfile import Profile
 
 
 def helix(
@@ -27,6 +28,7 @@ def helix(
     name: str = "rod",
     show_plots: bool = False,
     save_stresses: bool = False,
+    profile=False,
 ):
     # handle name
     plot_name = name.replace("_", " ")
@@ -120,13 +122,14 @@ def helix(
         options=SolverOptions(newton_max_iter=30, newton_atol=atol),  # rtol=0
     )
     # create solver
-    from cProfile import Profile
-
-    # prof = Profile()
-    # prof.enable()
+    if profile:
+        prof = Profile()
+        prof.enable()
     sol = solver.solve()  # solve static equilibrium equations
-    # prof.disable()
-    # prof.dump_stats("rod.prof")
+
+    if profile:
+        prof.disable()
+        prof.dump_stats("prof.prof")
 
     # read solution
     t = sol.t
@@ -207,6 +210,8 @@ if __name__ == "__main__":
         polynomial_degree=1,
         reduced_integration=True,
     )
+    from cardillo.rods.discreteRod import DiscreteRod
+
     rod1, q1 = helix(
         Rod,
         Simo1986,
@@ -217,16 +222,15 @@ if __name__ == "__main__":
         name="helix",
     )
 
-    from cardillo.rods.discreteRod import DiscreteRod as Rod
-
     rod2, q2 = helix(
-        Rod,
+        DiscreteRod,
         Simo1986,
-        nelements=99,
+        nelements=999,
         slenderness=1e1,
-        n_load_steps=1,
+        n_load_steps=100,
         show_plots=True,
         name="helix",
+        profile=True,
     )
 
     ######

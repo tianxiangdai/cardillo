@@ -67,9 +67,9 @@ class Newton:
         t = system.t0
         q, la_g, la_c, la_N = np.array_split(x0, self.split_x)
 
-        W_g = self.system.W_g(t, q, format="CooMatrix")
-        W_c = self.system.W_c(t, q, format="CooMatrix")
-        W_N = self.system.W_N(t, q, format="CooMatrix")
+        W_g = self.system.W_g(t, q, format="coo")
+        W_c = self.system.W_c(t, q, format="coo")
+        W_N = self.system.W_N(t, q, format="coo")
 
         h_q = self.system.h_q(t, q, self.u0, format="CooMatrix")
         Wla_g_q = self.system.Wla_g_q(t, q, la_g, format="CooMatrix")
@@ -177,9 +177,9 @@ class Newton:
 
         # evaluate additionally required quantites for computing the jacobian
         # coo is used for efficiency
-        update_keys = []
         jac = self._jac_coo
         allocation_length = jac.data_allocation_length
+        update_keys = []
         if allocation_length(0):
             update_keys.append("h_q")
 
