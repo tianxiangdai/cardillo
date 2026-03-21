@@ -144,14 +144,6 @@ class Newton:
         # the jacobian
         # csr is used for efficient matrix vector multiplication, see
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
-        self.system.update(
-            ["W_g", "W_c", "W_N", "g_N", "h", "g", "c", "g_S"],
-            t,
-            q=q,
-            u=self.u0,
-            la_c=la_c,
-            la_g=la_g,
-        )
         self.W_g = self.system.W_g(t, q, format="coo")
         self.W_c = self.system.W_c(t, q, format="coo")
         self.W_N = self.system.W_N(t, q, format="coo")
@@ -179,39 +171,6 @@ class Newton:
         # coo is used for efficiency
         jac = self._jac_coo
         allocation_length = jac.data_allocation_length
-        update_keys = []
-        if allocation_length(0):
-            update_keys.append("h_q")
-
-        if allocation_length(1):
-            update_keys.append("Wla_g_q")
-
-        if allocation_length(2):
-            update_keys.append("Wla_c_q")
-
-        if allocation_length(3):
-            update_keys.append("Wla_N_q")
-
-        if allocation_length(7):
-            update_keys.append("g_q")
-
-        if allocation_length(8):
-            update_keys.append("c_q")
-
-        if allocation_length(9):
-            update_keys.append("g_S_q")
-
-        if allocation_length(10):
-            update_keys.append("g_N_q")
-
-        self.system.update(
-            update_keys,
-            t,
-            q=q,
-            u=self.u0,
-            la_c=la_c,
-            la_g=la_g,
-        )
         if allocation_length(0):
             h_q = self.system.h_q(t, q, self.u0, format="CooMatrix")
             jac.set_allocated_data(0, h_q)

@@ -215,33 +215,30 @@ h2 = system2.h(t, q2, u2)
 assert np.allclose(h1.reshape((-1,6)).T.flatten(), h2)
 """
 
+qs1 = sol1.q[:, rod1.qDOF].reshape((-1, nelement + 1, 7))
+
+qs2 = sol2.q[:, rod2.qDOF].reshape((-1, 7, nelement + 1)).swapaxes(1, 2)
+
+
 # plot result
-plt.subplot(2, 2, 1)
-plt.plot(sol1.t, sol1.q[:, rod1.qDOF][:, rod1.nodalDOF_r[-1]][:, 0])
-plt.plot(sol2.t, sol2.q[:, rod2.qDOF][:, rod2.nodalDOF_r[-1][0]])
-plt.grid()
-plt.subplot(2, 2, 2)
-plt.plot(
-    sol1.t,
-    sol1.q[:, rod1.qDOF][:, rod1.nodalDOF_r[-1]][:, 0]
-    - sol2.q[:, rod2.qDOF][:, rod2.nodalDOF_r[-1][0]],
-)
-plt.yscale("log")
-plt.grid()
-plt.subplot(2, 2, 3)
-plt.plot(sol1.t, sol1.q[:, rod1.qDOF][:, rod1.nodalDOF_r[-1]][:, 1])
-plt.plot(sol2.t, sol2.q[:, rod2.qDOF][:, rod2.nodalDOF_r[-1][1]])
-plt.grid()
-plt.subplot(2, 2, 4)
-plt.plot(
-    sol1.t,
-    np.abs(
-        sol1.q[:, rod1.qDOF][:, rod1.nodalDOF_r[-1]][:, 1]
-        - sol2.q[:, rod2.qDOF][:, rod2.nodalDOF_r[-1][1]]
-    ),
-)
-plt.yscale("log")
-plt.grid()
+for n in np.arange(nelement + 1)[:: nelement // int(nelement / 5)]:
+    plt.figure()
+    plt.subplot(4, 1, 1)
+    plt.plot(sol1.t, qs1[:, n, 0], "-")
+    plt.plot(sol1.t, qs2[:, n, 0], "--.")
+    plt.grid()
+    plt.subplot(4, 1, 2)
+    plt.plot(sol1.t, qs1[:, n, 1], "-")
+    plt.plot(sol1.t, qs2[:, n, 1], "--.")
+    plt.grid()
+    plt.subplot(4, 1, 3)
+    plt.plot(sol1.t, qs1[:, n, 0] - qs2[:, n, 0], "-r")
+    plt.yscale("log")
+    plt.grid()
+    plt.subplot(4, 1, 4)
+    plt.plot(sol1.t, qs1[:, n, 1] - qs2[:, n, 1], "-r")
+    plt.yscale("log")
+    plt.grid()
 plt.show(block=True)
 
 # # render solution

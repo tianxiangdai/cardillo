@@ -123,6 +123,9 @@ def helix(
     )
     # create solver
     if profile:
+        solver = Newton(system, n_load_steps=n_load_steps, options=SolverOptions(newton_max_iter=30, newton_atol=atol))
+        solver.fun(solver.x[0], 0)
+        solver.jac(solver.x[0], 0)
         prof = Profile()
         prof.enable()
     sol = solver.solve()  # solve static equilibrium equations
@@ -225,7 +228,7 @@ if __name__ == "__main__":
     rod2, q2 = helix(
         DiscreteRod,
         Simo1986,
-        nelements=999,
+        nelements=99,
         slenderness=1e1,
         n_load_steps=100,
         show_plots=True,
