@@ -123,7 +123,11 @@ def helix(
     )
     # create solver
     if profile:
-        solver = Newton(system, n_load_steps=n_load_steps, options=SolverOptions(newton_max_iter=30, newton_atol=atol))
+        solver = Newton(
+            system,
+            n_load_steps=n_load_steps,
+            options=SolverOptions(newton_max_iter=30, newton_atol=atol),
+        )
         solver.fun(solver.x[0], 0)
         solver.jac(solver.x[0], 0)
         prof = Profile()
