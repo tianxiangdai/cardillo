@@ -316,7 +316,7 @@ class DiscreteRod(RodExportBase):
     # kinematic equations
     #####################
     def q_dot(self, t, q, u):
-        return np.asanyarray(
+        return np.asarray(
             _q_dot_nodes(self._view_nodal_q(q), self._view_nodal_u(u))
         ).ravel()
 
@@ -597,6 +597,9 @@ class DiscreteRod(RodExportBase):
 
     def _eval_deval_els(self, q_els):
         return _eval_deval_els(q_els, self.L)
+
+    def export(self, sol_i, **kwargs):
+        return [], [], {}, {}
 
 
 @njit(cache=True)

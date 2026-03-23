@@ -1,4 +1,8 @@
 import numpy as np
+from jax import jit, vmap
+from jax import numpy as jnp
+
+from cardillo.rods.discreteRod import DiscreteRod
 
 
 class Force_line_distributed:
@@ -19,6 +23,10 @@ class Force_line_distributed:
         else:
             self.force = force
         self.rod = rod
+        self._is_discrete_rod = isinstance(rod, DiscreteRod)
+        if self._is_discrete_rod:
+            self._h_weights = (np.pad(rod.L, (1, 0)) + np.pad(rod.L, (0, 1))) / 2
+            self._h_nodes = _make_h_nodes(force)
 
     def assembler_callback(self):
         self.qDOF = self.rod.qDOF
@@ -57,10 +65,13 @@ class Force_line_distributed:
     # equations of motion
     #####################
     def h(self, t, q, u):
-        h = np.zeros(self.rod.nu, dtype=np.common_type(q, u))
-        for el in range(self.rod.nelement):
-            h[self.rod.elDOF_u[el]] += self.h_el(t, el)
-        return h
+        if self._is_discrete_rod:
+            return np.asarray(self._h_nodes(t, self.rod.xis, self._h_weights)).ravel()
+        else:
+            h = np.zeros(self.rod.nu, dtype=np.common_type(q, u))
+            for el in range(self.rod.nelement):
+                h[self.rod.elDOF_u[el]] += self.h_el(t, el)
+            return h
 
     def h_el(self, t, el):
         he = np.zeros(self.rod.nu_element, dtype=float)
@@ -82,5 +93,9 @@ class Force_line_distributed:
 
         return he
 
-    def h_q(self, t, q, u):
-        return None
+
+def _make_h_nodes(force):
+    def h_node(t, xi, weight):
+        return jnp.pad(force(t, xi), (0, 3)) * weight
+
+    return jit(vmap(h_node, in_axes=(None, 0, 0)))

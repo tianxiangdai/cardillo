@@ -66,7 +66,7 @@ class System:
 
     """
 
-    def __init__(self, t0=0, origin_size=0):
+    def __init__(self, t0=0.0, origin_size=0):
         self.t0 = t0
         self.nq = 0
         self.nu = 0
