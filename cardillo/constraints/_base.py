@@ -212,9 +212,9 @@ class PositionOrientationBase:
         **kwargs,
     ):
         if isinstance(subsystem1, DiscreteRod):
-            subsystem1 = subsystem1.get_sensor(xi1)
+            subsystem1 = subsystem1.get_marker(xi1)
         if isinstance(subsystem2, DiscreteRod):
-            subsystem2 = subsystem2.get_sensor(xi2)
+            subsystem2 = subsystem2.get_marker(xi2)
         self.subsystem1 = subsystem1
         self.subsystem2 = subsystem2
         self.xi1 = xi1

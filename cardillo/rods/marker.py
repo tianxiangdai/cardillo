@@ -4,7 +4,7 @@ from numba import njit
 from cardillo.math_numba import cross3, ax2skew, Exp_SO3_quat, Exp_SO3_quat_P
 
 
-class Sensor:
+class Marker:
     def __init__(self, xi, alpha):
         self.xi = xi
         self.alpha = alpha

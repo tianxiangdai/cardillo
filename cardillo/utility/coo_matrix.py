@@ -264,7 +264,7 @@ class CooMatrix(_CooMatrix):
         return ret
 
     def transpose(self, copy=False):
-        ret = CooMatrix(self.shape)
+        ret = CooMatrix((self.shape[1], self.shape[0]))
         if copy:
             ret._CooMatrix__row = self._CooMatrix__col[:]
             ret._CooMatrix__col = self._CooMatrix__row[:]

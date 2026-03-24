@@ -24,7 +24,7 @@ from cardillo.rods import CrossSectionInertias
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
 
-from .sensor import Sensor
+from .marker import Marker
 
 jax.config.update("jax_enable_x64", True)
 
@@ -48,6 +48,9 @@ class DiscreteRod(RodExportBase):
         cross_section_inertias=CrossSectionInertias(),
         name="discrete_node",
     ):
+        # manual caches
+        self._eval_cache = self._deval_cache = np.empty(0).tobytes()
+
         super().__init__(cross_section)
         self.material_model = material_model
         self.nelement = nelement
@@ -102,7 +105,7 @@ class DiscreteRod(RodExportBase):
             self.__M[nodalDOF_p_u, nodalDOF_p_u] = B_Theta_C
         self._B_Theta_C = np.array(self._B_Theta_C)
 
-        self._sensors = []
+        self._markers = []
 
         # allocate memery
         self._B_Omega_q = np.zeros((3, 14), dtype=float)
@@ -177,9 +180,8 @@ class DiscreteRod(RodExportBase):
                 for el in range(self.nelement)
             ]
         )
-        self.B_Gamma0 = []
-        self.B_Kappa0 = []
-        _, self.B_Gamma0, self.B_Kappa0 = self._eval_els(self._view_element_q(Q))
+        _, self.B_Gamma0, self.B_Kappa0 = self._eval_els(Q)
+        self.B_Ga_Ka0 = np.concatenate((self.B_Gamma0, self.B_Kappa0), axis=1)
 
     def element_number(self, xi):
         num = int(xi * self.nelement)
@@ -206,10 +208,10 @@ class DiscreteRod(RodExportBase):
         q_body = q[self.qDOF]
         return np.array([q_body[nodalDOF] for nodalDOF in self.nodalDOF_r]).T
 
-    def get_sensor(self, xi):
+    def get_marker(self, xi):
         alpha = self._alpha(xi)
-        s = Sensor(xi, alpha)
-        self._sensors.append(s)
+        s = Marker(xi, alpha)
+        self._markers.append(s)
         return s
 
     @staticmethod
@@ -305,7 +307,7 @@ class DiscreteRod(RodExportBase):
 
     def assembler_callback(self):
         self._c_la_c_coo()
-        for s in self._sensors:
+        for s in self._markers:
             num = self.element_number(s.xi)
             s.t0 = self.t0
             s.q0 = self.q0[self.elDOF[num]]
@@ -369,7 +371,7 @@ class DiscreteRod(RodExportBase):
     # compliance
     ############
     def la_c(self, t, q, u):
-        _, B_Gamma, B_Kappa = self._eval_els(self._view_element_q(q))
+        _, B_Gamma, B_Kappa = self._eval_els(q)
         la_c_el = _la_c_els(
             B_Gamma,
             B_Kappa,
@@ -378,10 +380,10 @@ class DiscreteRod(RodExportBase):
             self.B_Kappa0,
             self.__c_la_c_el_inv,
         )
-        return la_c_el.ravel()
+        return np.asarray(la_c_el).ravel()
 
     def c(self, t, q, u, la_c):
-        _, B_Gamma, B_Kappa = self._eval_els(self._view_element_q(q))
+        _, B_Gamma, B_Kappa = self._eval_els(q)
         return np.asarray(
             _c_els(
                 B_Gamma,
@@ -413,17 +415,17 @@ class DiscreteRod(RodExportBase):
         self.__c_la_c_el_inv = np.array(self.__c_la_c_el_inv)
 
     def c_q(self, t, q, u, la_c):
-        _, B_Gamma_qe, B_Kappa_qe = self._deval_els(self._view_element_q(q))
+        _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
         self._c_q_coo.data[:] = _c_q_els(B_Gamma_qe, B_Kappa_qe, self.L).ravel()
         return self._c_q_coo
 
     def W_c(self, t, q):
-        A_IB, B_Gamma, B_Kappa = self._eval_els(self._view_element_q(q))
+        A_IB, B_Gamma, B_Kappa = self._eval_els(q)
         self._W_c_coo.data[:] = _W_c_els(A_IB, B_Gamma, B_Kappa, self.L).ravel()
         return self._W_c_coo
 
     def Wla_c_q(self, t, q, la_c):
-        A_IB_qe, B_Gamma_qe, B_Kappa_qe = self._deval_els(self._view_element_q(q))
+        A_IB_qe, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
         self._Wla_c_q_coo.data[:] = _Wla_c_q_els(
             A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c), self.L
         ).ravel()
@@ -589,14 +591,22 @@ class DiscreteRod(RodExportBase):
     def B_Psi_u(self, t, qe, ue, ue_dot, xi):
         return self._B_Psi_u
 
-    def _eval_els(self, q_els):
-        return _eval_els(q_els, self.L)
+    def _eval_els(self, q):
+        key = q.tobytes()
+        if self._eval_cache != key:
+            self._eval_els_value = _eval_els(self._view_element_q(q), self.L)
+            self._eval_cache = key
+        return self._eval_els_value
 
-    def _deval_els(self, q_els):
-        return _deval_els(q_els, self.L)
+    def _deval_els(self, q):
+        key = q.tobytes()
+        if self._deval_cache != key:
+            self._deval_els_value = _deval_els(self._view_element_q(q), self.L)
+            self._deval_cache = key
+        return self._deval_els_value
 
-    def _eval_deval_els(self, q_els):
-        return _eval_deval_els(q_els, self.L)
+    # def _eval_deval_els(self, q_els):
+    #     return _eval_deval_els(q_els, self.L)
 
     def export(self, sol_i, **kwargs):
         return [], [], {}, {}
@@ -704,6 +714,23 @@ def _la_c_el(
 _la_c_els = jit(vmap(_la_c_el))
 
 
+def _W_c_el(A_IB, B_Gamma, B_Kappa, Le):
+    # A_IB, B_Gamma, B_Kappa = _eval(qe, Le)
+    s1 = 0.5 * Le * math_jax.ax2skew(B_Gamma)
+    s2 = 0.5 * Le * math_jax.ax2skew(B_Kappa)
+
+    # TODO:add damping
+    row1 = jnp.concatenate([A_IB, zeros3], axis=1)
+    row2 = jnp.concatenate([s1, eye3 + s2], axis=1)
+    row3 = jnp.concatenate([-A_IB, zeros3], axis=1)
+    row4 = jnp.concatenate([s1, -eye3 + s2], axis=1)
+
+    return jnp.concatenate([row1, row2, row3, row4], axis=0)
+
+
+_W_c_els = jit(vmap(_W_c_el))
+
+
 def _Wla_c_q_el(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c, Le):
     B_n = la_c[:3]
     B_m = la_c[3:]
@@ -745,23 +772,6 @@ def _c_q_el(B_Gamma_qe, B_Kappa_qe, Le):
 
 
 _c_q_els = jit(vmap(_c_q_el))
-
-
-def _W_c_el(A_IB, B_Gamma, B_Kappa, Le):
-    # A_IB, B_Gamma, B_Kappa = _eval(qe, Le)
-    s1 = 0.5 * Le * math_jax.ax2skew(B_Gamma)
-    s2 = 0.5 * Le * math_jax.ax2skew(B_Kappa)
-
-    # TODO:add damping
-    row1 = jnp.concatenate([A_IB, zeros3], axis=1)
-    row2 = jnp.concatenate([s1, eye3 + s2], axis=1)
-    row3 = jnp.concatenate([-A_IB, zeros3], axis=1)
-    row4 = jnp.concatenate([s1, -eye3 + s2], axis=1)
-
-    return jnp.concatenate([row1, row2, row3, row4], axis=0)
-
-
-_W_c_els = jit(vmap(_W_c_el))
 
 
 def _eval(qe, Le):
