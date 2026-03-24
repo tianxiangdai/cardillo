@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
-from cachetools import cachedmethod, LRUCache
-from cachetools.keys import hashkey
+from cachetools import LRUCache
 import numpy as np
-from scipy.sparse.linalg import spsolve
 
-from cardillo.math.algebra import norm, cross3, ax2skew
+
+from cardillo.math import norm, cross3, ax2skew
 from cardillo.math.approx_fprime import approx_fprime
 from cardillo.math.rotations import Exp_SO3_quat, T_SO3_inv_quat, T_SO3_inv_quat_P
 from cardillo.utility.coo_matrix import CooMatrix
@@ -382,6 +381,7 @@ class CosseratRod_PetrovGalerkin(RodExportBase, ABC):
     def A_IB_q(self, t, qe, xi): ...
 
     def assembler_callback(self):
+        self.constant_mass_matrix = True
         self._M_coo()
 
     #####################

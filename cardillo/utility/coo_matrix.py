@@ -1,4 +1,5 @@
 import warnings
+import numpy as np
 from scipy.sparse import csc_array, csr_array, coo_array
 from scipy.sparse._sputils import isshape, check_shape
 from scipy.sparse import spmatrix, sparray
@@ -6,7 +7,7 @@ from numpy import repeat, tile, atleast_1d, atleast_2d, arange
 from array import array
 
 
-class CooMatrix:
+class _CooMatrix:
     """Small container storing the sparse matrix shape and three lists for
     accumulating the entries for row, column and data Wiki/COO.
 
@@ -180,6 +181,113 @@ class CooMatrix:
     def toarray(self, copy=False):
         """Convert container to 2D numpy array."""
         return self.tocoo(copy).toarray()
+
+
+class CooMatrix(_CooMatrix):
+    def __init__(self, shape):
+        super().__init__(shape)
+        self._nallocation = 0
+        self._data_allocation_index = {}
+        self._size_fixed = False
+        self._coo = None
+        self._data_allocation_lenth = []
+
+    def fix_size(self):
+        self._CooMatrix__data = np.empty(len(self.row), dtype=np.float64)
+        self._coo = super().tocoo(copy=False)
+        self._size_fixed = True
+
+    def __allocate_data(self, rows, cols):
+        allocation_id = self._nallocation
+        self._nallocation = allocation_id + 1
+        idx1 = len(self.row)
+        self.row.extend(rows)
+        self.col.extend(cols)
+        idx2 = len(self.row)
+        self._data_allocation_index[allocation_id] = (idx1, idx2)
+        self._data_allocation_lenth.append(idx2 - idx1)
+        return allocation_id
+
+    def allocate_data(self, rows, cols, target=None):
+        if self._size_fixed:
+            raise Exception("size already fixed!")
+
+        rows, cols = np.atleast_1d(rows), np.atleast_1d(cols)
+        if target is None or isinstance(target, np.ndarray):
+            _rows = np.repeat(rows, len(cols))
+            _cols = np.tile(cols, len(rows))
+        elif isinstance(target, CooMatrix):
+            _rows = rows[target.row]
+            _cols = cols[target.col]
+        elif isinstance(target, sparray):
+            coo = target.tocoo()
+            _rows = rows[coo.row]
+            _cols = cols[coo.col]
+        else:
+            raise NotImplementedError
+        return self.__allocate_data(_rows, _cols)
+
+    def data_allocation_length(self, allocation_id):
+        return self._data_allocation_lenth[allocation_id]
+
+    def set_allocated_data(self, allocation_id, target):
+        if isinstance(target, np.ndarray):
+            data = target.reshape(-1)
+        elif isinstance(target, CooMatrix):
+            data = target.data
+        elif isinstance(target, sparray):
+            data = target.tocoo().data if len(target.data) else target.data
+        elif isinstance(target, (int, float)):
+            data = target
+        else:
+            raise NotImplementedError
+        idx1, idx2 = self._data_allocation_index[allocation_id]
+        self.data[idx1:idx2] = data
+
+    def asformat(self, format, copy=False):
+        if format == "CooMatrix":
+            return self
+        elif self._coo is not None:
+            return self._coo.asformat(format, copy=copy)
+        else:
+            return super().asformat(format, copy=copy)
+
+    def __neg__(self):
+        ret = CooMatrix(self.shape)
+        # copy data
+        ret._CooMatrix__row = self._CooMatrix__row[:]
+        ret._CooMatrix__col = self._CooMatrix__col[:]
+        if isinstance(self._CooMatrix__data, array):
+            ret._CooMatrix__data = array("d", [-el for el in self._CooMatrix__data])
+        elif isinstance(self._CooMatrix__data, np.ndarray):
+            ret._CooMatrix__data = -self._CooMatrix__data
+        return ret
+
+    def transpose(self, copy=False):
+        ret = CooMatrix((self.shape[1], self.shape[0]))
+        if copy:
+            ret._CooMatrix__row = self._CooMatrix__col[:]
+            ret._CooMatrix__col = self._CooMatrix__row[:]
+            if isinstance(self._CooMatrix__data, array):
+                ret._CooMatrix__data = self._CooMatrix__data[:]
+            elif isinstance(self._CooMatrix__data, np.ndarray):
+                ret._CooMatrix__data = self._CooMatrix__data.copy()
+
+        else:
+            ret._CooMatrix__row = self._CooMatrix__col
+            ret._CooMatrix__col = self._CooMatrix__row
+            ret._CooMatrix__data = self._CooMatrix__data
+        return ret
+
+    @property
+    def T(self):
+        return self.transpose(copy=False)
+
+    def __repr__(self):
+        print("nrow:", len(self.row))
+        print("ncol:", len(self.col))
+        print("ndata:", len(self.data))
+        return super().__repr__()
 
 
 if __name__ == "__main__":
