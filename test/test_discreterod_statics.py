@@ -224,7 +224,7 @@ if __name__ == "__main__":
         Simo1986,
         nelements=99,
         slenderness=1e1,
-        n_load_steps=1,
+        n_load_steps=4,
         show_plots=True,
         name="helix",
     )
@@ -234,7 +234,7 @@ if __name__ == "__main__":
         Simo1986,
         nelements=99,
         slenderness=1e1,
-        n_load_steps=100,
+        n_load_steps=4,
         show_plots=True,
         name="helix",
         profile=True,
