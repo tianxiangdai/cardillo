@@ -131,11 +131,6 @@ def helix(
         solver.jac(solver.x[0], 0)
 
     if profile:
-        solver = Newton(
-            system,
-            n_load_steps=n_load_steps,
-            options=SolverOptions(newton_max_iter=30, newton_atol=atol),
-        )
         prof = Profile()
         prof.enable()
 
@@ -230,7 +225,6 @@ if __name__ == "__main__":
     nelement = 100
     slenderness = 1e2
     n_load_steps = 1
-    profile = False
 
     t_sim2, rod2, q2 = helix(
         DiscreteRod,
@@ -240,7 +234,7 @@ if __name__ == "__main__":
         n_load_steps=n_load_steps,
         show_plots=True,
         name="helix",
-        profile=profile,
+        profile=False,
     )
 
     t_sim1, rod1, q1 = helix(
@@ -251,7 +245,7 @@ if __name__ == "__main__":
         n_load_steps=n_load_steps,
         show_plots=True,
         name="helix",
-        profile=profile,
+        profile=False,
     )
 
     print(f"time mixed rod: {t_sim1:.2f} s")
