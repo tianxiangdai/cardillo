@@ -312,7 +312,7 @@ class DiscreteRod(RodExportBase):
             s.t0 = self.t0
             s.q0 = self.q0[self.elDOF[num]]
             s.qDOF = self.qDOF[self.elDOF[num]]
-            s.uDOF = self.qDOF[self.elDOF_u[num]]
+            s.uDOF = self.uDOF[self.elDOF_u[num]]
 
     #####################
     # kinematic equations

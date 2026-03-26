@@ -6,65 +6,8 @@ from jax import jit, jacfwd, vmap
 from .algebra import norm, ax2skew, ax2skew_a, ax2skew_squared
 
 jax.config.update("jax_enable_x64", True)
-# for small angles we use first order approximations of the equations since
-# most of the SO(3) and SE(3) equations get singular for psi -> 0.
-# angle_singular = 1.0e-6
-angle_singular = 0.0
 
 eye3 = jnp.eye(3, dtype=jnp.float64)
-
-
-def Spurrier(R: np.ndarray) -> np.ndarray:
-    """
-    Spurrier's algorithm to extract the unit quaternion from a given rotation
-    matrix, see Spurrier19978, Simo1986 Table 12 and Crisfield1997 Section 16.10.
-
-    References
-    ----------
-    Spurrier19978: https://arc.aiaa.org/doi/10.2514/3.57311 \\
-    Simo1986: https://doi.org/10.1016/0045-7825(86)90079-4 \\
-    Crisfield1997: http://inis.jinr.ru/sl/M_Mathematics/MN_Numerical%20methods/MNf_Finite%20elements/Crisfield%20M.A.%20Vol.2.%20Non-linear%20Finite%20Element%20Analysis%20of%20Solids%20and%20Structures..%20Advanced%20Topics%20(Wiley,1996)(ISBN%20047195649X)(509s).pdf
-    """
-    decision = np.zeros(4, dtype=jnp.float64)
-    decision[:3] = np.diag(R)
-    decision[3] = np.trace(R)
-    i = np.argmax(decision)
-
-    quat = np.zeros(4, dtype=jnp.float64)
-    if i != 3:
-        j = (i + 1) % 3
-        k = (j + 1) % 3
-
-        quat[i + 1] = np.sqrt(0.5 * R[i, i] + 0.25 * (1 - decision[3]))
-        quat[0] = (R[k, j] - R[j, k]) / (4 * quat[i + 1])
-        quat[j + 1] = (R[j, i] + R[i, j]) / (4 * quat[i + 1])
-        quat[k + 1] = (R[k, i] + R[i, k]) / (4 * quat[i + 1])
-
-    else:
-        quat[0] = 0.5 * np.sqrt(1 + decision[3])
-        quat[1] = (R[2, 1] - R[1, 2]) / (4 * quat[0])
-        quat[2] = (R[0, 2] - R[2, 0]) / (4 * quat[0])
-        quat[3] = (R[1, 0] - R[0, 1]) / (4 * quat[0])
-
-    return quat
-
-
-def quat2axis_angle(Q: np.ndarray) -> np.ndarray:
-    """Extract the rotation vector psi for a given quaterion Q = [q0, q] in
-    accordance with Wiki2021.
-
-    References
-    ----------
-    Wiki2021: https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Recovering_the_axis-angle_representation
-    """
-    q0, vq = Q[0], Q[1:]
-    q = norm(vq)
-    if q > 0:
-        axis = vq / q
-        angle = 2 * np.arctan2(q, q0)
-        return angle * axis
-    else:
-        return np.zeros(3)
 
 
 @jit
@@ -92,9 +35,6 @@ Exp_SO3_quat_batch = jit(vmap(Exp_SO3_quat, in_axes=(0, None)))
 
 Exp_SO3_quat_P = jit(jacfwd(Exp_SO3_quat, argnums=0))
 Exp_SO3_quat_P_batch = jit(vmap(jacfwd(Exp_SO3_quat, argnums=0), in_axes=(0, None)))
-
-
-Log_SO3_quat = Spurrier
 
 
 @jit

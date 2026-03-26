@@ -1,7 +1,8 @@
+import sys
+from time import perf_counter
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
-import sys
 
 from cardillo import System
 from cardillo.constraints import RigidConnection
@@ -11,6 +12,7 @@ from cardillo.rods import CircularCrossSection, animate_beam, Simo1986
 from cardillo.rods.cosseratRod import make_CosseratRod
 from cardillo.solver import Newton, SolverOptions
 from cProfile import Profile
+from cardillo.rods.discreteRod import DiscreteRod
 
 
 def helix(
@@ -116,23 +118,30 @@ def helix(
     if atol == None:
         atol = atols_dict[slenderness]
 
+    # create solver
     solver = Newton(
         system,
         n_load_steps=n_load_steps,
         options=SolverOptions(newton_max_iter=30, newton_atol=atol),  # rtol=0
     )
-    # create solver
+
+    # warm up
+    if isinstance(rod, DiscreteRod):
+        solver.fun(solver.x[0], 0)
+        solver.jac(solver.x[0], 0)
+
     if profile:
         solver = Newton(
             system,
             n_load_steps=n_load_steps,
             options=SolverOptions(newton_max_iter=30, newton_atol=atol),
         )
-        solver.fun(solver.x[0], 0)
-        solver.jac(solver.x[0], 0)
         prof = Profile()
         prof.enable()
+
+    t0 = perf_counter()
     sol = solver.solve()  # solve static equilibrium equations
+    t_sim = perf_counter() - t0
 
     if profile:
         prof.disable()
@@ -141,7 +150,7 @@ def helix(
     # read solution
     t = sol.t
     q = sol.q
-    return rod, q
+    return t_sim, rod, q
     la_c = sol.la_c
     la_g = sol.la_g
 
@@ -217,28 +226,37 @@ if __name__ == "__main__":
         polynomial_degree=1,
         reduced_integration=True,
     )
-    from cardillo.rods.discreteRod import DiscreteRod
 
-    rod1, q1 = helix(
-        Rod,
-        Simo1986,
-        nelements=99,
-        slenderness=1e1,
-        n_load_steps=4,
-        show_plots=True,
-        name="helix",
-    )
+    nelement = 100
+    slenderness = 1e2
+    n_load_steps = 1
+    profile = False
 
-    rod2, q2 = helix(
+    t_sim2, rod2, q2 = helix(
         DiscreteRod,
         Simo1986,
-        nelements=99,
-        slenderness=1e1,
-        n_load_steps=4,
+        nelements=nelement,
+        slenderness=slenderness,
+        n_load_steps=n_load_steps,
         show_plots=True,
         name="helix",
-        profile=True,
+        profile=profile,
     )
+
+    t_sim1, rod1, q1 = helix(
+        Rod,
+        Simo1986,
+        nelements=nelement,
+        slenderness=slenderness,
+        n_load_steps=n_load_steps,
+        show_plots=True,
+        name="helix",
+        profile=profile,
+    )
+
+    print(f"time mixed rod: {t_sim1:.2f} s")
+    print(f"time jax      : {t_sim2:.2f} s")
+    print(f"t_jax / t_mix : {t_sim1/t_sim2:.2f} x")
 
     ######
     # plot
