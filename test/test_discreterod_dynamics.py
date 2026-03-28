@@ -58,7 +58,7 @@ def cantilever_beam(Rod, profile=False):
 
     system.add(rod)
     system.add(force)
-    # system.add(force_gravity)
+    system.add(force_gravity)
     system.add(rc)
     system.assemble()
 
@@ -67,11 +67,11 @@ def cantilever_beam(Rod, profile=False):
     system.set_new_initial_state(sol_statics.q[-1], sol_statics.u[-1])
 
     system.remove(force)
-    # system.remove(force_gravity)
+    system.remove(force_gravity)
     force_gravity = Force_line_distributed(
         lambda t, xi: np.array([0, 0, mass * gravity / L]), rod
     )
-    # system.add(force_gravity)
+    system.add(force_gravity)
     system.assemble()
 
     t1 = 3
@@ -110,12 +110,12 @@ nelement = qs1.shape[1]
 for n in np.arange(nelement + 1)[:: nelement // int(nelement / 5)]:
     plt.figure()
     plt.subplot(4, 1, 1)
-    plt.plot(t1, qs1[:, n, 0], "-")
-    plt.plot(t1, qs2[:, n, 0], "--.")
+    plt.plot(t1, qs1[:, n, 0], "--.")
+    plt.plot(t1, qs2[:, n, 0], "-")
     plt.grid()
     plt.subplot(4, 1, 2)
-    plt.plot(t1, qs1[:, n, 1], "-")
-    plt.plot(t1, qs2[:, n, 1], "--.")
+    plt.plot(t1, qs1[:, n, 1], "--.")
+    plt.plot(t1, qs2[:, n, 1], "-")
     plt.grid()
     plt.subplot(4, 1, 3)
     plt.plot(t1, qs1[:, n, 0] - qs2[:, n, 0], "-r")

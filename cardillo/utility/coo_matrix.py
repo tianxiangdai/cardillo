@@ -45,33 +45,9 @@ class _CooMatrix:
 
         # python array as efficient container for numerical data,
         # see https://docs.python.org/3/library/array.html
-        self.__data = array("d", [])  # double
-        self.__row = array("I", [])  # unsigned int
-        self.__col = array("I", [])  # unsigned int
-
-    @property
-    def data(self):
-        return self.__data
-
-    @data.setter
-    def data(self, value):
-        self.__data = value
-
-    @property
-    def row(self):
-        return self.__row
-
-    @row.setter
-    def row(self, value):
-        self.__row = value
-
-    @property
-    def col(self):
-        return self.__col
-
-    @col.setter
-    def col(self, value):
-        self.__col = value
+        self.data = array("d", [])  # double
+        self.row = array("I", [])  # unsigned int
+        self.col = array("I", [])  # unsigned int
 
     def __setitem__(self, key, value):
         # None is returned by every function that does not return. Hence, we
@@ -193,7 +169,7 @@ class CooMatrix(_CooMatrix):
         self._data_allocation_lenth = []
 
     def fix_size(self):
-        self._CooMatrix__data = np.empty(len(self.row), dtype=np.float64)
+        self.data = np.empty(len(self.row), dtype=np.float64)
         self._coo = super().tocoo(copy=False)
         self._size_fixed = True
 

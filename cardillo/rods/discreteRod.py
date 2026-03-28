@@ -318,12 +318,10 @@ class DiscreteRod(RodExportBase):
     # kinematic equations
     #####################
     def q_dot(self, t, q, u):
-        return np.asarray(
-            _q_dot_nodes(self._view_nodal_q(q), self._view_nodal_u(u))
-        ).ravel()
+        return _q_dot_nodes(self._view_nodal_q(q), self._view_nodal_u(u)).ravel()
 
     def q_dot_q(self, t, q, u):
-        self._q_dot_q_coo.data[:] = _p_dot_q_nodes(
+        self._q_dot_q_coo.data = _p_dot_q_nodes(
             self._view_nodal_q(q), self._view_nodal_u(u)
         ).ravel()
         return self._q_dot_q_coo
@@ -347,10 +345,10 @@ class DiscreteRod(RodExportBase):
         return self.__M
 
     def h(self, t, q, u):
-        return np.asarray(_h_nodes(self._view_nodal_u(u), self._B_Theta_C)).ravel()
+        return _h_nodes(self._view_nodal_u(u), self._B_Theta_C).ravel()
 
     def h_u(self, t, q, u):
-        self._h_u_coo.data[:] = _h_u_nodes(
+        self._h_u_coo.data = _h_u_nodes(
             self._view_nodal_u(u)[:, 3:], self._B_Theta_C
         ).ravel()
         return self._h_u_coo
@@ -364,7 +362,7 @@ class DiscreteRod(RodExportBase):
 
     def g_S_q(self, t, q):
         p = q.reshape((self.nnode, 7))[:, 3:]
-        self._g_S_q_coo.data[:] = 2 * p.flatten()
+        self._g_S_q_coo.data = 2 * p.flatten()
         return self._g_S_q_coo
 
     ############
@@ -380,21 +378,19 @@ class DiscreteRod(RodExportBase):
             self.B_Kappa0,
             self.__c_la_c_el_inv,
         )
-        return np.asarray(la_c_el).ravel()
+        return la_c_el.ravel()
 
     def c(self, t, q, u, la_c):
         _, B_Gamma, B_Kappa = self._eval_els(q)
-        return np.asarray(
-            _c_els(
-                B_Gamma,
-                B_Kappa,
-                self._view_element_la_c(la_c),
-                self.L,
-                self.B_Gamma0,
-                self.B_Kappa0,
-                self.C_n_inv,
-                self.C_m_inv,
-            )
+        return _c_els(
+            B_Gamma,
+            B_Kappa,
+            self._view_element_la_c(la_c),
+            self.L,
+            self.B_Gamma0,
+            self.B_Kappa0,
+            self.C_n_inv,
+            self.C_m_inv,
         ).ravel()
 
     def c_la_c(self):
@@ -416,17 +412,17 @@ class DiscreteRod(RodExportBase):
 
     def c_q(self, t, q, u, la_c):
         _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
-        self._c_q_coo.data[:] = _c_q_els(B_Gamma_qe, B_Kappa_qe, self.L).ravel()
+        self._c_q_coo.data = _c_q_els(B_Gamma_qe, B_Kappa_qe, self.L).ravel()
         return self._c_q_coo
 
     def W_c(self, t, q):
         A_IB, B_Gamma, B_Kappa = self._eval_els(q)
-        self._W_c_coo.data[:] = _W_c_els(A_IB, B_Gamma, B_Kappa, self.L).ravel()
+        self._W_c_coo.data = _W_c_els(A_IB, B_Gamma, B_Kappa, self.L).ravel()
         return self._W_c_coo
 
     def Wla_c_q(self, t, q, la_c):
         A_IB_qe, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
-        self._Wla_c_q_coo.data[:] = _Wla_c_q_els(
+        self._Wla_c_q_coo.data = _Wla_c_q_els(
             A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c), self.L
         ).ravel()
         return self._Wla_c_q_coo
@@ -840,46 +836,3 @@ def _deval(qe, Le):
 
 
 _deval_els = jit(vmap(_deval))
-
-
-def _eval_deval(qe, Le):
-    r_OC0 = qe[:3]
-    P0 = qe[3:7]
-    r_OC1 = qe[7:10]
-    P1 = qe[10:14]
-
-    inv_Le = 1.0 / Le
-
-    r_OC_s = (r_OC1 - r_OC0) * inv_Le
-
-    P = (P0 + P1) / 2
-    P_s = (P1 - P0) * inv_Le
-    P_qe = 0.5 * jnp.hstack(
-        (jnp.zeros((4, 3)), jnp.eye(4), jnp.zeros((4, 3)), jnp.eye(4))
-    )
-
-    A_IB = math_jax.Exp_SO3_quat(P, normalize=True)
-    A_IB_T = A_IB.T
-    A_IB_qe = math_jax.Exp_SO3_quat_P(P, normalize=True) @ P_qe
-    #
-    T = math_jax.T_SO3_quat(P, normalize=True)
-    T_P = math_jax.T_SO3_quat_P(P, normalize=True)
-
-    B_Gamma = A_IB.T @ r_OC_s
-    term2 = (
-        jnp.concatenate([-A_IB_T, jnp.zeros((3, 4)), A_IB_T, jnp.zeros((3, 4))], axis=1)
-        * inv_Le
-    )
-
-    B_Gamma_qe = jnp.einsum("k,kij", r_OC_s, A_IB_qe) + term2
-
-    B_Kappa = T @ P_s
-    term2 = (
-        jnp.concatenate([jnp.zeros((3, 3)), -T, jnp.zeros((3, 3)), T], axis=1) * inv_Le
-    )
-    B_Kappa_qe = P_s @ T_P @ P_qe + term2
-
-    return A_IB, B_Gamma, B_Kappa, A_IB_qe, B_Gamma_qe, B_Kappa_qe
-
-
-_eval_deval_els = jit(vmap(_eval_deval))
