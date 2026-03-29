@@ -17,9 +17,8 @@ from cardillo.math_numba import (
     Exp_SO3_quat_P,
 )
 from cardillo import math_jax
-from cardillo.rods._base import RodExportBase
 from cardillo.utility.coo_matrix import CooMatrix
-from cardillo.rods import CrossSectionInertias
+from cardillo.rods import CrossSectionInertias, Simo1986
 
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
@@ -35,7 +34,41 @@ zeros3 = jnp.zeros((3, 3))
 _nla_c_el = 6  # 6/12
 
 
-class DiscreteRod(RodExportBase):
+class VariableCircularCrossSection:
+    def __init__(self, radius):
+        if callable(radius):
+            self.radius = radius
+        else:
+            self.radius = lambda xi, r=radius: r
+
+    def area(self, xi=0):
+        return np.pi * self.radius(xi) ** 2
+
+    def first_moment(self, xi=0):
+        return np.zeros(3)
+
+    def second_moment(self, xi=0):
+        return np.diag([2, 1, 1]) / 4 * np.pi * self.radius(xi) ** 4
+
+
+class VariableCrossSectionInertias:
+    def __init__(self, density=None, cross_section=None, A_rho=1.0, B_I_rho=np.eye(3)):
+        if density is None or cross_section is None:
+            if callable(A_rho):
+                self.A_rho = A_rho
+            else:
+                self.A_rho = lambda xi, A_rho=A_rho: A_rho
+
+            if callable(B_I_rho):
+                self.B_I_rho = B_I_rho
+            else:
+                self.B_I_rho = lambda xi, B_I_rho=B_I_rho: B_I_rho
+        else:
+            self.A_rho = lambda xi: density * cross_section.area(xi)
+            self.B_I_rho = lambda xi: density * cross_section.second_moment(xi)
+
+
+class DiscreteRod:
     def __init__(
         self,
         cross_section,
@@ -47,17 +80,50 @@ class DiscreteRod(RodExportBase):
         u0=None,
         cross_section_inertias=CrossSectionInertias(),
         name="discrete_node",
+        E=None,
+        G=None,
     ):
         # manual caches
         self._eval_cache = self._deval_cache = np.empty(0).tobytes()
 
-        super().__init__(cross_section)
+        # super().__init__(cross_section)
         self.material_model = material_model
         self.nelement = nelement
         self.nnode = nelement + 1
         self.name = name
-        self.C_n_inv = material_model.C_n_inv
-        self.C_m_inv = material_model.C_m_inv
+
+        # centerline parameter of nodes
+        self.xi_node = np.linspace(0, 1, self.nnode)
+
+        #
+        if isinstance(cross_section, VariableCircularCrossSection):
+            if isinstance(material_model, Simo1986):
+                C_n = []
+                C_m = []
+                C_n_inv = []
+                C_m_inv = []
+                for el in range(nelement):
+                    xi = 0.5 * (self.xi_node[el] + self.xi_node[el + 1])
+                    A = cross_section.area(xi)
+                    Ip, I2, I3 = np.diag(cross_section.second_moment(xi))
+                    # material model
+                    Ei = np.array([E * A, G * A, G * A])
+                    Fi = np.array([G * Ip, E * I2, E * I3])
+                    C_n.append(np.diag(Ei))
+                    C_m.append(np.diag(Fi))
+                    C_n_inv.append(np.diag(1 / Ei))
+                    C_m_inv.append(np.diag(1 / Fi))
+            else:
+                raise NotImplementedError
+        else:
+            C_n = [material_model.C_n] * nelement
+            C_m = [material_model.C_m] * nelement
+            C_n_inv = [material_model.C_n_inv] * nelement
+            C_m_inv = [material_model.C_m_inv] * nelement
+        self.C_n = np.array(C_n)
+        self.C_m = np.array(C_m)
+        self.C_n_inv = np.array(C_n_inv)
+        self.C_m_inv = np.array(C_m_inv)
 
         # total DOFs
         self.nq = 7 * self.nnode
@@ -68,8 +134,6 @@ class DiscreteRod(RodExportBase):
         self.q0 = Q if q0 is None else np.asarray(q0)
         self.u0 = np.zeros(self.nu, dtype=float) if u0 is None else np.asarray(u0)
         self.la_S0 = np.zeros(self.nla_S, dtype=float)
-
-        self.xis = np.linspace(0, 1, self.nnode)
 
         # slices of DOFs
         self.elDOF = [slice(7 * el, 7 * (el + 2)) for el in range(self.nelement)]
@@ -96,8 +160,13 @@ class DiscreteRod(RodExportBase):
                 w = self.L[n - 1] / 2
             else:
                 w = (self.L[n] + self.L[n - 1]) / 2
-            mass = cross_section_inertias.A_rho0 * w
-            B_Theta_C = cross_section_inertias.B_I_rho0 * w
+            if isinstance(cross_section_inertias, VariableCrossSectionInertias):
+                xi = self.xi_node(n)
+                mass = cross_section_inertias.A_rho(xi) * w
+                B_Theta_C = cross_section_inertias.B_I_rho(xi) * w
+            else:
+                mass = cross_section_inertias.A_rho0 * w
+                B_Theta_C = cross_section_inertias.B_I_rho0 * w
             self._B_Theta_C.append(B_Theta_C)
             nodalDOF_r_u = self.nodalDOF_r_u[n]
             nodalDOF_p_u = self.nodalDOF_p_u[n]
@@ -188,7 +257,7 @@ class DiscreteRod(RodExportBase):
         return num if num < self.nelement else num - 1
 
     def element_interval(self, el):
-        return (self.xis[el], self.xis[el + 1])
+        return (self.xi_node[el], self.xi_node[el + 1])
 
     def _view_element_q(self, q):
         stride = q.strides[0]
@@ -376,7 +445,8 @@ class DiscreteRod(RodExportBase):
             self.L,
             self.B_Gamma0,
             self.B_Kappa0,
-            self.__c_la_c_el_inv,
+            self.C_n,
+            self.C_m,
         )
         return la_c_el.ravel()
 
@@ -397,18 +467,15 @@ class DiscreteRod(RodExportBase):
         return self.__c_la_c
 
     def _c_la_c_coo(self):
-        self.__c_la_c_el_inv = []
         for el in range(self.nelement):
             c_la_c_el = np.zeros((_nla_c_el, _nla_c_el), dtype=float)
-            c_la_c_el[:3, :3] = self.C_n_inv
-            c_la_c_el[3:6, 3:6] = self.C_m_inv
+            c_la_c_el[:3, :3] = self.C_n_inv[el]
+            c_la_c_el[3:6, 3:6] = self.C_m_inv[el]
             if _nla_c_el == 12:
-                c_la_c_el[6:9, 6:9] = self.C_n_inv
-                c_la_c_el[9:, 9:] = self.C_m_inv
+                c_la_c_el[6:9, 6:9] = self.C_n_inv[el]
+                c_la_c_el[9:, 9:] = self.C_m_inv[el]
             c_la_c_el *= self.L[el]
             self.__c_la_c.set_allocated_data(el, c_la_c_el)
-            self.__c_la_c_el_inv.append(np.linalg.inv(c_la_c_el))
-        self.__c_la_c_el_inv = np.array(self.__c_la_c_el_inv)
 
     def c_q(self, t, q, u, la_c):
         _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
@@ -430,7 +497,7 @@ class DiscreteRod(RodExportBase):
     # @cachedmethod(lambda self: self._alpha_cache, key=lambda self, xi: xi)
     def _alpha(self, xi):
         num = self.element_number(xi)
-        return (xi - self.xis[num]) / (self.xis[num + 1] - self.xis[num])
+        return (xi - self.xi_node[num]) / (self.xi_node[num + 1] - self.xi_node[num])
 
     ####################################################
     # interactions with other bodies and the environment
@@ -689,22 +756,13 @@ def _p_dot_p_node(q, u):
 _p_dot_q_nodes = jit(vmap(_p_dot_p_node))
 
 
-def _la_c_el(
-    B_Gamma,
-    B_Kappa,
-    Le,
-    B_Gamma0,
-    B_Kappa0,
-    c_la_c_el_inv,
-):
-    eps = jnp.concatenate(
-        [
-            (B_Gamma - B_Gamma0) * Le,
-            (B_Kappa - B_Kappa0) * Le,
-        ]
-    )
+def _la_c_el(B_Gamma, B_Kappa, Le, B_Gamma0, B_Kappa0, C_n, C_m):
     # TODO: add damping
-    return c_la_c_el_inv @ eps
+    B_n = C_n @ (B_Gamma - B_Gamma0) * Le
+    B_m = C_m @ (B_Kappa - B_Kappa0) * Le
+
+    # TODO:add damping
+    return jnp.concatenate([B_n, B_m])
 
 
 _la_c_els = jit(vmap(_la_c_el))
@@ -758,7 +816,7 @@ def _c_el(B_Gamma, B_Kappa, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
     return jnp.concatenate([c_n, c_m])
 
 
-_c_els = jit(vmap(_c_el, in_axes=(0, 0, 0, 0, 0, 0, None, None)))
+_c_els = jit(vmap(_c_el))
 
 
 def _c_q_el(B_Gamma_qe, B_Kappa_qe, Le):

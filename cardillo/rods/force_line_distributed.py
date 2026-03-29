@@ -66,7 +66,9 @@ class Force_line_distributed:
     #####################
     def h(self, t, q, u):
         if self._is_discrete_rod:
-            return np.asarray(self._h_nodes(t, self.rod.xis, self._h_weights)).ravel()
+            return np.asarray(
+                self._h_nodes(t, self.rod.xi_node, self._h_weights)
+            ).ravel()
         else:
             h = np.zeros(self.rod.nu, dtype=np.common_type(q, u))
             for el in range(self.rod.nelement):

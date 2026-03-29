@@ -231,28 +231,28 @@ class CooMatrix(_CooMatrix):
     def __neg__(self):
         ret = CooMatrix(self.shape)
         # copy data
-        ret._CooMatrix__row = self._CooMatrix__row[:]
-        ret._CooMatrix__col = self._CooMatrix__col[:]
-        if isinstance(self._CooMatrix__data, array):
-            ret._CooMatrix__data = array("d", [-el for el in self._CooMatrix__data])
-        elif isinstance(self._CooMatrix__data, np.ndarray):
-            ret._CooMatrix__data = -self._CooMatrix__data
+        ret.row = self.row[:]
+        ret.col = self.col[:]
+        if isinstance(self.data, array):
+            ret.data = array("d", [-el for el in self.data])
+        elif isinstance(self.data, np.ndarray):
+            ret.data = -self.data
         return ret
 
     def transpose(self, copy=False):
         ret = CooMatrix((self.shape[1], self.shape[0]))
         if copy:
-            ret._CooMatrix__row = self._CooMatrix__col[:]
-            ret._CooMatrix__col = self._CooMatrix__row[:]
-            if isinstance(self._CooMatrix__data, array):
-                ret._CooMatrix__data = self._CooMatrix__data[:]
-            elif isinstance(self._CooMatrix__data, np.ndarray):
-                ret._CooMatrix__data = self._CooMatrix__data.copy()
+            ret.row = self.col[:]
+            ret.col = self.row[:]
+            if isinstance(self.data, array):
+                ret.data = self.data[:]
+            elif isinstance(self.data, np.ndarray):
+                ret.data = self.data.copy()
 
         else:
-            ret._CooMatrix__row = self._CooMatrix__col
-            ret._CooMatrix__col = self._CooMatrix__row
-            ret._CooMatrix__data = self._CooMatrix__data
+            ret.row = self.col
+            ret.col = self.row
+            ret.data = self.data
         return ret
 
     @property
