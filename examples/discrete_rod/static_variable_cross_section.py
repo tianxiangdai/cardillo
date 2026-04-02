@@ -49,10 +49,12 @@ def helix(
 
     # cross section properties
     width = length / slenderness
-    radius = lambda xi: width / 2 * (1 - 0.4 * xi)
+    radius = lambda xi: width * 0.5 * (1 - 0.3 * xi)
     cross_section = VariableCircularCrossSection(radius=radius)
-    A = cross_section.area(0)
-    Ip, I2, I3 = np.diag(cross_section.second_moment(0))
+
+    _cross_section = CircularCrossSection(radius=width * 0.5)
+    A = _cross_section.area
+    Ip, I2, I3 = np.diag(_cross_section.second_moment)
 
     # material model
     E = 1.0  # Young's modulus
@@ -154,7 +156,9 @@ def helix(
     # VTK export
     dir_name = Path(sys.argv[0]).parent
     if VTK_export:
+        t0 = perf_counter()
         system.export(dir_name, f"vtk/slen_{slenderness:1.0e}/{save_name}", sol)
+        print(f"VTK export time: {perf_counter() - t0:.2f} s")
 
     return t_sim, rod, q
     la_c = sol.la_c
@@ -232,6 +236,7 @@ if __name__ == "__main__":
         DiscreteRod,
         Simo1986,
         nelements=nelement,
+        n_coil=3,
         slenderness=slenderness,
         n_load_steps=n_load_steps,
         show_plots=True,
@@ -259,7 +264,6 @@ if __name__ == "__main__":
     ax1.set_xlabel("X")
     ax1.set_ylabel("Y")
     ax1.set_zlabel("Z")
-    ax1.legend()
 
     # ax1.set_box_aspect([1, 1, 1])
     ax1.axis("equal")

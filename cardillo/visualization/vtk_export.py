@@ -89,6 +89,7 @@ class Export:
         self.system = solution.system
         self.write_ascii = (write_ascii,)
         self.__prepare_data(solution)
+        self._ugrid_writer = vtk.vtkXMLUnstructuredGridWriter()
 
     # helper functions
     def __vtk_file(self):
@@ -222,13 +223,12 @@ class Export:
             ugrid = make_ugrid(points, cells, point_data, cell_data)
 
             # write data
-            writer = vtk.vtkXMLUnstructuredGridWriter()
-            writer.SetInputData(ugrid)
-            writer.SetFileName(file_i)
+            self._ugrid_writer.SetInputData(ugrid)
+            self._ugrid_writer.SetFileName(file_i)
             if self.write_ascii:
-                writer.SetDataModeToAscii()
+                self._ugrid_writer.SetDataModeToAscii()
             else:
-                writer.SetDataModeToBinary()
-            writer.Write()
+                self._ugrid_writer.SetDataModeToBinary()
+            self._ugrid_writer.Write()
 
         self._write_pvd_file(self.path / f"{file_name}.pvd")
