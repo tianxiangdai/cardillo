@@ -93,8 +93,8 @@ def helix(
         nelements,
         Q=q0,
         q0=q0,
-        E = E,
-        G = G,
+        E=E,
+        G=G,
     )
     system.add(rod)
 
@@ -147,10 +147,6 @@ def helix(
     # read solution
     t = sol.t
     q = sol.q
-    return t_sim, rod, q
-    la_c = sol.la_c
-    la_g = sol.la_g
-
     #################
     # post-processing
     #################
@@ -159,6 +155,10 @@ def helix(
     dir_name = Path(sys.argv[0]).parent
     if VTK_export:
         system.export(dir_name, f"vtk/slen_{slenderness:1.0e}/{save_name}", sol)
+
+    return t_sim, rod, q
+    la_c = sol.la_c
+    la_g = sol.la_g
 
     ##########################
     # matplotlib visualization
@@ -224,7 +224,7 @@ if __name__ == "__main__":
         reduced_integration=True,
     )
 
-    nelement = 100
+    nelement = 500
     slenderness = 1e2
     n_load_steps = 10
 
@@ -237,6 +237,7 @@ if __name__ == "__main__":
         show_plots=True,
         name="helix",
         profile=False,
+        VTK_export=True,
     )
 
     print(f"time jax      : {t_sim2:.2f} s")

@@ -6,6 +6,8 @@ from jax import vmap, jit
 from jax import numpy as jnp
 from numba import njit
 
+from vtk import VTK_BEZIER_WEDGE
+
 from cachetools import cachedmethod, LRUCache
 
 from cardillo.math_numba import (
@@ -86,6 +88,7 @@ class DiscreteRod:
         # manual caches
         self._eval_cache = self._deval_cache = np.empty(0).tobytes()
 
+        self.cross_section = cross_section
         # super().__init__(cross_section)
         self.material_model = material_model
         self.nelement = nelement
@@ -241,6 +244,44 @@ class DiscreteRod:
         # cache
         self._alpha_cache = LRUCache(maxsize=self.nnode * 10)
         self._eval_kinematics_cache = LRUCache(maxsize=self.nnode * 10)
+        
+        # vtk export
+        self.vtk_points = np.empty((self.nnode * 6, 3), dtype=float)
+        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
+        phis2 = phis + (np.pi / 3.0)
+        control_pts_circle = []
+        for n in range(self.nnode):
+            if isinstance(self.cross_section, VariableCircularCrossSection):
+                radius = self.cross_section.radius(
+                    self.xi_node[n]
+                )  # Assuming a simple case, adjust as needed
+            else:
+                radius = self.cross_section.radius
+            # control points on circle
+            xys1 = (
+                np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1)
+                * radius
+            )
+            # control points out of circle
+            xys2 = np.stack(
+                [np.zeros_like(phis2), np.cos(phis2), np.sin(phis2)], axis=1
+            ) * (2.0 * radius)
+            control_pts_circle.append(np.concatenate([xys1, xys2], axis=0).T)
+        self.control_pts_circle = np.array(control_pts_circle)
+        weights = [1, 1, 1, 0.5, 0.5, 0.5]
+        self.vtk_point_data = {"RationalWeights": np.tile(weights, self.nnode)[:, None]}
+        self.vtk_cells = [
+            (
+                VTK_BEZIER_WEDGE,
+                list(range(i * 6, i * 6 + 3))
+                + list(range((i + 1) * 6, (i + 1) * 6 + 3))
+                + list(range(i * 6 + 3, (i + 1) * 6))
+                + list(range((i + 1) * 6 + 3, (i + 2) * 6)),
+            )
+            for i in range(self.nelement)
+        ]
+        degrees = [2, 2, 1]
+        self.vtk_cell_data = {"HigherOrderDegrees": np.tile([degrees], (self.nelement, 1))}
 
     def set_reference_strains(self, Q):
         self.L = np.array(
@@ -672,7 +713,32 @@ class DiscreteRod:
     #     return _eval_deval_els(q_els, self.L)
 
     def export(self, sol_i, **kwargs):
-        return [], [], {}, {}
+        q_nodes = self._view_nodal_q(sol_i.q[self.qDOF])
+        r_OC_nodes = q_nodes[:, :3]
+        A_IB_nodes = math_jax.Exp_SO3_quat_batch(q_nodes[:, 3:], True)
+        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
+        phis2 = phis + (np.pi / 3.0)
+        for n in range(self.nnode):
+            if isinstance(self.cross_section, VariableCircularCrossSection):
+                radius = self.cross_section.radius(
+                    self.xi_node[n]
+                )  # Assuming a simple case, adjust as needed
+            else:
+                radius = self.cross_section.radius
+            # control points on circle
+            xys1 = (
+                np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1)
+                * radius
+            )
+            # control points out of circle
+            xys2 = np.stack(
+                [np.zeros_like(phis2), np.cos(phis2), np.sin(phis2)], axis=1
+            ) * (2.0 * radius)
+            control_pts_circle = np.concatenate([xys1, xys2], axis=0)
+            pts = r_OC_nodes[n] + control_pts_circle @ A_IB_nodes[n].T
+            base = n * 6
+            self.vtk_points[base : base + 6] = pts
+        return self.vtk_points, self.vtk_cells, self.vtk_point_data, self.vtk_cell_data
 
 
 @njit(cache=True)
