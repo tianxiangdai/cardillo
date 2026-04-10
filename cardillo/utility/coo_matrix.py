@@ -1,13 +1,13 @@
 import warnings
-import numpy as np
 from scipy.sparse import csc_array, csr_array, coo_array
 from scipy.sparse._sputils import isshape, check_shape
 from scipy.sparse import spmatrix, sparray
-from numpy import repeat, tile, atleast_1d, atleast_2d, arange
+import numpy as np
+from numpy import tile, atleast_1d, arange, ndarray
 from array import array
 
 
-class _CooMatrix:
+class CooMatrix:
     """Small container storing the sparse matrix shape and three lists for
     accumulating the entries for row, column and data Wiki/COO.
 
@@ -45,58 +45,122 @@ class _CooMatrix:
 
         # python array as efficient container for numerical data,
         # see https://docs.python.org/3/library/array.html
-        self.data = array("d", [])  # double
-        self.row = array("I", [])  # unsigned int
-        self.col = array("I", [])  # unsigned int
+        self.data = np.empty(0, dtype=float)  # double
+        self.row = np.empty(0, dtype=int)  # unsigned int
+        self.col = np.empty(0, dtype=int)  # unsigned int
+
+        self._data_index = {}
+        self._value_type = {}
+        self._scipy_coo = None
+
+    @property
+    def not_empty(self):
+        return self.data.shape[0] > 0
+
+    def set_all(self, rows_list, cols_list, value_list):
+        if len(self.data):
+            self.data = value_list.ravel()
+        else:
+            for rows, cols, value in zip(rows_list, cols_list, value_list):
+                self[rows, cols] = value
 
     def __setitem__(self, key, value):
         # None is returned by every function that does not return. Hence, we
         # can use this to add no contribution to the matrix.
         if value is not None:
-            # extract rows and columns to assign
-            rows, cols = key
-            if isinstance(rows, slice):
-                rows = arange(*rows.indices(self.shape[0]))
-            if isinstance(cols, slice):
-                cols = arange(*cols.indices(self.shape[1]))
-            rows = atleast_1d(rows)
-            cols = atleast_1d(cols)
+            if len(key) == 3:
+                # extract rows and columns to assign
+                name, rows, cols = key
+                pre_allocate = name in self._data_index.keys()
+            elif len(key) == 2:
+                # extract rows and columns to assign
+                rows, cols = key
+                pre_allocate = False
+            else:
+                raise NotImplementedError
 
-            if isinstance(value, CooMatrix):
-                assert value.shape == (len(rows), len(cols)), "inconsistent assignment"
+            if pre_allocate:
+                value_type = self._value_type[name]
+            else:
+                if isinstance(rows, slice):
+                    rows = arange(*rows.indices(self.shape[0]))
+                if isinstance(cols, slice):
+                    cols = arange(*cols.indices(self.shape[1]))
+                rows = atleast_1d(rows)
+                cols = atleast_1d(cols)
+
+                if isinstance(value, CooMatrix):
+                    value_type = "Coo"
+                elif isinstance(value, sparray):
+                    value_type = "sparse"
+                elif isinstance(value, spmatrix):
+                    raise RuntimeError(
+                        "Do not use sparse matrices, move to sparse array."
+                    )
+                elif isinstance(value, ndarray):
+                    value_type = "ndarray"
+                elif isinstance(value, (int, float)):
+                    value_type = "digit"
+                else:
+                    raise NotImplementedError
+                if len(key) == 3:
+                    self._value_type[name] = value_type
+
+            if value_type == "Coo":
+                # assert value.shape == (len(rows), len(cols)), "inconsistent assignment"
 
                 # extend arrays from given CooMatrix
-                self.data.extend(value.data)
-                self.row.extend(rows[value.row])
-                self.col.extend(cols[value.col])
+                new_data = value.data
+                if not pre_allocate:
+                    new_rows = rows[value.row]
+                    new_cols = cols[value.col]
                 # TODO: benchmark
                 # self.data.fromlist(value.data.tolist())
                 # self.row.fromlist(rows[value.row].tolist())
                 # self.col.fromlist(cols[value.col].tolist())
-            elif isinstance(value, sparray):
-                assert value.shape == (len(rows), len(cols)), "inconsistent assignment"
+            elif value_type == "sparse":
+                # assert value.shape == (len(rows), len(cols)), "inconsistent assignment"
 
                 # all scipy sparse matrices are converted to coo_array, their
                 # data, row and column lists are subsequently appended
                 coo = value.tocoo()
-                self.data.extend(coo.data)
-                self.row.extend(rows[coo.row])
-                self.col.extend(cols[coo.col])
+                new_data = coo.data
+                if not pre_allocate:
+                    new_rows = rows[coo.row]
+                    new_cols = cols[coo.col]
                 # TODO: benchmark
                 # self.data.fromlist(coo.data.tolist())
                 # self.row.fromlist(rows[coo.row].tolist())
                 # self.col.fromlist(cols[coo.col].tolist())
-            elif isinstance(value, spmatrix):
-                raise RuntimeError("Do not use sparse matrices, move to sparse array.")
-            else:
-                # convert everything als to 2D numpy arrays
-                value = atleast_2d(value)
-                assert value.shape == (len(rows), len(cols)), "inconsistent assignment"
+            elif value_type == "ndarray":
+                # convert to 2D numpy arrays
+                # value = atleast_2d(value)
+                # assert value.shape == (len(rows), len(cols)), "inconsistent assignment"
 
                 # 2D array
-                self.data.extend(value.ravel(order="C"))
-                self.row.extend(repeat(rows, len(cols)))
-                self.col.extend(tile(cols, len(rows)))
+                new_data = value.ravel(order="C")
+                if not pre_allocate:
+                    new_rows = rows.repeat(len(cols))
+                    new_cols = tile(cols, len(rows))
+            elif value_type == "digit":
+                new_rows = rows
+                new_cols = cols
+                new_data = np.array([value])
+            else:
+                raise NotImplementedError
+
+            if pre_allocate:
+                id0, id1 = self._data_index[name]
+                self.data[id0:id1] = new_data
+            else:
+                self.data = np.concatenate([self.data, new_data])
+                self.col = np.concatenate([self.col, new_cols])
+                self.row = np.concatenate([self.row, new_rows])
+                if len(key) == 3:
+                    self._data_index[name] = (
+                        len(self.data) - len(new_data),
+                        len(self.data),
+                    )
 
     def extend(self, matrix, DOF):
         warnings.warn(
@@ -119,6 +183,8 @@ class _CooMatrix:
         -------
         A : This matrix in the passed format.
         """
+        if format == "Coo":
+            return self
         try:
             convert_method = getattr(self, "to" + format)
         except AttributeError as e:
@@ -144,7 +210,14 @@ class _CooMatrix:
 
     def tocoo(self, copy=False):
         """Convert container to scipy coo_array."""
-        return self.tosparse(coo_array, copy=copy)
+        if copy:
+            coo = self.tosparse(coo_array, copy=True)
+        elif self._scipy_coo is None:
+            coo = self.tosparse(coo_array, copy=False)
+            self._scipy_coo = coo
+        else:
+            coo = self._scipy_coo
+        return coo
 
     def tocsc(self, copy=False):
         """Convert container to scipy csc_array."""
@@ -158,97 +231,12 @@ class _CooMatrix:
         """Convert container to 2D numpy array."""
         return self.tocoo(copy).toarray()
 
-
-class CooMatrix(_CooMatrix):
-    def __init__(self, shape):
-        super().__init__(shape)
-        self._nallocation = 0
-        self._data_allocation_index = {}
-        self._size_fixed = False
-        self._coo = None
-        self._data_allocation_lenth = []
-
-    def fix_size(self):
-        self.data = np.empty(len(self.row), dtype=np.float64)
-        self._coo = super().tocoo(copy=False)
-        self._size_fixed = True
-
-    def __allocate_data(self, rows, cols):
-        allocation_id = self._nallocation
-        self._nallocation = allocation_id + 1
-        idx1 = len(self.row)
-        self.row.extend(rows)
-        self.col.extend(cols)
-        idx2 = len(self.row)
-        self._data_allocation_index[allocation_id] = (idx1, idx2)
-        self._data_allocation_lenth.append(idx2 - idx1)
-        return allocation_id
-
-    def allocate_data(self, rows, cols, target=None):
-        if self._size_fixed:
-            raise Exception("size already fixed!")
-
-        rows, cols = np.atleast_1d(rows), np.atleast_1d(cols)
-        if target is None or isinstance(target, np.ndarray):
-            _rows = np.repeat(rows, len(cols))
-            _cols = np.tile(cols, len(rows))
-        elif isinstance(target, CooMatrix):
-            _rows = rows[target.row]
-            _cols = cols[target.col]
-        elif isinstance(target, sparray):
-            coo = target.tocoo()
-            _rows = rows[coo.row]
-            _cols = cols[coo.col]
-        else:
-            raise NotImplementedError
-        return self.__allocate_data(_rows, _cols)
-
-    def data_allocation_length(self, allocation_id):
-        return self._data_allocation_lenth[allocation_id]
-
-    def set_allocated_data(self, allocation_id, target):
-        if isinstance(target, np.ndarray):
-            data = target.reshape(-1)
-        elif isinstance(target, CooMatrix):
-            data = target.data
-        elif isinstance(target, sparray):
-            data = target.tocoo().data if len(target.data) else target.data
-        elif isinstance(target, (int, float)):
-            data = target
-        else:
-            raise NotImplementedError
-        idx1, idx2 = self._data_allocation_index[allocation_id]
-        self.data[idx1:idx2] = data
-
-    def asformat(self, format, copy=False):
-        if format == "CooMatrix":
-            return self
-        elif self._coo is not None:
-            return self._coo.asformat(format, copy=copy)
-        else:
-            return super().asformat(format, copy=copy)
-
-    def __neg__(self):
-        ret = CooMatrix(self.shape)
-        # copy data
-        ret.row = self.row[:]
-        ret.col = self.col[:]
-        if isinstance(self.data, array):
-            ret.data = array("d", [-el for el in self.data])
-        elif isinstance(self.data, np.ndarray):
-            ret.data = -self.data
-        return ret
-
     def transpose(self, copy=False):
         ret = CooMatrix((self.shape[1], self.shape[0]))
         if copy:
-            ret.row = self.col[:]
-            ret.col = self.row[:]
-            if isinstance(self.data, array):
-                ret.data = self.data[:]
-            elif isinstance(self.data, np.ndarray):
-                ret.data = self.data.copy()
-
+            ret.row = self.col.copy()
+            ret.col = self.row.copy()
+            ret.data = self.data.copy()
         else:
             ret.row = self.col
             ret.col = self.row
@@ -259,11 +247,12 @@ class CooMatrix(_CooMatrix):
     def T(self):
         return self.transpose(copy=False)
 
-    def __repr__(self):
-        print("nrow:", len(self.row))
-        print("ncol:", len(self.col))
-        print("ndata:", len(self.data))
-        return super().__repr__()
+    def __neg__(self):
+        ret = CooMatrix(self.shape)
+        ret.row = self.row.copy()
+        ret.col = self.col.copy()
+        ret.data = -self.data
+        return ret
 
 
 if __name__ == "__main__":

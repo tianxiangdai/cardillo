@@ -80,6 +80,8 @@ def cantilever_beam(Rod, profile=False):
     solver = ScipyDAE(system, t1, t1 / 1000, rtol=rtol, atol=atol)
 
     if profile:
+        solver.fun(0.0, solver.y0, solver.y0)
+        solver.jac(0.0, solver.y0, solver.y0)
         prof = cProfile.Profile()
         prof.enable()
 

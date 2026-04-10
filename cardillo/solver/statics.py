@@ -2,11 +2,10 @@ import numpy as np
 from scipy.sparse import lil_array, bmat
 from tqdm import tqdm
 
+from cardillo.utility.coo_matrix import CooMatrix
 from cardillo.math.fsolve import fsolve
 from cardillo.solver.solver_options import SolverOptions
 from cardillo.solver.solution import Solution
-
-from ..utility.coo_matrix import CooMatrix
 
 
 class Newton:
@@ -55,86 +54,18 @@ class Newton:
 
         # initial conditions
         x0 = np.concatenate((system.q0, system.la_g0, system.la_c0, system.la_N0))
-        nx = len(x0)
+        self.nx = len(x0)
         self.u0 = np.zeros(system.nu)  # zero velocities as system is static
 
         # memory allocation
-        self.x = np.zeros((self.nt, nx), dtype=float)
+        self.x = np.zeros((self.nt, self.nx), dtype=float)
         self.x[0] = x0
-
-        # jac_coo
-        # unpack unknowns
-        t = system.t0
-        q, la_g, la_c, la_N = np.array_split(x0, self.split_x)
-
-        W_g = self.system.W_g(t, q, format="coo")
-        W_c = self.system.W_c(t, q, format="coo")
-        W_N = self.system.W_N(t, q, format="coo")
-
-        h_q = self.system.h_q(t, q, self.u0, format="CooMatrix")
-        Wla_g_q = self.system.Wla_g_q(t, q, la_g, format="CooMatrix")
-        Wla_c_q = self.system.Wla_c_q(t, q, la_c, format="CooMatrix")
-        Wla_N_q = self.system.Wla_N_q(t, q, la_N, format="CooMatrix")
-        g_q = self.system.g_q(t, q, format="CooMatrix")
-        g_S_q = self.system.g_S_q(t, q, format="CooMatrix")
-        c_q = self.system.c_q(t, q, self.u0, la_c, format="CooMatrix")
-        c_la_c = self.system.c_la_c()
-
-        # note: csr_matrix is best for row slicing, see
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
-        g_N_q = self.system.g_N_q(t, q, format="csr")
-
-        Rla_N_q = lil_array((self.nla_N, self.nq), dtype=float)
-        Rla_N_la_N = lil_array((self.nla_N, self.nla_N), dtype=float)
-        for i in range(self.nla_N):
-            if la_N[i] < self.g_N[i]:
-                Rla_N_la_N[i, i] = 1.0
-            else:
-                Rla_N_q[i] = g_N_q[i]
-        self._jac_coo = CooMatrix((nx, nx))
-        self._jac_coo.allocate_data(
-            np.arange(self.split_f[0]), np.arange(self.split_x[0]), h_q
-        )
-        self._jac_coo.allocate_data(
-            np.arange(self.split_f[0]), np.arange(self.split_x[0]), Wla_g_q
-        )
-        self._jac_coo.allocate_data(
-            np.arange(self.split_f[0]), np.arange(self.split_x[0]), Wla_c_q
-        )
-        self._jac_coo.allocate_data(
-            np.arange(self.split_f[0]), np.arange(self.split_x[0]), Wla_N_q
-        )
-
-        self._jac_coo.allocate_data(
-            np.arange(self.split_f[0]), np.arange(*self.split_x[0:2]), W_g
-        )
-        self._jac_coo.allocate_data(
-            np.arange(self.split_f[0]), np.arange(*self.split_x[1:3]), W_c
-        )
-        self._jac_coo.allocate_data(
-            np.arange(self.split_f[0]), np.arange(self.split_x[2], nx), W_N
-        )
-
-        self._jac_coo.allocate_data(
-            np.arange(*self.split_f[0:2]), np.arange(self.split_x[0]), g_q
-        )
-        self._jac_coo.allocate_data(
-            np.arange(*self.split_f[1:3]), np.arange(self.split_x[0]), c_q
-        )
-        self._jac_coo.allocate_data(
-            np.arange(*self.split_f[2:4]), np.arange(self.split_x[0]), g_S_q
-        )
-        self._jac_coo.allocate_data(
-            np.arange(self.split_f[3], nx), np.arange(self.split_x[0]), Rla_N_q
-        )
-
-        self._jac_coo.allocate_data(
-            np.arange(*self.split_f[1:3]), np.arange(*self.split_x[1:3]), c_la_c
-        )
-        self._jac_coo.allocate_data(
-            np.arange(self.split_f[3], nx), np.arange(self.split_x[2], nx), Rla_N_la_N
-        )
-        self._jac_coo.fix_size()
+        self._W_g_coo = self._W_c_coo = self._W_N_coo = self._h_q_coo = (
+            self._Wla_g_q_coo
+        ) = self._Wla_c_q_coo = self._c_q_coo = self._g_q_coo = self._g_S_q_coo = (
+            self._Wla_N_q_coo
+        ) = self._g_N_q_coo = None
+        self._jac_coo = CooMatrix((self.nx, self.nx))
 
     def fun(self, x, t):
         # unpack unknowns
@@ -144,9 +75,12 @@ class Newton:
         # the jacobian
         # csr is used for efficient matrix vector multiplication, see
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
-        self.W_g = self.system.W_g(t, q, format="coo")
-        self.W_c = self.system.W_c(t, q, format="coo")
-        self.W_N = self.system.W_N(t, q, format="coo")
+        self._W_g_coo = self.system.W_g(t, q, format="Coo", coo=self._W_g_coo)
+        self._W_c_coo = self.system.W_c(t, q, format="Coo", coo=self._W_c_coo)
+        self._W_N_coo = self.system.W_N(t, q, format="Coo", coo=self._W_N_coo)
+        self.W_g = self._W_g_coo.asformat("coo")
+        self.W_c = self._W_c_coo.asformat("coo")
+        self.W_N = self._W_N_coo.asformat("coo")
         self.g_N = self.system.g_N(t, q)
 
         # static equilibrium
@@ -167,79 +101,65 @@ class Newton:
         # unpack unknowns
         q, la_g, la_c, la_N = np.array_split(x, self.split_x)
 
-        # evaluate additionally required quantites for computing the jacobian
-        # coo is used for efficiency
+        self._g_N_q_coo = self.system.g_N_q(t, q, format="Coo", coo=self._g_N_q_coo)
+        if self._g_N_q_coo.not_empty:
+            self._jac_coo = CooMatrix((self.nx, self.nx))
         jac = self._jac_coo
-        allocation_length = jac.data_allocation_length
-        if allocation_length(0):
-            h_q = self.system.h_q(t, q, self.u0, format="CooMatrix")
-            jac.set_allocated_data(0, h_q)
+        r1, r2, r3, r4 = self.split_f
+        c1, c2, c3 = self.split_x
+        # evaluate additionally required quantites for computing the jacobian
+        # coo is used for efficient bmat
+        self._h_q_coo = self.system.h_q(t, q, self.u0, format="Coo", coo=self._h_q_coo)
+        self._Wla_g_q_coo = self.system.Wla_g_q(
+            t, q, la_g, format="Coo", coo=self._Wla_g_q_coo
+        )
+        self._Wla_c_q_coo = self.system.Wla_c_q(
+            t, q, la_c, format="Coo", coo=self._Wla_c_q_coo
+        )
+        self._c_q_coo = self.system.c_q(
+            t, q, self.u0, la_c, format="Coo", coo=self._c_q_coo
+        )
+        self._g_q_coo = self.system.g_q(t, q, format="Coo", coo=self._g_q_coo)
+        self._g_S_q_coo = self.system.g_S_q(t, q, format="Coo", coo=self._g_S_q_coo)
+        c_la_c = self.system.c_la_c()
 
-        if allocation_length(1):
-            Wla_g_q = self.system.Wla_g_q(t, q, la_g, format="CooMatrix")
-            jac.set_allocated_data(1, Wla_g_q)
-
-        if allocation_length(2):
-            Wla_c_q = self.system.Wla_c_q(t, q, la_c, format="CooMatrix")
-            jac.set_allocated_data(2, Wla_c_q)
-
-        if allocation_length(3):
-            Wla_N_q = self.system.Wla_N_q(t, q, la_N, format="CooMatrix")
-            jac.set_allocated_data(3, Wla_N_q)
-
-        if allocation_length(4):
-            jac.set_allocated_data(4, self.W_g)
-
-        if allocation_length(5):
-            jac.set_allocated_data(5, self.W_c)
-
-        if allocation_length(6):
-            jac.set_allocated_data(6, self.W_N)
-
-        if allocation_length(7):
-            g_q = self.system.g_q(t, q, format="CooMatrix")
-            jac.set_allocated_data(7, g_q)
-
-        if allocation_length(8):
-            c_q = self.system.c_q(t, q, self.u0, la_c, format="CooMatrix")
-            jac.set_allocated_data(8, c_q)
-
-        if allocation_length(9):
-            g_S_q = self.system.g_S_q(t, q, format="CooMatrix")
-            jac.set_allocated_data(9, g_S_q)
-
-        if allocation_length(10):
-            raise NotImplementedError
-            # note: csr_matrix is best for row slicing, see
-            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
-            g_N_q = self.system.g_N_q(t, q, format="csr")
+        # note: csr_matrix is best for row slicing, see
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_array.html#scipy.sparse.csr_array
+        if self._g_N_q_coo.not_empty:
+            g_N_q = self._g_N_q_coo.asformat("csr")
 
             Rla_N_q = lil_array((self.nla_N, self.nq), dtype=float)
-            for i in range(self.nla_N):
-                if la_N[i] >= self.g_N[i]:
-                    Rla_N_q[i] = g_N_q[i]
-            jac.set_allocated_data(10, Rla_N_q)
-
-        if allocation_length(11):
-            c_la_c = self.system.c_la_c()
-            jac.set_allocated_data(11, c_la_c)
-
-        if allocation_length(12):
-            raise NotImplementedError
             Rla_N_la_N = lil_array((self.nla_N, self.nla_N), dtype=float)
             for i in range(self.nla_N):
                 if la_N[i] < self.g_N[i]:
                     Rla_N_la_N[i, i] = 1.0
-            jac.set_allocated_data(12, Rla_N_la_N)
+                else:
+                    Rla_N_q[i] = g_N_q[i]
+            jac["W_N", :r1, c3:] = self.W_N
+            jac["Rla_N_q", r4:, :c1] = Rla_N_q
+            jac["Rla_N_la_N", r4:, c3:] = Rla_N_q
+        jac["h_q", :r1, :c1] = self._h_q_coo
+        jac["Wla_g_q", :r1, :c1] = self._Wla_g_q_coo
+        jac["Wla_c_q", :r1, :c1] = self._Wla_c_q_coo
 
-        # fmt: off
-        # return bmat([[      K, self.W_g, self.W_c,   self.W_N], 
+        self._Wla_N_q_coo = self.system.Wla_N_q(
+            t, q, la_N, format="Coo", coo=self._Wla_N_q_coo
+        )
+        if self._Wla_N_q_coo.not_empty:
+            jac["Wla_N_q", :r1, :c1] = self._Wla_N_q_coo
+
+        jac["W_g", :r1, c1:c2] = self.W_g
+        jac["W_c", :r1, c2:c3] = self.W_c
+        jac["g_q", r1:r2, :c1] = self._g_q_coo
+        jac["c_q", r2:r3, :c1] = self._c_q_coo
+        jac["c_la_c", r2:r3, c2:c3] = c_la_c
+        jac["W_c", r2:r3, c2:c3] = self.W_c
+        jac["g_S_q", r3:r4, :c1] = self._g_S_q_coo
+        return jac.asformat("coo").asformat("csc")
+        # return bmat([[      K, self.W_g, self.W_c,   self.W_N],
         #              [    g_q,     None,     None,       None],
         #              [    c_q,     None,   c_la_c,       None],
-        #              [  g_S_q,     None,     None,       None],
-        #              [Rla_N_q,     None,     None, Rla_N_la_N]], format="csc")
-        # fmt: on
-        return jac.asformat("csc")
+        #              [  g_S_q,     None,     None,       None],], format="csc")
 
     def __pbar_text(self, force_iter, newton_iter, error):
         return (

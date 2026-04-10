@@ -189,23 +189,6 @@ class DiscreteRod:
         self._c_q_coo = CooMatrix((self.nla_c, self.nq))
         self._W_c_coo = CooMatrix((self.nu, self.nla_c))
         self._Wla_c_q_coo = CooMatrix((self.nu, self.nq))
-        self.__c_la_c = CooMatrix((self.nla_c, self.nla_c))
-        for el in range(self.nelement):
-            elDOF = self.elDOF[el]
-            elDOF_u = self.elDOF_u[el]
-            elDOF_la_c = self.elDOF_la_c[el]
-            elDOF = np.arange(elDOF.start, elDOF.stop)
-            elDOF_u = np.arange(elDOF_u.start, elDOF_u.stop)
-            elDOF_la_c = np.arange(elDOF_la_c.start, elDOF_la_c.stop)
-            #
-            self._c_q_coo.allocate_data(elDOF_la_c, elDOF)
-            self._W_c_coo.allocate_data(elDOF_u, elDOF_la_c)
-            self._Wla_c_q_coo.allocate_data(elDOF_u, elDOF)
-            self.__c_la_c.allocate_data(elDOF_la_c, elDOF_la_c)
-        self._c_q_coo.fix_size()
-        self._W_c_coo.fix_size()
-        self._Wla_c_q_coo.fix_size()
-        self.__c_la_c.fix_size()
 
         self._q_dot_q_coo = CooMatrix((self.nq, self.nq))
         self._q_dot_u_coo = CooMatrix((self.nq, self.nu))
@@ -214,32 +197,11 @@ class DiscreteRod:
         for n in range(self.nnode):
             nodalDOF_r = self.nodalDOF_r[n]
             nodalDOF_r_u = self.nodalDOF_r_u[n]
-            nodalDOF_p = self.nodalDOF_p[n]
-            nodalDOF_p_u = self.nodalDOF_p_u[n]
             nodalDOF_r = np.arange(nodalDOF_r.start, nodalDOF_r.stop)
             nodalDOF_r_u = np.arange(nodalDOF_r_u.start, nodalDOF_r_u.stop)
-            nodalDOF_p = np.arange(nodalDOF_p.start, nodalDOF_p.stop)
-            nodalDOF_p_u = np.arange(nodalDOF_p_u.start, nodalDOF_p_u.stop)
-
-            self._q_dot_q_coo.allocate_data(nodalDOF_p, nodalDOF_p)
             for a, b in zip(nodalDOF_r, nodalDOF_r_u):
-                self._q_dot_u_coo.allocate_data([a], [b])
-            self._h_u_coo.allocate_data(nodalDOF_p_u, nodalDOF_p_u)
-            self._g_S_q_coo.allocate_data([n], nodalDOF_p)
-        for n in range(self.nnode):
-            nodalDOF_p = self.nodalDOF_p[n]
-            nodalDOF_p_u = self.nodalDOF_p_u[n]
-            nodalDOF_p = np.arange(nodalDOF_p.start, nodalDOF_p.stop)
-            nodalDOF_p_u = np.arange(nodalDOF_p_u.start, nodalDOF_p_u.stop)
-            self._q_dot_u_coo.allocate_data(nodalDOF_p, nodalDOF_p_u)
-        self._q_dot_q_coo.fix_size()
-        self._q_dot_u_coo.fix_size()
-        self._h_u_coo.fix_size()
-        self._g_S_q_coo.fix_size()
-        # constant terms
-        for n in range(self.nnode):
-            for i in range(3):
-                self._q_dot_u_coo.set_allocated_data(3 * n + i, 1.0)
+                # translational velocities
+                self._q_dot_u_coo[a, b] = 1.0
 
         # cache
         self._alpha_cache = LRUCache(maxsize=self.nnode * 10)
@@ -429,24 +391,33 @@ class DiscreteRod:
     # kinematic equations
     #####################
     def q_dot(self, t, q, u):
-        return _q_dot_nodes(self._view_nodal_q(q), self._view_nodal_u(u)).ravel()
+        return np.asarray(
+            _q_dot_nodes(self._view_nodal_q(q), self._view_nodal_u(u))
+        ).ravel()
 
     def q_dot_q(self, t, q, u):
-        self._q_dot_q_coo.data = _p_dot_q_nodes(
-            self._view_nodal_q(q), self._view_nodal_u(u)
-        ).ravel()
+        p_dot_p_nodes = np.asarray(
+            _p_dot_p_nodes(self._view_nodal_q(q), self._view_nodal_u(u))
+        )
+        self._q_dot_q_coo.set_all(self.nodalDOF_p, self.nodalDOF_p, p_dot_p_nodes)
+        # for n in range(self.nnode):
+        #     nodalDOF_p = self.nodalDOF_p[n]
+        #     self._q_dot_q_coo[n, nodalDOF_p, nodalDOF_p] = p_dot_q_nodes[n]
         return self._q_dot_q_coo
 
     def q_dot_u(self, t, q):
-        self._q_dot_u_coo.data[-self.nnode * 12 :] = math_jax.T_SO3_inv_quat_batch(
-            self._view_nodal_q(q)[:, 3:], False
-        ).ravel()
-
+        T_SO3_inv_quat_nodes = np.asarray(
+            math_jax.T_SO3_inv_quat_batch(self._view_nodal_q(q)[:, 3:], False)
+        )
+        for n in range(self.nnode):
+            nodalDOF_p = self.nodalDOF_p[n]
+            nodalDOF_p_u = self.nodalDOF_p_u[n]
+            self._q_dot_u_coo[n, nodalDOF_p, nodalDOF_p_u] = T_SO3_inv_quat_nodes[n]
         return self._q_dot_u_coo
 
     def step_callback(self, t, q, u):
         p = self._view_nodal_q(q)[:, 3:]
-        p /= np.linalg.norm(p, axis=1)[:, None]
+        p /= np.linalg.norm(p, axis=1, keepdims=True)
         return q, u
 
     #####################
@@ -456,12 +427,16 @@ class DiscreteRod:
         return self.__M
 
     def h(self, t, q, u):
-        return _h_nodes(self._view_nodal_u(u), self._B_Theta_C).ravel()
+        return np.asarray(_h_nodes(self._view_nodal_u(u), self._B_Theta_C)).ravel()
 
     def h_u(self, t, q, u):
-        self._h_u_coo.data = _h_u_nodes(
-            self._view_nodal_u(u)[:, 3:], self._B_Theta_C
-        ).ravel()
+        h_u_nodes = np.asarray(
+            _h_u_nodes(self._view_nodal_u(u)[:, 3:], self._B_Theta_C)
+        )
+        self._h_u_coo.set_all(self.nodalDOF_p_u, self.nodalDOF_p_u, h_u_nodes)
+        # for n in range(self.nnode):
+        #     nodalDOF_p_u = self.nodalDOF_p_u[n]
+        #     self._h_u_coo[n, nodalDOF_p_u, nodalDOF_p_u] = h_u_nodes[n]
         return self._h_u_coo
 
     #####################################################
@@ -473,7 +448,10 @@ class DiscreteRod:
 
     def g_S_q(self, t, q):
         p = q.reshape((self.nnode, 7))[:, 3:]
-        self._g_S_q_coo.data = 2 * p.flatten()
+        self._g_S_q_coo.set_all(np.arange(self.nnode), self.nodalDOF_p, 2 * p)
+        # for n in range(self.nnode):
+        #     nodalDOF_p = self.nodalDOF_p[n]
+        #     self._g_S_q_coo[n, n, nodalDOF_p] = 2 * p[n]
         return self._g_S_q_coo
 
     ############
@@ -490,25 +468,28 @@ class DiscreteRod:
             self.C_n,
             self.C_m,
         )
-        return la_c_el.ravel()
+        return np.asarray(la_c_el).ravel()
 
     def c(self, t, q, u, la_c):
         _, B_Gamma, B_Kappa = self._eval_els(q)
-        return _c_els(
-            B_Gamma,
-            B_Kappa,
-            self._view_element_la_c(la_c),
-            self.L,
-            self.B_Gamma0,
-            self.B_Kappa0,
-            self.C_n_inv,
-            self.C_m_inv,
+        return np.asarray(
+            _c_els(
+                B_Gamma,
+                B_Kappa,
+                self._view_element_la_c(la_c),
+                self.L,
+                self.B_Gamma0,
+                self.B_Kappa0,
+                self.C_n_inv,
+                self.C_m_inv,
+            )
         ).ravel()
 
     def c_la_c(self):
         return self.__c_la_c
 
     def _c_la_c_coo(self):
+        coo = CooMatrix((self.nla_c, self.nla_c))
         for el in range(self.nelement):
             c_la_c_el = np.zeros((_nla_c_el, _nla_c_el), dtype=float)
             c_la_c_el[:3, :3] = self.C_n_inv[el]
@@ -517,23 +498,43 @@ class DiscreteRod:
                 c_la_c_el[6:9, 6:9] = self.C_n_inv[el]
                 c_la_c_el[9:, 9:] = self.C_m_inv[el]
             c_la_c_el *= self.L[el]
-            self.__c_la_c.set_allocated_data(el, c_la_c_el)
+            elDOF_la_c = self.elDOF_la_c[el]
+            coo[elDOF_la_c, elDOF_la_c] = c_la_c_el
+        self.__c_la_c = coo.asformat("coo")
+        self.__c_la_c.eliminate_zeros()
 
     def c_q(self, t, q, u, la_c):
         _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
-        self._c_q_coo.data = _c_q_els(B_Gamma_qe, B_Kappa_qe, self.L).ravel()
+        c_q_els = np.asarray(_c_q_els(B_Gamma_qe, B_Kappa_qe, self.L))
+        self._c_q_coo.set_all(self.elDOF_la_c, self.elDOF, c_q_els)
+        # for el in range(self.nelement):
+        #     elDOF = self.elDOF[el]
+        #     elDOF_la_c = self.elDOF_la_c[el]
+        #     self._c_q_coo[el, elDOF_la_c, elDOF] = c_q_els[el]
         return self._c_q_coo
 
     def W_c(self, t, q):
         A_IB, B_Gamma, B_Kappa = self._eval_els(q)
-        self._W_c_coo.data = _W_c_els(A_IB, B_Gamma, B_Kappa, self.L).ravel()
+        W_c_els = np.asarray(_W_c_els(A_IB, B_Gamma, B_Kappa, self.L))
+        self._W_c_coo.set_all(self.elDOF_u, self.elDOF_la_c, W_c_els)
+        # for el in range(self.nelement):
+        #     elDOF_u = self.elDOF_u[el]
+        #     elDOF_la_c = self.elDOF_la_c[el]
+        #     self._W_c_coo[el, elDOF_u, elDOF_la_c] = W_c_els[el]
         return self._W_c_coo
 
     def Wla_c_q(self, t, q, la_c):
         A_IB_qe, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
-        self._Wla_c_q_coo.data = _Wla_c_q_els(
-            A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c), self.L
-        ).ravel()
+        Wla_c_q_els = np.asarray(
+            _Wla_c_q_els(
+                A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c), self.L
+            )
+        )
+        self._Wla_c_q_coo.set_all(self.elDOF_u, self.elDOF, Wla_c_q_els)
+        # for el in range(self.nelement):
+        #     elDOF = self.elDOF[el]
+        #     elDOF_u = self.elDOF_u[el]
+        #     self._Wla_c_q_coo[el, elDOF_u, elDOF] = Wla_c_q_els[el]
         return self._Wla_c_q_coo
 
     # @cachedmethod(lambda self: self._alpha_cache, key=lambda self, xi: xi)
@@ -802,7 +803,7 @@ def _p_dot_p_node(q, u):
     return u[3:] @ math_jax.T_SO3_inv_quat_P(q[3:], normalize=False)
 
 
-_p_dot_q_nodes = jit(vmap(_p_dot_p_node))
+_p_dot_p_nodes = jit(vmap(_p_dot_p_node))
 
 
 def _la_c_el(B_Gamma, B_Kappa, Le, B_Gamma0, B_Kappa0, C_n, C_m):
