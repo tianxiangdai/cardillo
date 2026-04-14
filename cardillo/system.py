@@ -313,7 +313,7 @@ class System:
             for contr in self.__M_contr[I_constant_mass_matrix]:
                 coo[contr.uDOF, contr.uDOF] = contr.M(self.t0, self.q0[contr.qDOF])
 
-        self._M0 = coo.tocoo()
+        self._M0 = coo
 
         # - compliance matrix
         coo = CooMatrix((self.nla_c, self.nla_c))
@@ -389,12 +389,16 @@ class System:
     #####################
     # equations of motion
     #####################
-    def M(self, t, q, format="coo"):
+    def M(self, t, q, format="coo", coo=None):
         if np.any(self.I_M):
-            coo = CooMatrix((self.nu, self.nu))
-            for contr in self.__M_contr[self.I_M]:  # only loop over variable mass parts
-                coo[contr.uDOF, contr.uDOF] = contr.M(t, q[contr.qDOF])
-            return coo.asformat(format) + self._M0.asformat(format)
+            if coo is None:
+                coo = CooMatrix((self.nu, self.nu))
+                coo[:, :] = self._M0
+            for i, contr in enumerate(
+                self.__M_contr[self.I_M]
+            ):  # only loop over variable mass parts
+                coo[i, contr.uDOF, contr.uDOF] = contr.M(t, q[contr.qDOF])
+            return coo.asformat(format)
         else:
             return self._M0.asformat(format)
 

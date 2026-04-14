@@ -231,8 +231,11 @@ class CooMatrix:
         """Convert container to 2D numpy array."""
         return self.tocoo(copy).toarray()
 
-    def transpose(self, copy=False):
-        ret = CooMatrix((self.shape[1], self.shape[0]))
+    def transpose(self, copy=False, coo=None):
+        if coo is None:
+            ret = CooMatrix((self.shape[1], self.shape[0]))
+        else:
+            ret = coo
         if copy:
             ret.row = self.col.copy()
             ret.col = self.row.copy()
