@@ -53,17 +53,6 @@ class CooMatrix:
         self._value_type = {}
         self._scipy_coo = None
 
-    @property
-    def not_empty(self):
-        return self.data.shape[0] > 0
-
-    def set_all(self, rows_list, cols_list, value_list):
-        if len(self.data):
-            self.data = value_list.ravel()
-        else:
-            for rows, cols, value in zip(rows_list, cols_list, value_list):
-                self[rows, cols] = value
-
     def __setitem__(self, key, value):
         # None is returned by every function that does not return. Hence, we
         # can use this to add no contribution to the matrix.
@@ -100,7 +89,7 @@ class CooMatrix:
                 elif isinstance(value, ndarray):
                     value_type = "ndarray"
                 elif isinstance(value, (int, float)):
-                    value_type = "digit"                 
+                    value_type = "digit"
                 else:
                     raise NotImplementedError
                 if len(key) == 3:
