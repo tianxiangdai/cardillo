@@ -312,7 +312,7 @@ class System:
             self.__M_contr = np.array(self.__M_contr)
             for contr in self.__M_contr[I_constant_mass_matrix]:
                 coo[contr.uDOF, contr.uDOF] = contr.M(self.t0, self.q0[contr.qDOF])
-
+        self.constant_mass_matrix = np.all(I_constant_mass_matrix)
         self._M0 = coo
 
         # - compliance matrix
@@ -390,7 +390,7 @@ class System:
     # equations of motion
     #####################
     def M(self, t, q, format="coo", coo=None):
-        if np.any(self.I_M):
+        if self.constant_mass_matrix:
             if coo is None:
                 coo = CooMatrix((self.nu, self.nu))
                 coo[:, :] = self._M0

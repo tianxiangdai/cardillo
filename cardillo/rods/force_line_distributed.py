@@ -19,14 +19,14 @@ class Force_line_distributed:
 
         """
         if not callable(force):
-            self.force = lambda t, xi: force
+            _force = lambda t, xi: force
         else:
-            self.force = force
+            _force = force
         self.rod = rod
         self._is_discrete_rod = isinstance(rod, DiscreteRod)
         if self._is_discrete_rod:
             self._h_weights = (np.pad(rod.L, (1, 0)) + np.pad(rod.L, (0, 1))) / 2
-            self._h_nodes = _make_h_nodes(force)
+            self._h_nodes = _make_h_nodes(_force)
 
     def assembler_callback(self):
         self.qDOF = self.rod.qDOF

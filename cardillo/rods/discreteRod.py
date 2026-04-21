@@ -348,16 +348,16 @@ class DiscreteRod:
     @staticmethod
     def pose_configuration(
         nelement,
-        r_OP,
-        A_IB,
-        r_OP0=np.zeros(3, dtype=float),
+        B0_r_C0C,
+        A_B0B,
+        r_OC0=np.zeros(3, dtype=float),
         A_IB0=np.eye(3, dtype=float),
     ):
         """Compute generalized position coordinates for a pre-curved rod with centerline curve r_OP and orientation of A_IB."""
         nnodes_r = nelement + 1
 
-        assert callable(r_OP), "r_OP must be callable!"
-        assert callable(A_IB), "A_IB must be callable!"
+        assert callable(B0_r_C0C), "r_OP must be callable!"
+        assert callable(A_B0B), "A_IB must be callable!"
 
         xis = np.linspace(0, 1, nnodes_r)
 
@@ -366,8 +366,8 @@ class DiscreteRod:
         p0 = np.zeros((nnodes_r, 4))
 
         for i, xii in enumerate(xis):
-            r0[i] = r_OP0 + A_IB0 @ r_OP(xii)
-            A_IBi = A_IB0 @ A_IB(xii)
+            r0[i] = r_OC0 + A_IB0 @ B0_r_C0C(xii)
+            A_IBi = A_IB0 @ A_B0B(xii)
             p0[i] = Log_SO3_quat(A_IBi)
 
         # check for the right quaternion hemisphere

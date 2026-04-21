@@ -7,11 +7,14 @@ from cardillo.math.approx_fprime import approx_fprime
 from ..rods.discreteRod import DiscreteRod
 
 
-def len_slice(s):
-    if s.step is None:
-        return s.stop - s.start
+def len_slice(x):
+    if isinstance(x, slice):
+        if x.step is None:
+            return x.stop - x.start
+        else:
+            (x.stop - x.start + x.step - 1) // x.step
     else:
-        (s.stop - s.start + s.step - 1) // s.step
+        return len(x)
 
 
 def concatenate_qDOF(object):
@@ -41,11 +44,8 @@ def concatenate_uDOF(object):
     local_uDOF2 = object.subsystem2.local_uDOF_P(object.xi2)
 
     object.uDOF = np.concatenate((uDOF1[local_uDOF1], uDOF2[local_uDOF2]))
-    object._nu1 = nu1 = len(local_uDOF1)
-    if isinstance(local_uDOF2, slice):
-        object._nu2 = nq1 = len_slice(local_uDOF2)
-    else:
-        object._nu2 = nq1 = len(local_uDOF2)
+    object._nu1 = nu1 = len_slice(local_uDOF1)
+    object._nu2 = nq1 = len_slice(local_uDOF2)
     # object._nu2 = len(local_uDOF2)
     object._nu = object._nu1 + object._nu2
 
