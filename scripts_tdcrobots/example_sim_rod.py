@@ -10,7 +10,6 @@ from cardillo.rods.discreteRod import DiscreteRod
 from cardillo.solver import Newton
 from cardillo.system import System
 
-
 if __name__ == "__main__":
     ##################
     ## build system ##
@@ -50,7 +49,9 @@ if __name__ == "__main__":
     r_OP0 = np.array([0, 0, connector_h])
     Rod = DiscreteRod
     rod_l_ref = rod_l / (1 - (mk_platform_m + rod_m / 2) * gravity_g / EA)
-    Q = Rod.straight_configuration(rod_nelement, rod_l_ref, r_OP0=r_OP0, A_IB0=rod_A_IB0)
+    Q = Rod.straight_configuration(
+        rod_nelement, rod_l_ref, r_OP0=r_OP0, A_IB0=rod_A_IB0
+    )
 
     def r_OP(xi):
         z = (
@@ -140,7 +141,7 @@ if __name__ == "__main__":
         verbose=True,
     )
     sol = solver.solve()
-    
+
     #################
     # visualization #
     #################

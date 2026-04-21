@@ -40,7 +40,7 @@ class CrossSection(ABC):
         ...
 
 
-class ExportableCrossSection(CrossSection):
+class ExportableCrossSection(ABC):
     @property
     @abstractmethod
     def vtk_degree(self): ...
@@ -62,7 +62,7 @@ class ExportableCrossSection(CrossSection):
     def vtk_connectivity(self, p_zeta): ...
 
 
-class UserDefinedCrossSection(CrossSection):
+class UserDefinedCrossSection(CrossSection, ExportableCrossSection):
     def __init__(self, area, first_moment, second_moment):
         """User defined cross-section.
 
@@ -92,7 +92,7 @@ class UserDefinedCrossSection(CrossSection):
         return self._second_moment
 
 
-class CircularCrossSection(ExportableCrossSection):
+class CircularCrossSection(CrossSection, ExportableCrossSection):
     def __init__(self, radius, *, export_as_wedge=True):
         """Circular cross-section.
 
@@ -101,12 +101,21 @@ class CircularCrossSection(ExportableCrossSection):
         radius : float
             Radius of the cross-section
         """
-        self._radius = radius
-        self._area = np.pi * radius**2
+        self._variable = callable(radius)
+        self._radius = (lambda xi: radius(xi)) if self._variable else radius
+        self._area = (
+            (lambda xi: np.pi * radius(xi) ** 2)
+            if self._variable
+            else np.pi * radius**2
+        )
         # see https://en.wikipedia.org/wiki/First_moment_of_area
-        self._first_moment = np.zeros(3)
+        self._first_moment = (lambda xi: np.zeros(3)) if self._variable else np.zeros(3)
         # https://en.wikipedia.org/wiki/List_of_second_moments_of_area
-        self._second_moment = np.diag([2, 1, 1]) / 4 * np.pi * radius**4
+        self._second_moment = (
+            (lambda xi: np.diag([2, 1, 1]) / 4 * np.pi * radius(xi) ** 4)
+            if self._variable
+            else np.diag([2, 1, 1]) / 4 * np.pi * radius**4
+        )
 
         self.circle_as_wedge = export_as_wedge
         self.compute_my_alphas()
@@ -341,7 +350,7 @@ class CircularCrossSection(ExportableCrossSection):
             return compute_points
 
 
-class RectangularCrossSection(ExportableCrossSection):
+class RectangularCrossSection(CrossSection, ExportableCrossSection):
     def __init__(self, width, height):
         """Rectangular cross-section.
 
@@ -483,6 +492,13 @@ class CrossSectionInertias:
         if density is None or cross_section is None:
             self.A_rho0 = A_rho0
             self.B_I_rho0 = B_I_rho0
+            self._variable = callable(A_rho0) or callable(B_I_rho0)
         else:
-            self.A_rho0 = density * cross_section.area
-            self.B_I_rho0 = density * cross_section.second_moment
+            if cross_section._variable:
+                self._variable = True
+                self.A_rho0 = lambda xi: density * cross_section.area(xi)
+                self.B_I_rho0 = lambda xi: density * cross_section.second_moment(xi)
+            else:
+                self._variable = False
+                self.A_rho0 = density * cross_section.area
+                self.B_I_rho0 = density * cross_section.second_moment

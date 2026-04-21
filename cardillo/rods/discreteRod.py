@@ -36,40 +36,6 @@ zeros3 = jnp.zeros((3, 3))
 _nla_c_el = 6  # 6/12
 
 
-class VariableCircularCrossSection:
-    def __init__(self, radius):
-        if callable(radius):
-            self.radius = radius
-        else:
-            self.radius = lambda xi, r=radius: r
-
-    def area(self, xi=0):
-        return np.pi * self.radius(xi) ** 2
-
-    def first_moment(self, xi=0):
-        return np.zeros(3)
-
-    def second_moment(self, xi=0):
-        return np.diag([2, 1, 1]) / 4 * np.pi * self.radius(xi) ** 4
-
-
-class VariableCrossSectionInertias:
-    def __init__(self, density=None, cross_section=None, A_rho=1.0, B_I_rho=np.eye(3)):
-        if density is None or cross_section is None:
-            if callable(A_rho):
-                self.A_rho = A_rho
-            else:
-                self.A_rho = lambda xi, A_rho=A_rho: A_rho
-
-            if callable(B_I_rho):
-                self.B_I_rho = B_I_rho
-            else:
-                self.B_I_rho = lambda xi, B_I_rho=B_I_rho: B_I_rho
-        else:
-            self.A_rho = lambda xi: density * cross_section.area(xi)
-            self.B_I_rho = lambda xi: density * cross_section.second_moment(xi)
-
-
 class DiscreteRod:
     def __init__(
         self,
@@ -99,25 +65,20 @@ class DiscreteRod:
         self.xi_node = np.linspace(0, 1, self.nnode)
 
         #
-        if isinstance(cross_section, VariableCircularCrossSection):
-            if isinstance(material_model, Simo1986):
-                C_n = []
-                C_m = []
-                C_n_inv = []
-                C_m_inv = []
-                for el in range(nelement):
-                    xi = 0.5 * (self.xi_node[el] + self.xi_node[el + 1])
-                    A = cross_section.area(xi)
-                    Ip, I2, I3 = np.diag(cross_section.second_moment(xi))
-                    # material model
-                    Ei = np.array([E * A, G * A, G * A])
-                    Fi = np.array([G * Ip, E * I2, E * I3])
-                    C_n.append(np.diag(Ei))
-                    C_m.append(np.diag(Fi))
-                    C_n_inv.append(np.diag(1 / Ei))
-                    C_m_inv.append(np.diag(1 / Fi))
-            else:
-                raise NotImplementedError
+        assert (
+            cross_section._variable == material_model._variable
+        ), "cross_section and material_model must both be variable or both be constant!"
+        if material_model._variable:
+            C_n = []
+            C_m = []
+            C_n_inv = []
+            C_m_inv = []
+            for el in range(nelement):
+                xi = 0.5 * (self.xi_node[el] + self.xi_node[el + 1])
+                C_n.append(material_model.C_n(xi))
+                C_m.append(material_model.C_m(xi))
+                C_n_inv.append(material_model.C_n_inv(xi))
+                C_m_inv.append(material_model.C_m_inv(xi))
         else:
             C_n = [material_model.C_n] * nelement
             C_m = [material_model.C_m] * nelement
@@ -163,7 +124,7 @@ class DiscreteRod:
                 w = self.L[n - 1] / 2
             else:
                 w = (self.L[n] + self.L[n - 1]) / 2
-            if isinstance(cross_section_inertias, VariableCrossSectionInertias):
+            if cross_section_inertias._variable:
                 xi = self.xi_node(n)
                 mass = cross_section_inertias.A_rho(xi) * w
                 B_Theta_C = cross_section_inertias.B_I_rho(xi) * w
@@ -212,7 +173,7 @@ class DiscreteRod:
         phis2 = phis + (np.pi / 3.0)
         control_pts_circle = []
         for n in range(self.nnode):
-            if isinstance(self.cross_section, VariableCircularCrossSection):
+            if cross_section._variable:
                 radius = self.cross_section.radius(
                     self.xi_node[n]
                 )  # Assuming a simple case, adjust as needed

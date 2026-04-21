@@ -12,7 +12,8 @@ from cardillo.rods import CircularCrossSection, animate_beam, Simo1986
 from cardillo.rods.cosseratRod import make_CosseratRod
 from cardillo.solver import Newton, SolverOptions
 from cProfile import Profile
-from cardillo.rods.discreteRod import DiscreteRod, VariableCircularCrossSection
+from cardillo.rods import CircularCrossSection
+from cardillo.rods.discreteRod import DiscreteRod
 
 
 def helix(
@@ -49,18 +50,16 @@ def helix(
 
     # cross section properties
     width = length / slenderness
-    radius = lambda xi: width * 0.5 * (1 - 0.3 * xi)
-    cross_section = VariableCircularCrossSection(radius=radius)
+    radius = lambda xi: width * (xi < 2 / 3) + width * (0.5) ** 0.25 * (xi >= 2 / 3)
+    cross_section = CircularCrossSection(radius=radius)
 
-    _cross_section = CircularCrossSection(radius=width * 0.5)
-    A = _cross_section.area
-    Ip, I2, I3 = np.diag(_cross_section.second_moment)
+    # _cross_section = CircularCrossSection(radius=width * 0.5)
 
     # material model
     E = 1.0  # Young's modulus
     G = 0.5  # shear modulus
-    Ei = np.array([E * A, G * A, G * A])
-    Fi = np.array([G * Ip, E * I2, E * I3])
+    Ei = lambda xi: np.array([E, G, G]) * cross_section.area(xi)
+    Fi = lambda xi: np.array([G, E, E]) * cross_section.second_moment(xi).diagonal()
     material_model = constitutive_law(Ei, Fi)
 
     # initialize system
@@ -109,7 +108,7 @@ def helix(
     ################
     # applied moment
     ################
-    Fi = material_model.Fi
+    Fi = material_model.Fi(0)
     M = lambda t: (R0 * alpha_xi**2) / (length**2) * (c * e1 * Fi[0] + e3 * Fi[2]) * t
     moment = B_Moment(M, rod, 1)
     system.add(moment)
