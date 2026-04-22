@@ -51,6 +51,8 @@ class VisualDiscreteRod(_VisualTwinBase):
         self.rod = rod
         nelement_visual = rod.nelement
         self.nelement_visual = rod.nelement
+        self.nnode_visual = rod.nnode
+        self.xi_node = rod.xi_node
 
         if isinstance(rod.cross_section, CircularCrossSection):
             weights = [
@@ -124,26 +126,32 @@ class VisualDiscreteRod(_VisualTwinBase):
         self.actors.append(actor)
 
         # control points on circle
-        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
-        xys1 = (
-            np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1) * radius
-        )
-        # control points out of circle
-        phis2 = phis + (np.pi / 3.0)
-        xys2 = np.stack([np.zeros_like(phis), np.cos(phis2), np.sin(phis2)], axis=1) * (
-            2.0 * radius
-        )
-        self.control_pts_circle = np.concatenate([xys1, xys2], axis=0)
+        self.control_pts_circle = np.empty((self.nnode_visual, 6, 3))
+        for i in range(self.nnode_visual):
+            if callable(radius):
+                _radius = radius(self.xi_node[i])
+            else:
+                _radius = radius
+            phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
+            xys1 = (
+                np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1)
+                * _radius
+            )
+            # control points out of circle
+            phis2 = phis + (np.pi / 3.0)
+            xys2 = np.stack(
+                [np.zeros_like(phis), np.cos(phis2), np.sin(phis2)], axis=1
+            ) * (2.0 * _radius)
+            self.control_pts_circle[i] = np.concatenate([xys1, xys2], axis=0)
 
     def update_state(self, sol_i):
-        nels = self.nelement_visual
-        nnodes = nels + 1
+        nnodes = self.nnode_visual
         control_pts = np.empty((nnodes * 6, 3), dtype=np.float64)
         qs = sol_i.q[self.rod.qDOF].reshape((nnodes, 7))
         r_OCs = qs[:, :3]
         A_IBs = Exp_SO3_quat_batch(qs[:, 3:], True)
         for i, r_OC, A_IB in zip(range(nnodes), r_OCs, A_IBs):
-            pts = r_OC + self.control_pts_circle @ A_IB.T
+            pts = r_OC + self.control_pts_circle[i] @ A_IB.T
             base = i * 6
             control_pts[base : base + 6] = pts
         body_points = self.body_points

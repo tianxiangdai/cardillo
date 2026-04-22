@@ -125,9 +125,9 @@ class DiscreteRod:
             else:
                 w = (self.L[n] + self.L[n - 1]) / 2
             if cross_section_inertias._variable:
-                xi = self.xi_node(n)
-                mass = cross_section_inertias.A_rho(xi) * w
-                B_Theta_C = cross_section_inertias.B_I_rho(xi) * w
+                xi = self.xi_node[n]
+                mass = cross_section_inertias.A_rho0(xi) * w
+                B_Theta_C = cross_section_inertias.B_I_rho0(xi) * w
             else:
                 mass = cross_section_inertias.A_rho0 * w
                 B_Theta_C = cross_section_inertias.B_I_rho0 * w
