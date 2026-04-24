@@ -6,7 +6,7 @@ from jax import vmap, jit
 from jax import numpy as jnp
 from numba import njit
 
-from vtk import VTK_BEZIER_WEDGE
+import vtk
 
 from cachetools import cachedmethod, LRUCache
 
@@ -20,7 +20,7 @@ from cardillo.math_numba import (
 )
 from cardillo import math_jax
 from cardillo.utility.coo_matrix import CooMatrix
-from cardillo.rods import CrossSectionInertias, Simo1986
+from cardillo.rods import CrossSectionInertias, CircularCrossSection
 
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
@@ -36,7 +36,111 @@ zeros3 = jnp.zeros((3, 3))
 _nla_c_el = 6  # 6/12
 
 
-class DiscreteRod:
+class DiscreteRodExport:
+    def __init__(self, cross_section):
+        nelement_visual = self.nelement_visual = self.nelement
+        self.nnode_visual = self.nnode
+
+        if isinstance(self.cross_section, CircularCrossSection):
+            weights = [
+                1.0,
+                1.0,
+                1.0,
+                0.5,
+                0.5,
+                0.5,
+            ]
+            degrees = [2, 2, 1]
+            ctype = vtk.VTK_BEZIER_WEDGE
+        # elif isinstance(rod.cross_section, RectangularCrossSection):
+        #     npts = 16
+        #     weights = [1] * 16
+        #     degrees = [1, 1, 3]
+        #     ctype = vtk.VTK_BEZIER_HEXAHEDRON
+        else:
+            raise NotImplementedError
+
+        self._ugrid = vtk.vtkUnstructuredGrid()
+
+        # points
+        self.body_points = vtk.vtkPoints()
+        self.body_points.SetNumberOfPoints(6 * (nelement_visual + 1))
+        self._ugrid.SetPoints(self.body_points)
+
+        # cells
+        self._ugrid.Allocate(nelement_visual)
+        for i in range(nelement_visual):
+            self._ugrid.InsertNextCell(
+                ctype,
+                12,
+                list(range(i * 6, i * 6 + 3))
+                + list(range((i + 1) * 6, (i + 1) * 6 + 3))
+                + list(range(i * 6 + 3, (i + 1) * 6))
+                + list(range((i + 1) * 6 + 3, (i + 2) * 6)),
+            )
+
+        # point data
+        self.pdata = self._ugrid.GetPointData()
+        value = weights * (nelement_visual + 1)
+        parray = vtk.vtkDoubleArray()
+        parray.SetName("RationalWeights")
+        parray.SetNumberOfTuples(6)
+        parray.SetNumberOfComponents(1)
+        for i, vi in enumerate(value):
+            parray.InsertTuple(i, [vi])
+        self.pdata.SetRationalWeights(parray)
+
+        # cell data
+        self.cdata = self._ugrid.GetCellData()
+        carray = vtk.vtkIntArray()
+        carray.SetName("HigherOrderDegrees")
+        carray.SetNumberOfTuples(nelement_visual)
+        carray.SetNumberOfComponents(3)
+        for i in range(nelement_visual):
+            carray.InsertTuple(i, degrees)
+        self.cdata.SetHigherOrderDegrees(carray)
+
+        # control points on circle
+        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
+        phis2 = phis + (np.pi / 3.0)
+        control_pts = []
+        for n in range(self.nnode_visual):
+            if cross_section._variable:
+                radius = cross_section.radius(
+                    self.xi_node[n]
+                )  # Assuming a simple case, adjust as needed
+            else:
+                radius = cross_section.radius
+            # control points on circle
+            xys1 = (
+                np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1)
+                * radius
+            )
+            # control points out of circle
+            xys2 = np.stack(
+                [np.zeros_like(phis2), np.cos(phis2), np.sin(phis2)], axis=1
+            ) * (2.0 * radius)
+            control_pts.append(np.concatenate([xys1, xys2], axis=0).T)
+        self.control_pts = np.array(control_pts)
+
+    def export(self, sol_i, **kwargs):
+        q_nodes = self._view_nodal_q(sol_i.q[self.qDOF])
+        r_OC_nodes = q_nodes[:, :3]
+        A_IB_nodes = np.asarray(math_jax.Exp_SO3_quat_batch(q_nodes[:, 3:], True))
+        control_pts = r_OC_nodes[:, None] + (A_IB_nodes @ self.control_pts).swapaxes(
+            1, 2
+        )
+        control_pts = control_pts.reshape((-1, 3))
+
+        body_points = self.body_points
+        set_point = body_points.SetPoint
+        for i, p in enumerate(control_pts):
+            set_point(i, p)
+        body_points.Modified()
+        return self._ugrid
+
+
+class DiscreteRod(DiscreteRodExport):
     def __init__(
         self,
         cross_section,
@@ -47,9 +151,7 @@ class DiscreteRod:
         q0=None,
         u0=None,
         cross_section_inertias=CrossSectionInertias(),
-        name="discrete_node",
-        E=None,
-        G=None,
+        name="discrete_rod",
     ):
         # manual caches
         self._eval_cache = self._deval_cache = np.empty(0).tobytes()
@@ -138,7 +240,7 @@ class DiscreteRod:
             self.__M[nodalDOF_p_u, nodalDOF_p_u] = B_Theta_C
         self._B_Theta_C = np.array(self._B_Theta_C)
 
-        self._markers = []
+        self._markers = {}
 
         # allocate memery
         self._B_Omega_q = np.zeros((3, 14), dtype=float)
@@ -168,44 +270,7 @@ class DiscreteRod:
         self._alpha_cache = LRUCache(maxsize=self.nnode * 10)
         self._eval_kinematics_cache = LRUCache(maxsize=self.nnode * 10)
 
-        # vtk export
-        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
-        phis2 = phis + (np.pi / 3.0)
-        control_pts_circle = []
-        for n in range(self.nnode):
-            if cross_section._variable:
-                radius = self.cross_section.radius(
-                    self.xi_node[n]
-                )  # Assuming a simple case, adjust as needed
-            else:
-                radius = self.cross_section.radius
-            # control points on circle
-            xys1 = (
-                np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1)
-                * radius
-            )
-            # control points out of circle
-            xys2 = np.stack(
-                [np.zeros_like(phis2), np.cos(phis2), np.sin(phis2)], axis=1
-            ) * (2.0 * radius)
-            control_pts_circle.append(np.concatenate([xys1, xys2], axis=0).T)
-        self.control_pts_circle = np.array(control_pts_circle)
-        weights = [1, 1, 1, 0.5, 0.5, 0.5]
-        self.vtk_point_data = {"RationalWeights": np.tile(weights, self.nnode)[:, None]}
-        self.vtk_cells = [
-            (
-                VTK_BEZIER_WEDGE,
-                list(range(i * 6, i * 6 + 3))
-                + list(range((i + 1) * 6, (i + 1) * 6 + 3))
-                + list(range(i * 6 + 3, (i + 1) * 6))
-                + list(range((i + 1) * 6 + 3, (i + 2) * 6)),
-            )
-            for i in range(self.nelement)
-        ]
-        degrees = [2, 2, 1]
-        self.vtk_cell_data = {
-            "HigherOrderDegrees": np.tile([degrees], (self.nelement, 1))
-        }
+        DiscreteRodExport.__init__(self, cross_section)
 
     def set_reference_strains(self, Q):
         self.L = np.array(
@@ -243,10 +308,19 @@ class DiscreteRod:
         return np.array([q_body[nodalDOF] for nodalDOF in self.nodalDOF_r]).T
 
     def get_marker(self, xi):
-        alpha = self._alpha(xi)
-        s = Marker(xi, alpha)
-        self._markers.append(s)
-        return s
+        if xi in self._markers.keys():
+            mk = self._markers[xi]
+        else:
+            alpha = self._alpha(xi)
+            mk = Marker(xi, alpha)
+            self._markers[xi] = mk
+        if hasattr(self, "qDOF"):
+            num = self.element_number(xi)
+            mk.t0 = self.t0
+            mk.q0 = self.q0[self.elDOF[num]]
+            mk.qDOF = self.qDOF[self.elDOF[num]]
+            mk.uDOF = self.uDOF[self.elDOF_u[num]]
+        return mk
 
     @staticmethod
     def straight_configuration(
@@ -341,12 +415,12 @@ class DiscreteRod:
 
     def assembler_callback(self):
         self._c_la_c_coo()
-        for s in self._markers:
-            num = self.element_number(s.xi)
-            s.t0 = self.t0
-            s.q0 = self.q0[self.elDOF[num]]
-            s.qDOF = self.qDOF[self.elDOF[num]]
-            s.uDOF = self.uDOF[self.elDOF_u[num]]
+        for mk in self._markers.values():
+            num = self.element_number(mk.xi)
+            mk.t0 = self.t0
+            mk.q0 = self.q0[self.elDOF[num]]
+            mk.qDOF = self.qDOF[self.elDOF[num]]
+            mk.uDOF = self.uDOF[self.elDOF_u[num]]
 
     #####################
     # kinematic equations
@@ -674,16 +748,6 @@ class DiscreteRod:
 
     # def _eval_deval_els(self, q_els):
     #     return _eval_deval_els(q_els, self.L)
-
-    def export(self, sol_i, **kwargs):
-        q_nodes = self._view_nodal_q(sol_i.q[self.qDOF])
-        r_OC_nodes = q_nodes[:, :3]
-        A_IB_nodes = np.asarray(math_jax.Exp_SO3_quat_batch(q_nodes[:, 3:], True))
-        vtk_points = r_OC_nodes[:, None] + (
-            A_IB_nodes @ self.control_pts_circle
-        ).swapaxes(1, 2)
-        vtk_points = vtk_points.reshape((-1, 3))
-        return vtk_points, self.vtk_cells, self.vtk_point_data, self.vtk_cell_data
 
 
 @njit(cache=True)

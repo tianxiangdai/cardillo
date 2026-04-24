@@ -11,7 +11,6 @@ from cardillo.rods.discreteRod import DiscreteRod
 from cardillo.solver import Newton, ScipyDAE
 from cardillo.system import System
 
-
 if __name__ == "__main__":
     ##################
     ## build system ##
@@ -127,7 +126,7 @@ if __name__ == "__main__":
         VisualDiscreteRod,
     )
 
-    VisualDiscreteRod(rod, radius, subdivision=4)
+    VisualDiscreteRod(rod, subdivision=4)
     # VisualCoordSystem(system.origin, 0.05)
     # ---- plotter ----
     window_size = (960, 540)

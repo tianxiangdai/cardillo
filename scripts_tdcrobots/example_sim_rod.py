@@ -190,7 +190,7 @@ if __name__ == "__main__":
         scale=1e-3,
         color=(160, 160, 160),
     )
-    VisualDiscreteRod(rod, rod_r, subdivision=4)
+    VisualDiscreteRod(rod, subdivision=4)
     for tendon in tendons:
         VisualTendon(tendon, radius=1e-3, color=(0, 200, 50))  # (130, 130, 130),
     # VisualCoordSystem(system.origin, 0.05)
