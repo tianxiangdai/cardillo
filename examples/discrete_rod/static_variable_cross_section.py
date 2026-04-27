@@ -94,8 +94,6 @@ def helix(
         nelements,
         Q=q0,
         q0=q0,
-        E=E,
-        G=G,
     )
     system.add(rod)
 
@@ -227,7 +225,7 @@ if __name__ == "__main__":
         reduced_integration=True,
     )
 
-    nelement = 500
+    nelement = 5000
     slenderness = 1e2
     n_load_steps = 10
 
