@@ -2,6 +2,7 @@ import numpy as np
 from numba import njit
 
 from cardillo.math_numba import cross3, ax2skew, Exp_SO3_quat, Exp_SO3_quat_P
+from ..utility.cachetools import MyLRUCache
 
 
 class Marker:
@@ -19,6 +20,9 @@ class Marker:
         self._B_J_R_q = np.zeros((3, 12, 14), dtype=float)
         self._B_Psi_q = np.zeros((3, 14), dtype=float)
         self._B_Psi_u = np.zeros((3, 12), dtype=float)
+
+        self._A_IB_cache = MyLRUCache(maxsize=10)
+        self._A_IB_q_cache = MyLRUCache(maxsize=10)
 
     ####################################################
     # interactions with other bodies and the environment
@@ -96,10 +100,22 @@ class Marker:
     #     return a_P_u
 
     def A_IB(self, t, q, xi):
+        key = q.tobytes()
+        A_IB = self._A_IB_cache[key]
+        if A_IB is None:
+            A_IB = _A_IB(self.alpha, q)
+            self._A_IB_cache[key] = A_IB
+        return A_IB
         return _A_IB(self.alpha, q)
 
     # @cachedmethod(lambda self: self._A_IB_q_cache, key=lambda self, t, q, xi: q.tobytes())
     def A_IB_q(self, t, q, xi):
+        key = q.tobytes()
+        A_IB_q = self._A_IB_q_cache[key]
+        if A_IB_q is None:
+            A_IB_q = _A_IB_q(self.alpha, q)
+            self._A_IB_q_cache[key] = A_IB_q
+        return A_IB_q
         return _A_IB_q(self.alpha, q)
 
     def B_Omega(self, t, q, u, xi):

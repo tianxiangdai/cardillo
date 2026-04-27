@@ -24,6 +24,7 @@ from cardillo.rods import CrossSectionInertias, CircularCrossSection
 
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
+from ..utility.cachetools import MyLRUCache
 
 from .marker import Marker
 
@@ -154,7 +155,9 @@ class DiscreteRod(DiscreteRodExport):
         name="discrete_rod",
     ):
         # manual caches
-        self._eval_cache = self._deval_cache = np.empty(0).tobytes()
+        # self._eval_cache = self._deval_cache = np.empty(0).tobytes()
+        self._eval_cache = MyLRUCache(maxsize=10)
+        self._deval_cache = MyLRUCache(maxsize=10)
 
         self.cross_section = cross_section
         # super().__init__(cross_section)
@@ -478,11 +481,11 @@ class DiscreteRod(DiscreteRodExport):
     # stabilization conditions for the kinematic equation
     #####################################################
     def g_S(self, t, q):
-        p = q.reshape((self.nnode, 7))[:, 3:]
+        p = self._view_nodal_q(q)[:, 3:]
         return np.sum(p**2, axis=1) - 1
 
     def g_S_q(self, t, q):
-        p = q.reshape((self.nnode, 7))[:, 3:]
+        p = self._view_nodal_q(q)[:, 3:]
         self._g_S_q_coo.set_all(np.arange(self.nnode), self.nodalDOF_p, 2 * p)
         # for n in range(self.nnode):
         #     nodalDOF_p = self.nodalDOF_p[n]
@@ -734,17 +737,19 @@ class DiscreteRod(DiscreteRodExport):
 
     def _eval_els(self, q):
         key = q.tobytes()
-        if self._eval_cache != key:
-            self._eval_els_value = _eval_els(self._view_element_q(q), self.L)
-            self._eval_cache = key
-        return self._eval_els_value
+        eval_els = self._eval_cache[key]
+        if eval_els is None:
+            eval_els = _eval_els(self._view_element_q(q), self.L)
+            self._eval_cache[key] = eval_els
+        return eval_els
 
     def _deval_els(self, q):
         key = q.tobytes()
-        if self._deval_cache != key:
-            self._deval_els_value = _deval_els(self._view_element_q(q), self.L)
-            self._deval_cache = key
-        return self._deval_els_value
+        deval_els = self._deval_cache[key]
+        if deval_els is None:
+            deval_els = _deval_els(self._view_element_q(q), self.L)
+            self._deval_cache[key] = deval_els
+        return deval_els
 
     # def _eval_deval_els(self, q_els):
     #     return _eval_deval_els(q_els, self.L)
