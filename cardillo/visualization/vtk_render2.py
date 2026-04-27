@@ -1,32 +1,22 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from time import perf_counter, sleep
-import threading
 
 import vtk
 from cardillo.interactions.n_point_interaction import nPointInteraction
-from cardillo.rods import CircularCrossSection, RectangularCrossSection
-from cardillo.math_jax import Exp_SO3_quat_batch
 
 from cardillo.rods._base import CosseratRod_PetrovGalerkin
-from cardillo.rods.discreteRod import DiscreteRod
 from cardillo.solver.solution import Solution
 
 
 class _VisualTwinBase(ABC):
     def __init__(self, contr, xi=None):
         self.xi = xi
-        if isinstance(contr, DiscreteRod):
-            xi = 0 if xi is None else xi
-            s = contr.get_marker(xi)
-            if hasattr(contr, "qDOF"):
-                num = contr.element_number(xi)
-                s.t0 = contr.t0
-                s.q0 = contr.q0[contr.elDOF[num]]
-                s.qDOF = contr.qDOF[contr.elDOF[num]]
-                s.uDOF = contr.uDOF[contr.elDOF_u[num]]
-            contr = s
-        self.contr = contr
+        if hasattr(contr, "get_marker") and xi is not None:
+            mk = contr.get_marker(xi)
+            self.contr = mk
+        else:
+            self.contr = contr
         self.actors = []
         if not hasattr(contr, "visual_twins"):
             contr.visual_twins = [self]
@@ -34,7 +24,7 @@ class _VisualTwinBase(ABC):
             contr.visual_twins.append(self)
 
     @abstractmethod
-    def update_state(self, sol_i):
+    def update_visual_state(self, sol_i):
         pass
 
 
@@ -42,77 +32,15 @@ class VisualDiscreteRod(_VisualTwinBase):
     def __init__(
         self,
         rod,
-        radius,
         subdivision=3,
         color=(82, 108, 164),
         opacity=1,
     ):
         super().__init__(rod)
         self.rod = rod
-        nelement_visual = rod.nelement
-        self.nelement_visual = rod.nelement
-
-        if isinstance(rod.cross_section, CircularCrossSection):
-            weights = [
-                1.0,
-                1.0,
-                1.0,
-                0.5,
-                0.5,
-                0.5,
-            ]
-            degrees = [2, 2, 1]
-            ctype = vtk.VTK_BEZIER_WEDGE
-        # elif isinstance(rod.cross_section, RectangularCrossSection):
-        #     npts = 16
-        #     weights = [1] * 16
-        #     degrees = [1, 1, 3]
-        #     ctype = vtk.VTK_BEZIER_HEXAHEDRON
-        else:
-            raise NotImplementedError
-
-        ugrid = vtk.vtkUnstructuredGrid()
-
-        # points
-        self.body_points = vtk.vtkPoints()
-        self.body_points.SetNumberOfPoints(6 * (nelement_visual + 1))
-        ugrid.SetPoints(self.body_points)
-
-        # cells
-        ugrid.Allocate(nelement_visual)
-        for i in range(nelement_visual):
-            ugrid.InsertNextCell(
-                ctype,
-                12,
-                list(range(i * 6, i * 6 + 3))
-                + list(range((i + 1) * 6, (i + 1) * 6 + 3))
-                + list(range(i * 6 + 3, (i + 1) * 6))
-                + list(range((i + 1) * 6 + 3, (i + 2) * 6)),
-            )
-
-        # point data
-        self.pdata = ugrid.GetPointData()
-        value = weights * (nelement_visual + 1)
-        parray = vtk.vtkDoubleArray()
-        parray.SetName("RationalWeights")
-        parray.SetNumberOfTuples(6)
-        parray.SetNumberOfComponents(1)
-        for i, vi in enumerate(value):
-            parray.InsertTuple(i, [vi])
-        self.pdata.SetRationalWeights(parray)
-
-        # cell data
-        self.cdata = ugrid.GetCellData()
-        carray = vtk.vtkIntArray()
-        carray.SetName("HigherOrderDegrees")
-        carray.SetNumberOfTuples(nelement_visual)
-        carray.SetNumberOfComponents(3)
-        for i in range(nelement_visual):
-            carray.InsertTuple(i, degrees)
-        self.cdata.SetHigherOrderDegrees(carray)
 
         filter = vtk.vtkDataSetSurfaceFilter()
-        filter.SetInputData(ugrid)
+        filter.SetInputData(rod._ugrid)
         filter.SetNonlinearSubdivisionLevel(subdivision)
 
         self.mapper = vtk.vtkDataSetMapper()
@@ -123,34 +51,8 @@ class VisualDiscreteRod(_VisualTwinBase):
         actor.GetProperty().SetOpacity(opacity)
         self.actors.append(actor)
 
-        # control points on circle
-        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
-        xys1 = (
-            np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1) * radius
-        )
-        # control points out of circle
-        phis2 = phis + (np.pi / 3.0)
-        xys2 = np.stack([np.zeros_like(phis), np.cos(phis2), np.sin(phis2)], axis=1) * (
-            2.0 * radius
-        )
-        self.control_pts_circle = np.concatenate([xys1, xys2], axis=0)
-
-    def update_state(self, sol_i):
-        nels = self.nelement_visual
-        nnodes = nels + 1
-        control_pts = np.empty((nnodes * 6, 3), dtype=np.float64)
-        qs = sol_i.q[self.rod.qDOF].reshape((nnodes, 7))
-        r_OCs = qs[:, :3]
-        A_IBs = Exp_SO3_quat_batch(qs[:, 3:], True)
-        for i, r_OC, A_IB in zip(range(nnodes), r_OCs, A_IBs):
-            pts = r_OC + self.control_pts_circle @ A_IB.T
-            base = i * 6
-            control_pts[base : base + 6] = pts
-        body_points = self.body_points
-        set_point = body_points.SetPoint
-        for i, p in enumerate(control_pts):
-            set_point(i, p)
-        body_points.Modified()
+    def update_visual_state(self, sol_i):
+        self.rod.export(sol_i)
 
 
 class _VisualvtkSource(_VisualTwinBase):
@@ -198,7 +100,7 @@ class _VisualvtkSource(_VisualTwinBase):
         actor.GetProperty().SetOpacity(opacity)
         self.actors.append(actor)
 
-    def update_state(self, sol_i):
+    def update_visual_state(self, sol_i):
         t, q = sol_i.t, sol_i.q[self.contr.qDOF]
         xi = self.xi
         if isinstance(self.contr, CosseratRod_PetrovGalerkin):
@@ -309,7 +211,7 @@ class VisualArUco(_VisualTwinBase):
             self.actors.append(actor)
             # subsystem.appendfilter.AddInputConnection(filter.GetOutputPort())
 
-    def update_state(self, sol_i):
+    def update_visual_state(self, sol_i):
         t, q = sol_i.t, sol_i.q[self.contr.qDOF]
         xi = self.xi
         if isinstance(self.contr, CosseratRod_PetrovGalerkin):
@@ -427,7 +329,7 @@ class VisualTendon(_VisualTwinBase):
         actor.GetProperty().SetOpacity(opacity)
         self.actors.append(actor)
 
-    def update_state(self, sol_i):
+    def update_visual_state(self, sol_i):
         t, q = sol_i.t, sol_i.q[self.contr.qDOF]
         points = []
         for j, k in self.contr.connectivity:
@@ -481,7 +383,7 @@ class Plotter:
                 for twin in contr.visual_twins:
                     self.__add_visual_twin(twin)
             if hasattr(contr, "_markers"):
-                for marker in contr._markers:
+                for marker in contr._markers.values():
                     if hasattr(marker, "visual_twins"):
                         for twin in marker.visual_twins:
                             self.__add_visual_twin(twin)
@@ -527,7 +429,7 @@ class Plotter:
 
     def step_render(self, sol_i):
         for twin in self.__visual_twins:
-            twin.update_state(sol_i)
+            twin.update_visual_state(sol_i)
         self.window.Render()
         self.interactor.ProcessEvents()
 

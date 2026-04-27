@@ -218,9 +218,12 @@ class Export:
             file_i = self.path / f"{file_name}_{i}.vtu"
             self.__write_time_step_and_name(sol_i.t, file_i)
 
-            points, cells, point_data, cell_data = export(sol_i, **kwargs)
-
-            ugrid = make_ugrid(points, cells, point_data, cell_data)
+            ret = export(sol_i, **kwargs)
+            if isinstance(ret, vtk.vtkUnstructuredGrid):
+                ugrid = ret
+            else:
+                points, cells, point_data, cell_data = ret
+                ugrid = make_ugrid(points, cells, point_data, cell_data)
 
             # write data
             self._ugrid_writer.SetInputData(ugrid)
