@@ -1,5 +1,13 @@
 import numpy as np
-from .algebra import norm, cross3, ax2skew, ax2skew_a, LeviCivita3, ax2skew_squared
+from .algebra import (
+    norm,
+    cross3,
+    ax2skew,
+    ax2skew_a,
+    LeviCivita3,
+    ax2skew_squared,
+    outer3,
+)
 
 from numba import njit
 
@@ -255,12 +263,12 @@ def T_SO3_dot(psi: np.ndarray, psi_dot: np.ndarray) -> np.ndarray:
         c5 = (angle - sa) / angle**3
 
         return (
-            c1 * np.outer(psi_dot, psi)
-            + c2 * np.outer(cross3(psi, psi_dot), psi)
-            + c3 * (psi @ psi_dot) * np.outer(psi, psi)
+            c1 * outer3(psi_dot, psi)
+            + c2 * outer3(cross3(psi, psi_dot), psi)
+            + c3 * (psi @ psi_dot) * outer3(psi, psi)
             - c4 * ax2skew(psi_dot)
             + c5 * (psi @ psi_dot) * eye3
-            + c5 * np.outer(psi, psi_dot)
+            + c5 * outer3(psi, psi_dot)
         ).T  #  transpose of Ibrahimbegović1995 (71)
     else:
         return np.zeros((3, 3), dtype=np.float64)  # Cardona1988 after (46)
@@ -564,7 +572,7 @@ def smallest_rotation(
     # if denom > 0:
     if denom > 1e-6:
         e = cross3(J_a, J_b)
-        return cos_psi * eye3 + ax2skew(e) + np.outer(e, e) / denom
+        return cos_psi * eye3 + ax2skew(e) + outer3(e, e) / denom
     else:
         M = np.vstack((J_a, J_b))
         _, _, Vh = np.linalg.svd(M)
@@ -598,7 +606,7 @@ def Exp_SO3_quat(P, normalize=True):
     else:
         # returns always an orthogonal matrix, but not necessary normalized,
         # see Egeland2002 (6.163)
-        return (p0**2 - p @ p) * eye3 + np.outer(p, 2 * p) + 2 * p0 * ax2skew(p)
+        return (p0**2 - p @ p) * eye3 + outer3(p, 2 * p) + 2 * p0 * ax2skew(p)
 
 
 @njit(cache=True)

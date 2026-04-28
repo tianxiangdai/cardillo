@@ -1,5 +1,5 @@
 import numpy as np
-from ..math import norm
+from ..math import norm, outer3
 from ..utility.coo_matrix import CooMatrix
 from ..utility.cachetools import MyLRUCache
 
@@ -20,7 +20,9 @@ class nPointInteraction:
         )
         self.connectivity = connectivity
         self.r_OPk_cache = MyLRUCache(maxsize=self.n_subsystems * 5)
+        self.r_OPk_qk_cache = MyLRUCache(maxsize=self.n_subsystems * 5)
         self.J_Pk_cache = MyLRUCache(maxsize=self.n_subsystems * 5)
+        self.J_Pk_qk_cache = MyLRUCache(maxsize=self.n_subsystems * 5)
 
     def assembler_callback(self):
         self._nq: list[int] = []
@@ -62,6 +64,13 @@ class nPointInteraction:
         return ret
 
     def r_OPk_qk(self, t, q, k):
+        qk = q[self.nq_val[k]]
+        key = (k, t, qk.tobytes())
+        ret = self.r_OPk_qk_cache[key]
+        if ret is None:
+            ret = self.subsystems[k].r_OP_q(t, qk, self.xis[k], self.Bi_r_CPis[k])
+            self.r_OPk_qk_cache[key] = ret
+        return ret
         return self.subsystems[k].r_OP_q(
             t, q[self.nq_val[k]], self.xis[k], self.Bi_r_CPis[k]
         )
@@ -94,9 +103,13 @@ class nPointInteraction:
         return ret
 
     def J_Pk_qk(self, t, q, k):
-        return self.subsystems[k].J_P_q(
-            t, q[self.nq_val[k]], self.xis[k], self.Bi_r_CPis[k]
-        )
+        qk = q[self.nq_val[k]]
+        key = (k, t, qk.tobytes())
+        ret = self.J_Pk_qk_cache[key]
+        if ret is None:
+            ret = self.subsystems[k].J_P_q(t, qk, self.xis[k], self.Bi_r_CPis[k])
+            self.J_Pk_qk_cache[key] = ret
+        return ret
 
     def r_PiPj(self, t, q, i, j):
         return self.r_OPk(t, q, j) - self.r_OPk(t, q, i)
@@ -109,7 +122,7 @@ class nPointInteraction:
     def _nij_qij(self, t, q, i, j):
         r_PiPj = self.r_PiPj(t, q, i, j)
         gij = norm(r_PiPj)
-        tmp = np.outer(r_PiPj, r_PiPj) / (gij**3)
+        tmp = outer3(r_PiPj, r_PiPj) / (gij**3)
         r_OPi_qi = self.r_OPk_qk(t, q, i)
         r_OPj_qj = self.r_OPk_qk(t, q, j)
         n_qi = -r_OPi_qi / gij + tmp @ r_OPi_qi

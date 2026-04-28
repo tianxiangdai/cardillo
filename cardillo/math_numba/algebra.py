@@ -52,6 +52,12 @@ def norm(a: np.ndarray) -> float:
 
 
 @njit(cache=True)
+def outer3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Outer product of two vectors."""
+    return a[:, None] * b[None, :]
+
+
+@njit(cache=True)
 def LeviCivita3(i: int, j: int, k: int) -> int:
     """Levi-Civita symbol, see https://en.wikipedia.org/wiki/Levi-Civita_symbol"""
     return (i - j) * (j - k) * (k - i) // 2
