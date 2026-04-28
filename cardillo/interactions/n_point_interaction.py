@@ -1,5 +1,7 @@
 import numpy as np
-from numpy.linalg import norm
+from ..math import norm
+from ..utility.coo_matrix import CooMatrix
+from ..utility.cachetools import MyLRUCache
 
 
 class nPointInteraction:
@@ -17,6 +19,8 @@ class nPointInteraction:
             self.n_subsystems * [np.zeros(3)] if B_r_CP_list is None else B_r_CP_list
         )
         self.connectivity = connectivity
+        self.r_OPk_cache = MyLRUCache(maxsize=self.n_subsystems * 5)
+        self.J_Pk_cache = MyLRUCache(maxsize=self.n_subsystems * 5)
 
     def assembler_callback(self):
         self._nq: list[int] = []
@@ -46,10 +50,16 @@ class nPointInteraction:
             np.arange(*self._nu[i : i + 2]) for i in range(self.n_subsystems)
         ]
 
+        self._W_q_coo = CooMatrix((self._nu[-1], self._nq[-1]))
+
     def r_OPk(self, t, q, k):
-        return self.subsystems[k].r_OP(
-            t, q[self.nq_val[k]], self.xis[k], self.Bi_r_CPis[k]
-        )
+        qk = q[self.nq_val[k]]
+        key = (k, t, qk.tobytes())
+        ret = self.r_OPk_cache[key]
+        if ret is None:
+            ret = self.subsystems[k].r_OP(t, qk, self.xis[k], self.Bi_r_CPis[k])
+            self.r_OPk_cache[key] = ret
+        return ret
 
     def r_OPk_qk(self, t, q, k):
         return self.subsystems[k].r_OP_q(
@@ -75,9 +85,13 @@ class nPointInteraction:
         )
 
     def J_Pk(self, t, q, k):
-        return self.subsystems[k].J_P(
-            t, q[self.nq_val[k]], self.xis[k], self.Bi_r_CPis[k]
-        )
+        qk = q[self.nq_val[k]]
+        key = (k, t, qk.tobytes())
+        ret = self.J_Pk_cache[key]
+        if ret is None:
+            ret = self.subsystems[k].J_P(t, qk, self.xis[k], self.Bi_r_CPis[k])
+            self.J_Pk_cache[key] = ret
+        return ret
 
     def J_Pk_qk(self, t, q, k):
         return self.subsystems[k].J_P_q(
@@ -147,20 +161,19 @@ class nPointInteraction:
         return W
 
     def W_l_q(self, t, q):
-        W_q = np.zeros((self._nu[-1], self._nq[-1]), dtype=q.dtype)
-        for i, j in self.connectivity:
+        for n, (i, j) in enumerate(self.connectivity):
             nui, nui1, nuj, nuj1 = self._nu[[i, i + 1, j, j + 1]]
             nqi, nqi1, nqj, nqj1 = self._nq[[i, i + 1, j, j + 1]]
             nij = self._nij(t, q, i, j)
             nij_qi, nij_qj = self._nij_qij(t, q, i, j)
             J_Pi = self.J_Pk(t, q, i)
             J_Pj = self.J_Pk(t, q, j)
-            W_q[nui:nui1, nqi:nqi1] += (
+            self._W_q_coo[n * 4, nui:nui1, nqi:nqi1] = (
                 -self.J_Pk_qk(t, q, i).T @ nij
             ).T - J_Pi.T @ nij_qi
-            W_q[nuj:nuj1, nqj:nqj1] += (
+            self._W_q_coo[n * 4 + 1, nuj:nuj1, nqj:nqj1] = (
                 self.J_Pk_qk(t, q, j).T @ nij
             ).T + J_Pj.T @ nij_qj
-            W_q[nui:nui1, nqj:nqj1] += -J_Pi.T @ nij_qj
-            W_q[nuj:nuj1, nqi:nqi1] += J_Pj.T @ nij_qi
-        return W_q
+            self._W_q_coo[n * 4 + 2, nui:nui1, nqj:nqj1] = -J_Pi.T @ nij_qj
+            self._W_q_coo[n * 4 + 3, nuj:nuj1, nqi:nqi1] = J_Pj.T @ nij_qi
+        return self._W_q_coo

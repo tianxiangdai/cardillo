@@ -257,6 +257,19 @@ class CooMatrix:
         ret.data = -self.data
         return ret
 
+    def __mul__(self, other):
+        ret = CooMatrix(self.shape)
+        ret.row = self.row.copy()
+        ret.col = self.col.copy()
+        if isinstance(other, (int, float)):
+            ret.data = self.data * other
+        else:
+            return NotImplemented
+        return ret
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
+
 
 if __name__ == "__main__":
     from profilehooks import profile

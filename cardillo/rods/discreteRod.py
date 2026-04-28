@@ -8,8 +8,6 @@ from numba import njit
 
 import vtk
 
-from cachetools import cachedmethod, LRUCache
-
 from cardillo.math_numba import (
     norm,
     cross3,
@@ -270,8 +268,8 @@ class DiscreteRod(DiscreteRodExport):
                 self._q_dot_u_coo[a, b] = 1.0
 
         # cache
-        self._alpha_cache = LRUCache(maxsize=self.nnode * 10)
-        self._eval_kinematics_cache = LRUCache(maxsize=self.nnode * 10)
+        self._alpha_cache = MyLRUCache(maxsize=self.nnode * 10)
+        self._eval_kinematics_cache = MyLRUCache(maxsize=self.nnode * 10)
 
         DiscreteRodExport.__init__(self, cross_section)
 
@@ -317,7 +315,7 @@ class DiscreteRod(DiscreteRodExport):
             alpha = self._alpha(xi)
             mk = Marker(xi, alpha)
             self._markers[xi] = mk
-        if hasattr(self, "qDOF"):
+        if not hasattr(mk, "qDOF") and hasattr(self, "qDOF"):
             num = self.element_number(xi)
             mk.t0 = self.t0
             mk.q0 = self.q0[self.elDOF[num]]
@@ -600,17 +598,14 @@ class DiscreteRod(DiscreteRodExport):
     ##########################
     # r_OP / A_IB contribution
     ##########################
-    @cachedmethod(
-        lambda self: self._eval_kinematics_cache,
-        key=lambda self, qe, xi, B_r_CP=np.zeros(3, dtype=float): (
-            qe.tobytes(),
-            xi,
-            B_r_CP.tobytes(),
-        ),
-    )
     def _element_kinematics(self, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        alpha = self._alpha(xi)
-        return _eval_kinematics(alpha, qe, B_r_CP)
+        key = (xi, qe.tobytes(), B_r_CP.tobytes())
+        ret = self._eval_kinematics_cache[key]
+        if ret is None:
+            alpha = self._alpha(xi)
+            ret = _eval_kinematics(alpha, qe, B_r_CP)
+            self._eval_kinematics_cache[key] = ret
+        return ret
 
     def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
         return self._element_kinematics(qe, xi, B_r_CP)[0]
