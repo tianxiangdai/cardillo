@@ -420,6 +420,7 @@ class DiscreteRod(DiscreteRodExport):
             num = self.element_number(mk.xi)
             mk.t0 = self.t0
             mk.q0 = self.q0[self.elDOF[num]]
+            mk.u0 = self.u0[self.elDOF_u[num]]
             mk.qDOF = self.qDOF[self.elDOF[num]]
             mk.uDOF = self.uDOF[self.elDOF_u[num]]
 
