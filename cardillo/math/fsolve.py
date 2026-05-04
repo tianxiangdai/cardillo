@@ -228,16 +228,6 @@ def fsolve(
                 lu = splu(jacobian(x0, *jac_args))
                 njev += 1
 
-    if inexact:
-
-        def solve(x, rhs):
-            return lu.solve(rhs)
-
-    else:
-
-        def solve(x, rhs):
-            return options.linear_solver(jacobian(x, *jac_args), rhs)
-
     # tolerences
     tol_abs = options.newton_atol
     tol_rel = options.newton_rtol
@@ -254,7 +244,10 @@ def fsolve(
     if not converged:
         for i in range(options.newton_max_iter):
             # Newton step
-            dx = solve(x, -f)
+            if inexact:
+                dx = lu.solve(-f)
+            else:
+                dx = options.linear_solver(jacobian(x, *jac_args), -f)
             x += dx
 
             # new function value, error
