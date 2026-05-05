@@ -27,6 +27,8 @@ class Force_line_distributed:
         if self._is_discrete_rod:
             self._h_weights = (np.pad(rod.L, (1, 0)) + np.pad(rod.L, (0, 1))) / 2
             self._h_nodes = _make_h_nodes(_force)
+        else:
+            self.force = _force
 
     def assembler_callback(self):
         self.qDOF = self.rod.qDOF

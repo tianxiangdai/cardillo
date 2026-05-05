@@ -35,28 +35,41 @@ zeros3 = jnp.zeros((3, 3))
 _nla_c_el = 6  # 6/12
 
 
-def _set_row_col_for_submatrices(coo, rows_list, cols_list):
-    # rows_list and cols_list are lists of slices that define the submatrices of the COO matrix.
-    # it is assumed that the submatrices are dense.
+def _slice_to_array(s):
+    if isinstance(s, slice):
+        return np.arange(*s.indices(s.stop))
+    elif isinstance(s, list):
+        return [_slice_to_array(el) for el in s]
+
+
+def _combine_indices(rows_list, cols_list):
+    # rows_list and cols_list are lists of slices or arrays that define the submatrices of the COO matrix.
     ptr = np.empty(len(rows_list) + 1, dtype=int)
     ptr[0] = 0
+    # count number
     for i, (rows, cols) in enumerate(zip(rows_list, cols_list)):
-        m = rows.stop - rows.start
-        n = cols.stop - cols.start
-        if rows.step is not None:
-            m = m // rows.step
-        if cols.step is not None:
-            n = n // cols.step
-        ptr[i + 1] = ptr[i] + m * n
-    coo.row = np.empty(ptr[-1], dtype=int)
-    coo.col = np.empty(ptr[-1], dtype=int)
-    for i, (sc, sr) in enumerate(zip(rows_list, cols_list)):
-        rows = np.arange(*sc.indices(coo.shape[0]))
-        cols = np.arange(*sr.indices(coo.shape[1]))
-        new_rows = rows.repeat(len(cols))
-        new_cols = np.tile(cols, len(rows))
-        coo.row[ptr[i] : ptr[i + 1]] = new_rows
-        coo.col[ptr[i] : ptr[i + 1]] = new_cols
+        if isinstance(rows, slice):
+            start, stop, step = rows.indices(rows.stop)
+            nrow = (stop - start) // step
+        else:
+            nrow = len(rows)
+        if isinstance(cols, slice):
+            start, stop, step = cols.indices(cols.stop)
+            ncol = (stop - start) // step
+        else:
+            ncol = len(cols)
+        ptr[i + 1] = ptr[i] + nrow * ncol
+    rows_combined = np.empty(ptr[-1], dtype=int)
+    cols_combined = np.empty(ptr[-1], dtype=int)
+    # set rows and cols
+    for i, (rows, cols) in enumerate(zip(rows_list, cols_list)):
+        if isinstance(rows, slice):
+            rows = _slice_to_array(rows)
+        if isinstance(cols, slice):
+            cols = _slice_to_array(cols)
+        rows_combined[ptr[i] : ptr[i + 1]] = rows.repeat(len(cols))
+        cols_combined[ptr[i] : ptr[i + 1]] = np.tile(cols, len(rows))
+    return ptr, rows_combined, cols_combined
 
 
 class DiscreteRodExport:
@@ -242,7 +255,12 @@ class DiscreteRod(DiscreteRodExport):
         self.set_reference_strains(Q)
 
         self.constant_mass_matrix = True
-        self.__M = CooMatrix((self.nu, self.nu))
+        _M_coo = CooMatrix((self.nu, self.nu))
+        row1 = col1 = np.array(_slice_to_array(self.nodalDOF_r_u)).flatten()
+        ptr, row2, col2 = _combine_indices(self.nodalDOF_p_u, self.nodalDOF_p_u)
+        _M_coo.row = np.concatenate((row1, row2))
+        _M_coo.col = np.concatenate((col1, col2))
+        _M_coo.data = np.empty_like(_M_coo.col, dtype=float)
         self._B_Theta_C = []
         for n in range(self.nnode):
             if n == 0:
@@ -259,10 +277,11 @@ class DiscreteRod(DiscreteRodExport):
                 mass = cross_section_inertias.A_rho0 * w
                 B_Theta_C = cross_section_inertias.B_I_rho0 * w
             self._B_Theta_C.append(B_Theta_C)
-            nodalDOF_r_u = self.nodalDOF_r_u[n]
-            nodalDOF_p_u = self.nodalDOF_p_u[n]
-            self.__M[nodalDOF_r_u, nodalDOF_r_u] = mass * np.eye(3, dtype=float)
-            self.__M[nodalDOF_p_u, nodalDOF_p_u] = B_Theta_C
+            _M_coo.data[3 * n : 3 * (n + 1)] = mass
+            _M_coo.data[self.nnode * 3 + ptr[n] : self.nnode * 3 + ptr[n + 1]] = (
+                B_Theta_C.flatten()
+            )
+        self._M_coo = _M_coo.asformat("coo")
         self._B_Theta_C = np.array(self._B_Theta_C)
 
         self._markers = {}
@@ -275,35 +294,44 @@ class DiscreteRod(DiscreteRodExport):
         self._B_Psi_u = np.zeros((3, 12), dtype=float)
         # CooMatrix
         self._c_q_coo = CooMatrix((self.nla_c, self.nq))
-        _set_row_col_for_submatrices(self._c_q_coo, self.elDOF_la_c, self.elDOF)
+        _, self._c_q_coo.row, self._c_q_coo.col = _combine_indices(
+            self.elDOF_la_c, self.elDOF
+        )
+
         self._W_c_coo = CooMatrix((self.nu, self.nla_c))
-        _set_row_col_for_submatrices(self._W_c_coo, self.elDOF_u, self.elDOF_la_c)
+        _, self._W_c_coo.row, self._W_c_coo.col = _combine_indices(
+            self.elDOF_u, self.elDOF_la_c
+        )
         self._Wla_c_q_coo = CooMatrix((self.nu, self.nq))
-        _set_row_col_for_submatrices(self._Wla_c_q_coo, self.elDOF_u, self.elDOF)
+        _, self._Wla_c_q_coo.row, self._Wla_c_q_coo.col = _combine_indices(
+            self.elDOF_u, self.elDOF
+        )
 
         self._q_dot_q_coo = CooMatrix((self.nq, self.nq))
-        _set_row_col_for_submatrices(
-            self._q_dot_q_coo, self.nodalDOF_p, self.nodalDOF_p
+        _, self._q_dot_q_coo.row, self._q_dot_q_coo.col = _combine_indices(
+            self.nodalDOF_p, self.nodalDOF_p
         )
         self._q_dot_u_coo = CooMatrix((self.nq, self.nu))
+        self._q_dot_u_coo.row = np.array(_slice_to_array(self.nodalDOF_r)).flatten()
+        self._q_dot_u_coo.col = np.array(_slice_to_array(self.nodalDOF_r_u)).flatten()
+        self._q_dot_u_coo.data = np.ones((len(self._q_dot_u_coo.col),), dtype=float)
         self._h_u_coo = CooMatrix((self.nu, self.nu))
-        _set_row_col_for_submatrices(
-            self._h_u_coo, self.nodalDOF_p_u, self.nodalDOF_p_u
+        _, self._h_u_coo.row, self._h_u_coo.col = _combine_indices(
+            self.nodalDOF_p_u, self.nodalDOF_p_u
         )
         self._g_S_q_coo = CooMatrix((self.nla_S, self.nq))
-        _set_row_col_for_submatrices(
-            self._g_S_q_coo,
-            [slice(i, i + 1) for i in range(self.nnode)],
+        _, self._g_S_q_coo.row, self._g_S_q_coo.col = _combine_indices(
+            np.arange(self.nnode)[:, None],
             self.nodalDOF_p,
         )
-        for n in range(self.nnode):
-            nodalDOF_r = self.nodalDOF_r[n]
-            nodalDOF_r_u = self.nodalDOF_r_u[n]
-            nodalDOF_r = np.arange(nodalDOF_r.start, nodalDOF_r.stop)
-            nodalDOF_r_u = np.arange(nodalDOF_r_u.start, nodalDOF_r_u.stop)
-            for a, b in zip(nodalDOF_r, nodalDOF_r_u):
-                # translational velocities
-                self._q_dot_u_coo[a, b] = 1.0
+        # for n in range(self.nnode):
+        #     nodalDOF_r = self.nodalDOF_r[n]
+        #     nodalDOF_r_u = self.nodalDOF_r_u[n]
+        #     nodalDOF_r = np.arange(nodalDOF_r.start, nodalDOF_r.stop)
+        #     nodalDOF_r_u = np.arange(nodalDOF_r_u.start, nodalDOF_r_u.stop)
+        #     for a, b in zip(nodalDOF_r, nodalDOF_r_u):
+        #         # translational velocities
+        #         self._q_dot_u_coo[a, b] = 1.0
 
         # cache
         self._alpha_cache = MyLRUCache(maxsize=self.nnode * 10)
@@ -499,7 +527,7 @@ class DiscreteRod(DiscreteRodExport):
     # equations of motion
     #####################
     def M(self, t, q):
-        return self.__M
+        return self._M_coo
 
     def h(self, t, q, u):
         return np.asarray(_h_nodes(self._view_nodal_u(u), self._B_Theta_C)).ravel()
@@ -565,16 +593,17 @@ class DiscreteRod(DiscreteRodExport):
 
     def _c_la_c_coo(self):
         coo = CooMatrix((self.nla_c, self.nla_c))
+        _, coo.row, coo.col = _combine_indices(self.elDOF_la_c, self.elDOF_la_c)
+        c_la_c_els = np.zeros((self.nelement, _nla_c_el, _nla_c_el), dtype=float)
         for el in range(self.nelement):
-            c_la_c_el = np.zeros((_nla_c_el, _nla_c_el), dtype=float)
-            c_la_c_el[:3, :3] = self.C_n_inv[el]
-            c_la_c_el[3:6, 3:6] = self.C_m_inv[el]
+            c_la_c = c_la_c_els[el]
+            c_la_c[:3, :3] = self.C_n_inv[el]
+            c_la_c[3:6, 3:6] = self.C_m_inv[el]
             if _nla_c_el == 12:
-                c_la_c_el[6:9, 6:9] = self.C_n_inv[el]
-                c_la_c_el[9:, 9:] = self.C_m_inv[el]
-            c_la_c_el *= self.L[el]
-            elDOF_la_c = self.elDOF_la_c[el]
-            coo[elDOF_la_c, elDOF_la_c] = c_la_c_el
+                c_la_c[6:9, 6:9] = self.C_n_inv[el]
+                c_la_c[9:, 9:] = self.C_m_inv[el]
+            c_la_c *= self.L[el]
+        coo.data = c_la_c_els.ravel()
         self.__c_la_c = coo.asformat("coo")
         self.__c_la_c.eliminate_zeros()
 
