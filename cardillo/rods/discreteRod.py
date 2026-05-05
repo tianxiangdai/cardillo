@@ -35,6 +35,30 @@ zeros3 = jnp.zeros((3, 3))
 _nla_c_el = 6  # 6/12
 
 
+def _set_row_col_for_submatrices(coo, rows_list, cols_list):
+    # rows_list and cols_list are lists of slices that define the submatrices of the COO matrix.
+    # it is assumed that the submatrices are dense.
+    ptr = np.empty(len(rows_list) + 1, dtype=int)
+    ptr[0] = 0
+    for i, (rows, cols) in enumerate(zip(rows_list, cols_list)):
+        m = rows.stop - rows.start
+        n = cols.stop - cols.start
+        if rows.step is not None:
+            m = m // rows.step
+        if cols.step is not None:
+            n = n // cols.step
+        ptr[i + 1] = ptr[i] + m * n
+    coo.row = np.empty(ptr[-1], dtype=int)
+    coo.col = np.empty(ptr[-1], dtype=int)
+    for i, (sc, sr) in enumerate(zip(rows_list, cols_list)):
+        rows = np.arange(*sc.indices(coo.shape[0]))
+        cols = np.arange(*sr.indices(coo.shape[1]))
+        new_rows = rows.repeat(len(cols))
+        new_cols = np.tile(cols, len(rows))
+        coo.row[ptr[i] : ptr[i + 1]] = new_rows
+        coo.col[ptr[i] : ptr[i + 1]] = new_cols
+
+
 class DiscreteRodExport:
     def __init__(self, cross_section):
         nelement_visual = self.nelement_visual = self.nelement
@@ -251,13 +275,27 @@ class DiscreteRod(DiscreteRodExport):
         self._B_Psi_u = np.zeros((3, 12), dtype=float)
         # CooMatrix
         self._c_q_coo = CooMatrix((self.nla_c, self.nq))
+        _set_row_col_for_submatrices(self._c_q_coo, self.elDOF_la_c, self.elDOF)
         self._W_c_coo = CooMatrix((self.nu, self.nla_c))
+        _set_row_col_for_submatrices(self._W_c_coo, self.elDOF_u, self.elDOF_la_c)
         self._Wla_c_q_coo = CooMatrix((self.nu, self.nq))
+        _set_row_col_for_submatrices(self._Wla_c_q_coo, self.elDOF_u, self.elDOF)
 
         self._q_dot_q_coo = CooMatrix((self.nq, self.nq))
+        _set_row_col_for_submatrices(
+            self._q_dot_q_coo, self.nodalDOF_p, self.nodalDOF_p
+        )
         self._q_dot_u_coo = CooMatrix((self.nq, self.nu))
         self._h_u_coo = CooMatrix((self.nu, self.nu))
+        _set_row_col_for_submatrices(
+            self._h_u_coo, self.nodalDOF_p_u, self.nodalDOF_p_u
+        )
         self._g_S_q_coo = CooMatrix((self.nla_S, self.nq))
+        _set_row_col_for_submatrices(
+            self._g_S_q_coo,
+            [slice(i, i + 1) for i in range(self.nnode)],
+            self.nodalDOF_p,
+        )
         for n in range(self.nnode):
             nodalDOF_r = self.nodalDOF_r[n]
             nodalDOF_r_u = self.nodalDOF_r_u[n]
@@ -436,7 +474,7 @@ class DiscreteRod(DiscreteRodExport):
         p_dot_p_nodes = np.asarray(
             _p_dot_p_nodes(self._view_nodal_q(q), self._view_nodal_u(u))
         )
-        self._q_dot_q_coo.set_all(self.nodalDOF_p, self.nodalDOF_p, p_dot_p_nodes)
+        self._q_dot_q_coo.data = p_dot_p_nodes.ravel()
         # for n in range(self.nnode):
         #     nodalDOF_p = self.nodalDOF_p[n]
         #     self._q_dot_q_coo[n, nodalDOF_p, nodalDOF_p] = p_dot_q_nodes[n]
@@ -470,7 +508,7 @@ class DiscreteRod(DiscreteRodExport):
         h_u_nodes = np.asarray(
             _h_u_nodes(self._view_nodal_u(u)[:, 3:], self._B_Theta_C)
         )
-        self._h_u_coo.set_all(self.nodalDOF_p_u, self.nodalDOF_p_u, h_u_nodes)
+        self._h_u_coo.data = h_u_nodes.ravel()
         # for n in range(self.nnode):
         #     nodalDOF_p_u = self.nodalDOF_p_u[n]
         #     self._h_u_coo[n, nodalDOF_p_u, nodalDOF_p_u] = h_u_nodes[n]
@@ -485,7 +523,7 @@ class DiscreteRod(DiscreteRodExport):
 
     def g_S_q(self, t, q):
         p = self._view_nodal_q(q)[:, 3:]
-        self._g_S_q_coo.set_all(np.arange(self.nnode), self.nodalDOF_p, 2 * p)
+        self._g_S_q_coo.data = (2 * p).ravel()
         # for n in range(self.nnode):
         #     nodalDOF_p = self.nodalDOF_p[n]
         #     self._g_S_q_coo[n, n, nodalDOF_p] = 2 * p[n]
@@ -543,7 +581,7 @@ class DiscreteRod(DiscreteRodExport):
     def c_q(self, t, q, u, la_c):
         _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
         c_q_els = np.asarray(_c_q_els(B_Gamma_qe, B_Kappa_qe, self.L))
-        self._c_q_coo.set_all(self.elDOF_la_c, self.elDOF, c_q_els)
+        self._c_q_coo.data = c_q_els.ravel()
         # for el in range(self.nelement):
         #     elDOF = self.elDOF[el]
         #     elDOF_la_c = self.elDOF_la_c[el]
@@ -553,7 +591,7 @@ class DiscreteRod(DiscreteRodExport):
     def W_c(self, t, q):
         A_IB, B_Gamma, B_Kappa = self._eval_els(q)
         W_c_els = np.asarray(_W_c_els(A_IB, B_Gamma, B_Kappa, self.L))
-        self._W_c_coo.set_all(self.elDOF_u, self.elDOF_la_c, W_c_els)
+        self._W_c_coo.data = W_c_els.ravel()
         # for el in range(self.nelement):
         #     elDOF_u = self.elDOF_u[el]
         #     elDOF_la_c = self.elDOF_la_c[el]
@@ -567,7 +605,7 @@ class DiscreteRod(DiscreteRodExport):
                 A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c), self.L
             )
         )
-        self._Wla_c_q_coo.set_all(self.elDOF_u, self.elDOF, Wla_c_q_els)
+        self._Wla_c_q_coo.data = Wla_c_q_els.ravel()
         # for el in range(self.nelement):
         #     elDOF = self.elDOF[el]
         #     elDOF_u = self.elDOF_u[el]
