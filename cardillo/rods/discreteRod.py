@@ -254,6 +254,7 @@ class DiscreteRod(DiscreteRodExport):
 
         self.set_reference_strains(Q)
 
+        # M
         self.constant_mass_matrix = True
         _M_coo = CooMatrix((self.nu, self.nu))
         row1 = col1 = np.array(_slice_to_array(self.nodalDOF_r_u)).flatten()
@@ -282,7 +283,26 @@ class DiscreteRod(DiscreteRodExport):
                 B_Theta_C.flatten()
             )
         self._M_coo = _M_coo.asformat("coo")
+        self._M_coo.eliminate_zeros()
         self._B_Theta_C = np.array(self._B_Theta_C)
+
+        # c_la_c
+        _c_la_c_coo = CooMatrix((self.nla_c, self.nla_c))
+        _, _c_la_c_coo.row, _c_la_c_coo.col = _combine_indices(
+            self.elDOF_la_c, self.elDOF_la_c
+        )
+        c_la_c_els = np.zeros((self.nelement, _nla_c_el, _nla_c_el), dtype=float)
+        for el in range(self.nelement):
+            c_la_c = c_la_c_els[el]
+            c_la_c[:3, :3] = self.C_n_inv[el]
+            c_la_c[3:6, 3:6] = self.C_m_inv[el]
+            if _nla_c_el == 12:
+                c_la_c[6:9, 6:9] = self.C_n_inv[el]
+                c_la_c[9:, 9:] = self.C_m_inv[el]
+            c_la_c *= self.L[el]
+        _c_la_c_coo.data = c_la_c_els.ravel()
+        self._c_la_c_coo = _c_la_c_coo.asformat("coo")
+        self._c_la_c_coo.eliminate_zeros()
 
         self._markers = {}
 
@@ -324,14 +344,6 @@ class DiscreteRod(DiscreteRodExport):
             np.arange(self.nnode)[:, None],
             self.nodalDOF_p,
         )
-        # for n in range(self.nnode):
-        #     nodalDOF_r = self.nodalDOF_r[n]
-        #     nodalDOF_r_u = self.nodalDOF_r_u[n]
-        #     nodalDOF_r = np.arange(nodalDOF_r.start, nodalDOF_r.stop)
-        #     nodalDOF_r_u = np.arange(nodalDOF_r_u.start, nodalDOF_r_u.stop)
-        #     for a, b in zip(nodalDOF_r, nodalDOF_r_u):
-        #         # translational velocities
-        #         self._q_dot_u_coo[a, b] = 1.0
 
         # cache
         self._alpha_cache = MyLRUCache(maxsize=self.nnode * 10)
@@ -481,7 +493,6 @@ class DiscreteRod(DiscreteRodExport):
         return np.concatenate([r0, p0], axis=1).flatten()
 
     def assembler_callback(self):
-        self._c_la_c_coo()
         for mk in self._markers.values():
             num = self.element_number(mk.xi)
             mk.t0 = self.t0
@@ -589,23 +600,7 @@ class DiscreteRod(DiscreteRodExport):
         ).ravel()
 
     def c_la_c(self):
-        return self.__c_la_c
-
-    def _c_la_c_coo(self):
-        coo = CooMatrix((self.nla_c, self.nla_c))
-        _, coo.row, coo.col = _combine_indices(self.elDOF_la_c, self.elDOF_la_c)
-        c_la_c_els = np.zeros((self.nelement, _nla_c_el, _nla_c_el), dtype=float)
-        for el in range(self.nelement):
-            c_la_c = c_la_c_els[el]
-            c_la_c[:3, :3] = self.C_n_inv[el]
-            c_la_c[3:6, 3:6] = self.C_m_inv[el]
-            if _nla_c_el == 12:
-                c_la_c[6:9, 6:9] = self.C_n_inv[el]
-                c_la_c[9:, 9:] = self.C_m_inv[el]
-            c_la_c *= self.L[el]
-        coo.data = c_la_c_els.ravel()
-        self.__c_la_c = coo.asformat("coo")
-        self.__c_la_c.eliminate_zeros()
+        return self._c_la_c_coo
 
     def c_q(self, t, q, u, la_c):
         _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)

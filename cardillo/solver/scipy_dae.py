@@ -139,41 +139,49 @@ class ScipyDAE:
         ####################
         # kinematic equation
         ####################
-        g_q = self.g_q1 = self.system.g_q(t, q, format="Coo", coo=self.g_q1)
-        g_q_T = self.g_q1_T = g_q.transpose(copy=False, coo=self.g_q1_T)
-        F[: self.split[0]] = (
-            q_dot - self.system.q_dot(t, q, u) - g_q_T.asformat("coo") @ mu_g
-        )
+        F0 = q_dot - self.system.q_dot(t, q, u)
+        if self.nla_g:
+            g_q = self.g_q1 = self.system.g_q(t, q, format="Coo", coo=self.g_q1)
+            g_q_T = self.g_q1_T = g_q.transpose(copy=False, coo=self.g_q1_T)
+            F0 -= g_q_T.asformat("coo") @ mu_g
+        F[: self.split[0]] = F0
         ####################
         # equations of motion
         ####################
+        sys = self.system
         M = self.M2 = self.system.M(t, q, format="Coo", coo=self.M2)
-        W_tau = self._W_tau = self.system.W_tau(t, q, format="Coo", coo=self._W_tau)
-        W_g = self.W_g1 = self.system.W_g(t, q, format="Coo", coo=self.W_g1)
-        W_gamma = self.W_gamma1 = self.system.W_gamma(
-            t, q, format="Coo", coo=self.W_gamma1
-        )
-        W_c = self.W_c1 = self.system.W_c(t, q, format="Coo", coo=self.W_c1)
-        F[self.split[0] : self.split[1]] = (
-            M.asformat("coo") @ u_dot
-            - self.system.h(t, q, u)
-            - W_tau.asformat("coo") @ self.system.la_tau(t, q, u)
-            - W_g.asformat("coo") @ la_g
-            - W_gamma.asformat("coo") @ la_gamma
-            - W_c.asformat("coo") @ la_c
-        )
+        F1 = M.asformat("coo") @ u_dot - self.system.h(t, q, u)
+        if sys.nla_tau:
+            W_tau = self._W_tau = self.system.W_tau(t, q, format="Coo", coo=self._W_tau)
+            F1 -= W_tau.asformat("coo") @ self.system.la_tau(t, q, u)
+        if sys.nla_g:
+            W_g = self.W_g1 = self.system.W_g(t, q, format="Coo", coo=self.W_g1)
+            F1 -= W_g.asformat("coo") @ la_g
+        if sys.nla_gamma:
+            W_gamma = self.W_gamma1 = self.system.W_gamma(
+                t, q, format="Coo", coo=self.W_gamma1
+            )
+            F1 -= W_gamma.asformat("coo") @ la_gamma
+        if sys.nla_c:
+            W_c = self.W_c1 = self.system.W_c(t, q, format="Coo", coo=self.W_c1)
+            F1 -= W_c.asformat("coo") @ la_c
+        F[self.split[0] : self.split[1]] = F1
 
         #######################
         # bilateral constraints
         #######################
-        F[self.split[1] : self.split[2]] = self.system.g(t, q)
-        F[self.split[2] : self.split[3]] = self.system.g_dot(t, q, u)
-        F[self.split[3] : self.split[4]] = self.system.gamma(t, q, u)
+        if sys.nla_g:
+            F[self.split[1] : self.split[2]] = self.system.g(t, q)
+            F[self.split[2] : self.split[3]] = self.system.g_dot(t, q, u)
+
+        if sys.nla_gamma:
+            F[self.split[3] : self.split[4]] = self.system.gamma(t, q, u)
 
         ############
         # compliance
         ############
-        F[self.split[4] :] = self.system.c(t, q, u, la_c)
+        if sys.nla_c:
+            F[self.split[4] :] = self.system.c(t, q, u, la_c)
 
         return F
 
@@ -186,6 +194,10 @@ class ScipyDAE:
         la_gamma = yp[s3:s4]
         la_c = yp[s4:]
 
+        sys = self.system
+
+        # first Jacobian w.r.t. y
+        Jy = self.Jy
         # evaluate commonly used quantities
         q_dot_q = self.q_dot_q = self.system.q_dot_q(
             t, q, u, format="Coo", coo=self.q_dot_q
@@ -197,49 +209,6 @@ class ScipyDAE:
         Mu_q = self.Mu_q = self.system.Mu_q(t, q, u_dot, format="Coo", coo=self.Mu_q)
         h_q = self.h_q = self.system.h_q(t, q, u, format="Coo", coo=self.h_q)
         h_u = self.h_u = self.system.h_u(t, q, u, format="Coo", coo=self.h_u)
-        Wla_tau_q = self.Wla_tau_q = self.system.Wla_tau_q(
-            t, q, u, format="Coo", coo=self.Wla_tau_q
-        )
-        Wla_tau_u = self.Wla_tau_u = self.system.Wla_tau_u(
-            t, q, u, format="Coo", coo=self.Wla_tau_u
-        )
-        Wla_g_q = self.Wla_g_q = self.system.Wla_g_q(
-            t, q, la_g, format="Coo", coo=self.Wla_g_q
-        )
-        Wla_gamma_q = self.Wla_gamma_q = self.system.Wla_gamma_q(
-            t, q, la_gamma, format="Coo", coo=self.Wla_gamma_q
-        )
-        Wla_c_q = self.Wla_c_q = self.system.Wla_c_q(
-            t, q, la_c, format="Coo", coo=self.Wla_c_q
-        )
-
-        g_dot_q = self.g_dot_q = self.system.g_dot_q(
-            t, q, u, format="Coo", coo=self.g_dot_q
-        )
-        g_dot_u = self.g_dot_u = self.system.g_dot_u(
-            t, q, format="Coo", coo=self.g_dot_u
-        )
-
-        gamma_q = self.gamma_q = self.system.gamma_q(
-            t, q, u, format="Coo", coo=self.gamma_q
-        )
-        gamma_u = self.gamma_u = self.system.gamma_u(
-            t, q, format="Coo", coo=self.gamma_u
-        )
-
-        c_q = self.c_q = self.system.c_q(t, q, u, la_c, format="Coo", coo=self.c_q)
-        c_u = self.c_u = self.system.c_u(t, q, u, la_c, format="Coo", coo=self.c_u)
-
-        M = self.M1 = self.system.M(t, q, format="Coo", coo=self.M1)
-        g_q = self.g_q2 = self.system.g_q(t, q, format="Coo", coo=self.g_q2)
-        W_g = self.W_g2 = self.system.W_g(t, q, format="Coo", coo=self.W_g2)
-        W_gamma = self.W_gamma2 = self.system.W_gamma(
-            t, q, format="Coo", coo=self.W_gamma2
-        )
-        W_c = self.W_c2 = self.system.W_c(t, q, format="Coo", coo=self.W_c2)
-
-        # first Jacobian w.r.t. y
-        Jy = self.Jy
 
         Jy["q_dot_q", :s0, :s0] = -q_dot_q
         Jy["q_dot_u", :s0, s0:s1] = -q_dot_u
@@ -249,33 +218,74 @@ class ScipyDAE:
 
         Jy["Mu_q", s0:s1, :s0] = Mu_q
         Jy["h_q", s0:s1, :s0] = -h_q
-        Jy["Wla_tau_q", s0:s1, :s0] = -Wla_tau_q
-        Jy["Wla_gamma_q", s0:s1, :s0] = -Wla_gamma_q
-        Jy["Wla_g_q", s0:s1, :s0] = -Wla_g_q
-        Jy["Wla_c_q", s0:s1, :s0] = -Wla_c_q
         Jy["h_u", s0:s1, s0:s1] = -h_u
-        Jy["Wla_tau_u", s0:s1, s0:s1] = -Wla_tau_u
+        if sys.nla_tau:
+            Wla_tau_q = self.Wla_tau_q = self.system.Wla_tau_q(
+                t, q, u, format="Coo", coo=self.Wla_tau_q
+            )
+            Wla_tau_u = self.Wla_tau_u = self.system.Wla_tau_u(
+                t, q, u, format="Coo", coo=self.Wla_tau_u
+            )
+            Jy["Wla_tau_q", s0:s1, :s0] = -Wla_tau_q
+            Jy["Wla_tau_u", s0:s1, s0:s1] = -Wla_tau_u
+        if sys.nla_gamma:
+            Wla_gamma_q = self.Wla_gamma_q = self.system.Wla_gamma_q(
+                t, q, la_gamma, format="Coo", coo=self.Wla_gamma_q
+            )
+            gamma_q = self.gamma_q = self.system.gamma_q(
+                t, q, u, format="Coo", coo=self.gamma_q
+            )
+            gamma_u = self.gamma_u = self.system.gamma_u(
+                t, q, format="Coo", coo=self.gamma_u
+            )
+            Jy["Wla_gamma_q", s0:s1, :s0] = -Wla_gamma_q
+            Jy["gamma_q", s3:s4, :s0] = gamma_q
+            Jy["gamma_u", s3:s4, s0:s1] = gamma_u
 
-        Jy["g_q", s1:s2, :s0] = g_q
+        if sys.nla_g:
+            Wla_g_q = self.Wla_g_q = self.system.Wla_g_q(
+                t, q, la_g, format="Coo", coo=self.Wla_g_q
+            )
+            g_q = self.g_q2 = self.system.g_q(t, q, format="Coo", coo=self.g_q2)
+            g_dot_q = self.g_dot_q = self.system.g_dot_q(
+                t, q, u, format="Coo", coo=self.g_dot_q
+            )
+            g_dot_u = self.g_dot_u = self.system.g_dot_u(
+                t, q, format="Coo", coo=self.g_dot_u
+            )
+            Jy["Wla_g_q", s0:s1, :s0] = -Wla_g_q
+            Jy["g_q", s1:s2, :s0] = g_q
+            Jy["g_dot_q", s2:s3, :s0] = g_dot_q
+            Jy["g_dot_u", s2:s3, s0:s1] = g_dot_u
 
-        Jy["g_dot_q", s2:s3, :s0] = g_dot_q
-        Jy["g_dot_u", s2:s3, s0:s1] = g_dot_u
-
-        Jy["gamma_q", s3:s4, :s0] = gamma_q
-        Jy["gamma_u", s3:s4, s0:s1] = gamma_u
-
-        Jy["c_q", s4:, :s0] = c_q
-        Jy["c_u", s4:, s0:s1] = c_u
+        if sys.nla_c:
+            Wla_c_q = self.Wla_c_q = self.system.Wla_c_q(
+                t, q, la_c, format="Coo", coo=self.Wla_c_q
+            )
+            c_q = self.c_q = self.system.c_q(t, q, u, la_c, format="Coo", coo=self.c_q)
+            c_u = self.c_u = self.system.c_u(t, q, u, la_c, format="Coo", coo=self.c_u)
+            Jy["Wla_c_q", s0:s1, :s0] = -Wla_c_q
+            Jy["c_q", s4:, :s0] = c_q
+            Jy["c_u", s4:, s0:s1] = c_u
 
         # second Jacobian w.r.t. yp
         Jyp = self.Jyp
 
-        Jyp["g_q_T", :s0, s1:s2] = -g_q.T
+        M = self.M1 = self.system.M(t, q, format="Coo", coo=self.M1)
 
         Jyp["M", s0:s1, s0:s1] = M
-        Jyp["W_g", s0:s1, s2:s3] = -W_g
-        Jyp["W_gamma", s0:s1, s3:s4] = -W_gamma
-        Jyp["W_c", s0:s1, s4:] = -W_c
+        if sys.nla_g:
+            W_g = self.W_g2 = self.system.W_g(t, q, format="Coo", coo=self.W_g2)
+            Jyp["g_q_T", :s0, s1:s2] = -g_q.T
+            Jyp["W_g", s0:s1, s2:s3] = -W_g
+        if sys.nla_gamma:
+            W_gamma = self.W_gamma2 = self.system.W_gamma(
+                t, q, format="Coo", coo=self.W_gamma2
+            )
+            Jyp["W_gamma", s0:s1, s3:s4] = -W_gamma
+        if sys.nla_c:
+            W_c = self.W_c2 = self.system.W_c(t, q, format="Coo", coo=self.W_c2)
+            Jyp["W_c", s0:s1, s4:] = -W_c
 
         return Jy.asformat("coo"), Jyp.asformat("coo")
 
