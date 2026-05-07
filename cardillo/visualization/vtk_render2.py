@@ -388,13 +388,24 @@ class Plotter:
                         for twin in marker.visual_twins:
                             self.__add_visual_twin(twin)
 
-        self.__do_render = False
+        self.__window_open = False
+
+        self._live_nframe = 0
+        self._live_fps = 100
+        self._text_actor = vtk.vtkTextActor()
+        self._text_actor.SetPosition(10, 10)
+        prop = self._text_actor.GetTextProperty()
+        prop.SetFontSize(20)
+        prop.SetColor([i / 255 for i in (34, 136, 50)])
+        self.ren.AddActor(self._text_actor)
 
         def decorate_step_callback(step_callback):
             def __step_callback(t, q, u):
                 r = step_callback(t, q, u)
-                if self.__do_render:
-                    self.step_render(Solution(self.system, t=t, q=q, u=u))
+                if self.__window_open:
+                    if self._live_nframe < t * self._live_fps:
+                        self.step_render(Solution(self.system, t=t, q=q, u=u))
+                        self._live_nframe += 1
                 return r
 
             return __step_callback
@@ -403,7 +414,8 @@ class Plotter:
 
         def cbk(interactor, event):
             if interactor.key_code == "q":
-                self.hide()
+                self.window.SetOffScreenRendering(1)
+                self.__window_open = False
 
         self.window.SetOffScreenRendering(1)
         self.interactor.AddObserver(vtk.vtkCommand.KeyPressEvent, cbk)
@@ -428,6 +440,7 @@ class Plotter:
         self.ren.AddActor(actor)
 
     def step_render(self, sol_i):
+        self._text_actor.SetInput(f"t = {sol_i.t:.3f} s")
         for twin in self.__visual_twins:
             twin.update_visual_state(sol_i)
         self.window.Render()
@@ -442,6 +455,8 @@ class Plotter:
             raise Exception("visual twin already added!")
 
     def render_solution(self, solution, repeat=False, play_speed_up=1):
+        self.window.SetOffScreenRendering(0)
+        self.__window_open = True
         while True:
             t0_sim = solution.t[0]
             t0_real = perf_counter()
@@ -455,17 +470,15 @@ class Plotter:
                     else:
                         sleep(-dt)
                 self.step_render(sol_i)
-                if not self.__do_render:
+                if not self.__window_open:
                     return
             if not repeat:
                 break
             else:
                 sleep(solution.t[1] / play_speed_up)
 
-    def show(self):
+    def live_render(self, fps=100):
+        print("maximal frames per simulation time: ", fps)
         self.window.SetOffScreenRendering(0)
-        self.__do_render = True
-
-    def hide(self):
-        self.window.SetOffScreenRendering(1)
-        self.__do_render = False
+        self._live_fps = fps
+        self.__window_open = True
