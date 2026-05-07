@@ -8,8 +8,6 @@ from numba import njit
 
 import vtk
 
-from cachetools import cachedmethod, LRUCache
-
 from cardillo.math_numba import (
     norm,
     cross3,
@@ -24,6 +22,7 @@ from cardillo.rods import CrossSectionInertias, CircularCrossSection
 
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
+from ..utility.cachetools import MyLRUCache
 
 from .marker import Marker
 
@@ -34,6 +33,43 @@ zeros3 = jnp.zeros((3, 3))
 
 
 _nla_c_el = 6  # 6/12
+
+
+def _slice_to_array(s):
+    if isinstance(s, slice):
+        return np.arange(*s.indices(s.stop))
+    elif isinstance(s, list):
+        return [_slice_to_array(el) for el in s]
+
+
+def _combine_indices(rows_list, cols_list):
+    # rows_list and cols_list are lists of slices or arrays that define the submatrices of the COO matrix.
+    ptr = np.empty(len(rows_list) + 1, dtype=int)
+    ptr[0] = 0
+    # count number
+    for i, (rows, cols) in enumerate(zip(rows_list, cols_list)):
+        if isinstance(rows, slice):
+            start, stop, step = rows.indices(rows.stop)
+            nrow = (stop - start) // step
+        else:
+            nrow = len(rows)
+        if isinstance(cols, slice):
+            start, stop, step = cols.indices(cols.stop)
+            ncol = (stop - start) // step
+        else:
+            ncol = len(cols)
+        ptr[i + 1] = ptr[i] + nrow * ncol
+    rows_combined = np.empty(ptr[-1], dtype=int)
+    cols_combined = np.empty(ptr[-1], dtype=int)
+    # set rows and cols
+    for i, (rows, cols) in enumerate(zip(rows_list, cols_list)):
+        if isinstance(rows, slice):
+            rows = _slice_to_array(rows)
+        if isinstance(cols, slice):
+            cols = _slice_to_array(cols)
+        rows_combined[ptr[i] : ptr[i + 1]] = rows.repeat(len(cols))
+        cols_combined[ptr[i] : ptr[i + 1]] = np.tile(cols, len(rows))
+    return ptr, rows_combined, cols_combined
 
 
 class DiscreteRodExport:
@@ -154,7 +190,9 @@ class DiscreteRod(DiscreteRodExport):
         name="discrete_rod",
     ):
         # manual caches
-        self._eval_cache = self._deval_cache = np.empty(0).tobytes()
+        # self._eval_cache = self._deval_cache = np.empty(0).tobytes()
+        self._eval_cache = MyLRUCache(maxsize=10)
+        self._deval_cache = MyLRUCache(maxsize=10)
 
         self.cross_section = cross_section
         # super().__init__(cross_section)
@@ -216,8 +254,14 @@ class DiscreteRod(DiscreteRodExport):
 
         self.set_reference_strains(Q)
 
+        # M
         self.constant_mass_matrix = True
-        self.__M = CooMatrix((self.nu, self.nu))
+        _M_coo = CooMatrix((self.nu, self.nu))
+        row1 = col1 = np.array(_slice_to_array(self.nodalDOF_r_u)).flatten()
+        ptr, row2, col2 = _combine_indices(self.nodalDOF_p_u, self.nodalDOF_p_u)
+        _M_coo.row = np.concatenate((row1, row2))
+        _M_coo.col = np.concatenate((col1, col2))
+        _M_coo.data = np.empty_like(_M_coo.col, dtype=float)
         self._B_Theta_C = []
         for n in range(self.nnode):
             if n == 0:
@@ -234,11 +278,31 @@ class DiscreteRod(DiscreteRodExport):
                 mass = cross_section_inertias.A_rho0 * w
                 B_Theta_C = cross_section_inertias.B_I_rho0 * w
             self._B_Theta_C.append(B_Theta_C)
-            nodalDOF_r_u = self.nodalDOF_r_u[n]
-            nodalDOF_p_u = self.nodalDOF_p_u[n]
-            self.__M[nodalDOF_r_u, nodalDOF_r_u] = mass * np.eye(3, dtype=float)
-            self.__M[nodalDOF_p_u, nodalDOF_p_u] = B_Theta_C
+            _M_coo.data[3 * n : 3 * (n + 1)] = mass
+            _M_coo.data[self.nnode * 3 + ptr[n] : self.nnode * 3 + ptr[n + 1]] = (
+                B_Theta_C.flatten()
+            )
+        self._M_coo = _M_coo.asformat("coo")
+        self._M_coo.eliminate_zeros()
         self._B_Theta_C = np.array(self._B_Theta_C)
+
+        # c_la_c
+        _c_la_c_coo = CooMatrix((self.nla_c, self.nla_c))
+        _, _c_la_c_coo.row, _c_la_c_coo.col = _combine_indices(
+            self.elDOF_la_c, self.elDOF_la_c
+        )
+        c_la_c_els = np.zeros((self.nelement, _nla_c_el, _nla_c_el), dtype=float)
+        for el in range(self.nelement):
+            c_la_c = c_la_c_els[el]
+            c_la_c[:3, :3] = self.C_n_inv[el]
+            c_la_c[3:6, 3:6] = self.C_m_inv[el]
+            if _nla_c_el == 12:
+                c_la_c[6:9, 6:9] = self.C_n_inv[el]
+                c_la_c[9:, 9:] = self.C_m_inv[el]
+            c_la_c *= self.L[el]
+        _c_la_c_coo.data = c_la_c_els.ravel()
+        self._c_la_c_coo = _c_la_c_coo.asformat("coo")
+        self._c_la_c_coo.eliminate_zeros()
 
         self._markers = {}
 
@@ -250,25 +314,40 @@ class DiscreteRod(DiscreteRodExport):
         self._B_Psi_u = np.zeros((3, 12), dtype=float)
         # CooMatrix
         self._c_q_coo = CooMatrix((self.nla_c, self.nq))
+        _, self._c_q_coo.row, self._c_q_coo.col = _combine_indices(
+            self.elDOF_la_c, self.elDOF
+        )
+
         self._W_c_coo = CooMatrix((self.nu, self.nla_c))
+        _, self._W_c_coo.row, self._W_c_coo.col = _combine_indices(
+            self.elDOF_u, self.elDOF_la_c
+        )
         self._Wla_c_q_coo = CooMatrix((self.nu, self.nq))
+        _, self._Wla_c_q_coo.row, self._Wla_c_q_coo.col = _combine_indices(
+            self.elDOF_u, self.elDOF
+        )
 
         self._q_dot_q_coo = CooMatrix((self.nq, self.nq))
+        _, self._q_dot_q_coo.row, self._q_dot_q_coo.col = _combine_indices(
+            self.nodalDOF_p, self.nodalDOF_p
+        )
         self._q_dot_u_coo = CooMatrix((self.nq, self.nu))
+        self._q_dot_u_coo.row = np.array(_slice_to_array(self.nodalDOF_r)).flatten()
+        self._q_dot_u_coo.col = np.array(_slice_to_array(self.nodalDOF_r_u)).flatten()
+        self._q_dot_u_coo.data = np.ones((len(self._q_dot_u_coo.col),), dtype=float)
         self._h_u_coo = CooMatrix((self.nu, self.nu))
+        _, self._h_u_coo.row, self._h_u_coo.col = _combine_indices(
+            self.nodalDOF_p_u, self.nodalDOF_p_u
+        )
         self._g_S_q_coo = CooMatrix((self.nla_S, self.nq))
-        for n in range(self.nnode):
-            nodalDOF_r = self.nodalDOF_r[n]
-            nodalDOF_r_u = self.nodalDOF_r_u[n]
-            nodalDOF_r = np.arange(nodalDOF_r.start, nodalDOF_r.stop)
-            nodalDOF_r_u = np.arange(nodalDOF_r_u.start, nodalDOF_r_u.stop)
-            for a, b in zip(nodalDOF_r, nodalDOF_r_u):
-                # translational velocities
-                self._q_dot_u_coo[a, b] = 1.0
+        _, self._g_S_q_coo.row, self._g_S_q_coo.col = _combine_indices(
+            np.arange(self.nnode)[:, None],
+            self.nodalDOF_p,
+        )
 
         # cache
-        self._alpha_cache = LRUCache(maxsize=self.nnode * 10)
-        self._eval_kinematics_cache = LRUCache(maxsize=self.nnode * 10)
+        self._alpha_cache = MyLRUCache(maxsize=self.nnode * 10)
+        self._eval_kinematics_cache = MyLRUCache(maxsize=self.nnode * 10)
 
         DiscreteRodExport.__init__(self, cross_section)
 
@@ -314,7 +393,7 @@ class DiscreteRod(DiscreteRodExport):
             alpha = self._alpha(xi)
             mk = Marker(xi, alpha)
             self._markers[xi] = mk
-        if hasattr(self, "qDOF"):
+        if not hasattr(mk, "qDOF") and hasattr(self, "qDOF"):
             num = self.element_number(xi)
             mk.t0 = self.t0
             mk.q0 = self.q0[self.elDOF[num]]
@@ -414,11 +493,11 @@ class DiscreteRod(DiscreteRodExport):
         return np.concatenate([r0, p0], axis=1).flatten()
 
     def assembler_callback(self):
-        self._c_la_c_coo()
         for mk in self._markers.values():
             num = self.element_number(mk.xi)
             mk.t0 = self.t0
             mk.q0 = self.q0[self.elDOF[num]]
+            mk.u0 = self.u0[self.elDOF_u[num]]
             mk.qDOF = self.qDOF[self.elDOF[num]]
             mk.uDOF = self.uDOF[self.elDOF_u[num]]
 
@@ -434,7 +513,7 @@ class DiscreteRod(DiscreteRodExport):
         p_dot_p_nodes = np.asarray(
             _p_dot_p_nodes(self._view_nodal_q(q), self._view_nodal_u(u))
         )
-        self._q_dot_q_coo.set_all(self.nodalDOF_p, self.nodalDOF_p, p_dot_p_nodes)
+        self._q_dot_q_coo.data = p_dot_p_nodes.ravel()
         # for n in range(self.nnode):
         #     nodalDOF_p = self.nodalDOF_p[n]
         #     self._q_dot_q_coo[n, nodalDOF_p, nodalDOF_p] = p_dot_q_nodes[n]
@@ -459,7 +538,7 @@ class DiscreteRod(DiscreteRodExport):
     # equations of motion
     #####################
     def M(self, t, q):
-        return self.__M
+        return self._M_coo
 
     def h(self, t, q, u):
         return np.asarray(_h_nodes(self._view_nodal_u(u), self._B_Theta_C)).ravel()
@@ -468,7 +547,7 @@ class DiscreteRod(DiscreteRodExport):
         h_u_nodes = np.asarray(
             _h_u_nodes(self._view_nodal_u(u)[:, 3:], self._B_Theta_C)
         )
-        self._h_u_coo.set_all(self.nodalDOF_p_u, self.nodalDOF_p_u, h_u_nodes)
+        self._h_u_coo.data = h_u_nodes.ravel()
         # for n in range(self.nnode):
         #     nodalDOF_p_u = self.nodalDOF_p_u[n]
         #     self._h_u_coo[n, nodalDOF_p_u, nodalDOF_p_u] = h_u_nodes[n]
@@ -478,12 +557,12 @@ class DiscreteRod(DiscreteRodExport):
     # stabilization conditions for the kinematic equation
     #####################################################
     def g_S(self, t, q):
-        p = q.reshape((self.nnode, 7))[:, 3:]
+        p = self._view_nodal_q(q)[:, 3:]
         return np.sum(p**2, axis=1) - 1
 
     def g_S_q(self, t, q):
-        p = q.reshape((self.nnode, 7))[:, 3:]
-        self._g_S_q_coo.set_all(np.arange(self.nnode), self.nodalDOF_p, 2 * p)
+        p = self._view_nodal_q(q)[:, 3:]
+        self._g_S_q_coo.data = (2 * p).ravel()
         # for n in range(self.nnode):
         #     nodalDOF_p = self.nodalDOF_p[n]
         #     self._g_S_q_coo[n, n, nodalDOF_p] = 2 * p[n]
@@ -521,27 +600,12 @@ class DiscreteRod(DiscreteRodExport):
         ).ravel()
 
     def c_la_c(self):
-        return self.__c_la_c
-
-    def _c_la_c_coo(self):
-        coo = CooMatrix((self.nla_c, self.nla_c))
-        for el in range(self.nelement):
-            c_la_c_el = np.zeros((_nla_c_el, _nla_c_el), dtype=float)
-            c_la_c_el[:3, :3] = self.C_n_inv[el]
-            c_la_c_el[3:6, 3:6] = self.C_m_inv[el]
-            if _nla_c_el == 12:
-                c_la_c_el[6:9, 6:9] = self.C_n_inv[el]
-                c_la_c_el[9:, 9:] = self.C_m_inv[el]
-            c_la_c_el *= self.L[el]
-            elDOF_la_c = self.elDOF_la_c[el]
-            coo[elDOF_la_c, elDOF_la_c] = c_la_c_el
-        self.__c_la_c = coo.asformat("coo")
-        self.__c_la_c.eliminate_zeros()
+        return self._c_la_c_coo
 
     def c_q(self, t, q, u, la_c):
         _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
         c_q_els = np.asarray(_c_q_els(B_Gamma_qe, B_Kappa_qe, self.L))
-        self._c_q_coo.set_all(self.elDOF_la_c, self.elDOF, c_q_els)
+        self._c_q_coo.data = c_q_els.ravel()
         # for el in range(self.nelement):
         #     elDOF = self.elDOF[el]
         #     elDOF_la_c = self.elDOF_la_c[el]
@@ -551,7 +615,7 @@ class DiscreteRod(DiscreteRodExport):
     def W_c(self, t, q):
         A_IB, B_Gamma, B_Kappa = self._eval_els(q)
         W_c_els = np.asarray(_W_c_els(A_IB, B_Gamma, B_Kappa, self.L))
-        self._W_c_coo.set_all(self.elDOF_u, self.elDOF_la_c, W_c_els)
+        self._W_c_coo.data = W_c_els.ravel()
         # for el in range(self.nelement):
         #     elDOF_u = self.elDOF_u[el]
         #     elDOF_la_c = self.elDOF_la_c[el]
@@ -565,7 +629,7 @@ class DiscreteRod(DiscreteRodExport):
                 A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c), self.L
             )
         )
-        self._Wla_c_q_coo.set_all(self.elDOF_u, self.elDOF, Wla_c_q_els)
+        self._Wla_c_q_coo.data = Wla_c_q_els.ravel()
         # for el in range(self.nelement):
         #     elDOF = self.elDOF[el]
         #     elDOF_u = self.elDOF_u[el]
@@ -597,17 +661,14 @@ class DiscreteRod(DiscreteRodExport):
     ##########################
     # r_OP / A_IB contribution
     ##########################
-    @cachedmethod(
-        lambda self: self._eval_kinematics_cache,
-        key=lambda self, qe, xi, B_r_CP=np.zeros(3, dtype=float): (
-            qe.tobytes(),
-            xi,
-            B_r_CP.tobytes(),
-        ),
-    )
     def _element_kinematics(self, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        alpha = self._alpha(xi)
-        return _eval_kinematics(alpha, qe, B_r_CP)
+        key = (xi, qe.tobytes(), B_r_CP.tobytes())
+        ret = self._eval_kinematics_cache[key]
+        if ret is None:
+            alpha = self._alpha(xi)
+            ret = _eval_kinematics(alpha, qe, B_r_CP)
+            self._eval_kinematics_cache[key] = ret
+        return ret
 
     def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
         return self._element_kinematics(qe, xi, B_r_CP)[0]
@@ -734,17 +795,19 @@ class DiscreteRod(DiscreteRodExport):
 
     def _eval_els(self, q):
         key = q.tobytes()
-        if self._eval_cache != key:
-            self._eval_els_value = _eval_els(self._view_element_q(q), self.L)
-            self._eval_cache = key
-        return self._eval_els_value
+        eval_els = self._eval_cache[key]
+        if eval_els is None:
+            eval_els = _eval_els(self._view_element_q(q), self.L)
+            self._eval_cache[key] = eval_els
+        return eval_els
 
     def _deval_els(self, q):
         key = q.tobytes()
-        if self._deval_cache != key:
-            self._deval_els_value = _deval_els(self._view_element_q(q), self.L)
-            self._deval_cache = key
-        return self._deval_els_value
+        deval_els = self._deval_cache[key]
+        if deval_els is None:
+            deval_els = _deval_els(self._view_element_q(q), self.L)
+            self._deval_cache[key] = deval_els
+        return deval_els
 
     # def _eval_deval_els(self, q_els):
     #     return _eval_deval_els(q_els, self.L)

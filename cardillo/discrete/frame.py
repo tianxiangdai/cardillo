@@ -68,59 +68,59 @@ class Frame:
         return self.A_IB__(t)
 
     def A_IB_q(self, t, q=None, xi=None):
-        return np.array([]).reshape((3, 3, 0))
+        return np.empty((3, 3, 0))
 
     def r_OP(self, t, q=None, xi=None, B_r_CP=np.zeros(3)):
         return self.r_OP__(t) + self.A_IB__(t) @ B_r_CP
 
     def r_OP_q(self, t, q=None, xi=None, B_r_CP=np.zeros(3)):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def r_OP_qq(self, t, q=None, xi=None, B_r_CP=np.zeros(3)):
-        return np.array([]).reshape((3, 0, 0))
+        return np.empty((3, 0, 0))
 
     def v_P(self, t, q=None, u=None, xi=None, B_r_CP=np.zeros(3)):
         return self.r_OP_t__(t) + self.A_IB_t__(t) @ B_r_CP
 
     def v_P_q(self, t, q=None, u=None, xi=None, B_r_CP=np.zeros(3)):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def J_P(self, t, q=None, xi=None, B_r_CP=np.zeros(3)):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def J_P_q(self, t, q, xi=None, B_r_CP=np.zeros(3)):
-        return np.array([]).reshape((3, 0, 0))
+        return np.empty((3, 0, 0))
 
     def a_P(self, t, q=None, u=None, u_dot=None, xi=None, B_r_CP=np.zeros(3)):
         return self.r_OP_tt__(t) + self.A_IB_tt__(t) @ B_r_CP
 
     def a_P_q(self, t, q=None, u=None, u_dot=None, xi=None, B_r_CP=np.zeros(3)):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def a_P_u(self, t, q=None, u=None, u_dot=None, xi=None, B_r_CP=np.zeros(3)):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def kappa_P(self, t, q=None, u=None, xi=None, B_r_CP=np.zeros(3)):
         return self.r_OP_tt__(t)
 
     def kappa_P_q(self, t, q=None, u=None, xi=None, B_r_CP=np.zeros(3)):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def kappa_P_u(self, t, q=None, u=None, xi=None, B_r_CP=np.zeros(3)):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def B_Omega(self, t, q=None, u=None, xi=None):
         B_omega_IB = self.A_IB__(t).T @ self.A_IB_t__(t)
         return skew2ax(B_omega_IB)
 
     def B_Omega_q(self, t, q=None, u=None, xi=None):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def B_J_R(self, t, q, xi=None):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def B_J_R_q(self, t, q=None, xi=None):
-        return np.array([]).reshape((3, 0, 0))
+        return np.empty((3, 0, 0))
 
     def B_Psi(self, t, q=None, u=None, u_dot=None, xi=None):
         B_psi_IB = self.A_IB_t__(t).T @ self.A_IB_t__(t) + self.A_IB__(
@@ -129,19 +129,19 @@ class Frame:
         return skew2ax(B_psi_IB)
 
     def B_Psi_q(self, t, q=None, u=None, u_dot=None, xi=None):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def B_Psi_u(self, t, q=None, u=None, u_dot=None, xi=None):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def B_kappa_R(self, t, q=None, u=None, xi=None):
         return self.B_Psi(t)
 
     def B_kappa_R_q(self, t, q=None, u=None, xi=None):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     def B_kappa_R_u(self, t, q=None, u=None, xi=None):
-        return np.array([]).reshape((3, 0))
+        return np.empty((3, 0))
 
     ########
     # export

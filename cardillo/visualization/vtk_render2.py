@@ -316,7 +316,7 @@ class VisualTendon(_VisualTwinBase):
         filter = vtk.vtkTubeFilter()
         filter.SetRadius(radius)
         filter.SetInputData(poly_data)
-        filter.SetNumberOfSides(50)
+        filter.SetNumberOfSides(16)
 
         mapper = vtk.vtkDataSetMapper()
         mapper.SetInputConnection(filter.GetOutputPort())

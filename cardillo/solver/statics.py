@@ -68,8 +68,10 @@ class Newton:
         self._jac_coo = CooMatrix((self.nx, self.nx))
 
     def fun(self, x, t):
+        c0, c1, c2 = self.split_x
+        r0, r1, r2, r3 = self.split_f
         # unpack unknowns
-        q, la_g, la_c, la_N = np.array_split(x, self.split_x)
+        q, la_g, la_c, la_N = x[:c0], x[c0:c1], x[c1:c2], x[c2:]
 
         # evaluate quantites that are required for computing the residual and
         # the jacobian
@@ -85,28 +87,28 @@ class Newton:
 
         # static equilibrium
         F = np.zeros_like(x)
-        F[: self.split_f[0]] = (
+        F[:r0] = (
             self.system.h(t, q, self.u0)
             + self.W_g @ la_g
             + self.W_c @ la_c
             + self.W_N @ la_N
         )
-        F[self.split_f[0] : self.split_f[1]] = self.system.g(t, q)
-        F[self.split_f[1] : self.split_f[2]] = self.system.c(t, q, self.u0, la_c)
-        F[self.split_f[2] : self.split_f[3]] = self.system.g_S(t, q)
-        F[self.split_f[3] :] = np.minimum(la_N, self.g_N)
+        F[r0:r1] = self.system.g(t, q)
+        F[r1:r2] = self.system.c(t, q, self.u0, la_c)
+        F[r2:r3] = self.system.g_S(t, q)
+        F[r3:] = np.minimum(la_N, self.g_N)
         return F
 
     def jac(self, x, t):
+        c0, c1, c2 = self.split_x
+        r0, r1, r2, r3 = self.split_f
         # unpack unknowns
-        q, la_g, la_c, la_N = np.array_split(x, self.split_x)
+        q, la_g, la_c, la_N = x[:c0], x[c0:c1], x[c1:c2], x[c2:]
 
         self._g_N_q_coo = self.system.g_N_q(t, q, format="Coo", coo=self._g_N_q_coo)
         if self._g_N_q_coo.not_empty:
             self._jac_coo = CooMatrix((self.nx, self.nx))
         jac = self._jac_coo
-        r1, r2, r3, r4 = self.split_f
-        c1, c2, c3 = self.split_x
         # evaluate additionally required quantites for computing the jacobian
         # coo is used for efficient bmat
         self._h_q_coo = self.system.h_q(t, q, self.u0, format="Coo", coo=self._h_q_coo)
@@ -135,26 +137,26 @@ class Newton:
                     Rla_N_la_N[i, i] = 1.0
                 else:
                     Rla_N_q[i] = g_N_q[i]
-            jac["W_N", :r1, c3:] = self.W_N
-            jac["Rla_N_q", r4:, :c1] = Rla_N_q
-            jac["Rla_N_la_N", r4:, c3:] = Rla_N_q
-        jac["h_q", :r1, :c1] = self._h_q_coo
-        jac["Wla_g_q", :r1, :c1] = self._Wla_g_q_coo
-        jac["Wla_c_q", :r1, :c1] = self._Wla_c_q_coo
+            jac["W_N", :r0, c2:] = self.W_N
+            jac["Rla_N_q", r3:, :c0] = Rla_N_q
+            jac["Rla_N_la_N", r3:, c2:] = Rla_N_q
+        jac["h_q", :r0, :c0] = self._h_q_coo
+        jac["Wla_g_q", :r0, :c0] = self._Wla_g_q_coo
+        jac["Wla_c_q", :r0, :c0] = self._Wla_c_q_coo
 
         self._Wla_N_q_coo = self.system.Wla_N_q(
             t, q, la_N, format="Coo", coo=self._Wla_N_q_coo
         )
         if self._Wla_N_q_coo.not_empty:
-            jac["Wla_N_q", :r1, :c1] = self._Wla_N_q_coo
+            jac["Wla_N_q", :r0, :c0] = self._Wla_N_q_coo
 
-        jac["W_g", :r1, c1:c2] = self.W_g
-        jac["W_c", :r1, c2:c3] = self.W_c
-        jac["g_q", r1:r2, :c1] = self._g_q_coo
-        jac["c_q", r2:r3, :c1] = self._c_q_coo
-        jac["c_la_c", r2:r3, c2:c3] = c_la_c
-        jac["W_c", r2:r3, c2:c3] = self.W_c
-        jac["g_S_q", r3:r4, :c1] = self._g_S_q_coo
+        jac["W_g", :r0, c0:c1] = self.W_g
+        jac["W_c", :r0, c1:c2] = self.W_c
+        jac["g_q", r0:r1, :c0] = self._g_q_coo
+        jac["c_q", r1:r2, :c0] = self._c_q_coo
+        jac["c_la_c", r1:r2, c1:c2] = c_la_c
+        jac["W_c", r1:r2, c1:c2] = self.W_c
+        jac["g_S_q", r2:r3, :c0] = self._g_S_q_coo
         return jac.asformat("coo").asformat("csc")
         # return bmat([[      K, self.W_g, self.W_c,   self.W_N],
         #              [    g_q,     None,     None,       None],
