@@ -21,8 +21,8 @@ class Marker:
         self._B_Psi_q = np.zeros((3, 14), dtype=float)
         self._B_Psi_u = np.zeros((3, 12), dtype=float)
 
-        self._A_IB_cache = MyLRUCache(maxsize=10)
-        self._A_IB_q_cache = MyLRUCache(maxsize=10)
+        self._A_IB_cache = MyLRUCache(maxsize=5)
+        self._A_IB_q_cache = MyLRUCache(maxsize=5)
 
     ####################################################
     # interactions with other bodies and the environment
@@ -39,22 +39,29 @@ class Marker:
     ##########################
 
     def r_OP(self, t, q, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return _r_OP(self.alpha, q, B_r_CP)
+        A_IB = self.A_IB(t, q, xi)
+        return _r_OP(self.alpha, q, A_IB, B_r_CP)
 
     def r_OP_q(self, t, q, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return _r_OP_q(self.alpha, q, B_r_CP)
+        A_IB_q = self.A_IB_q(t, q, xi)
+        return _r_OP_q(self.alpha, A_IB_q, B_r_CP)
 
     def v_P(self, t, q, u, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return _v_P(self.alpha, q, u, self.B_Omega(t, q, u, xi), B_r_CP)
+        A_IB = self.A_IB(t, q, xi)
+        return _v_P(self.alpha, A_IB, u, self.B_Omega(t, q, u, xi), B_r_CP)
 
     def v_P_q(self, t, q, u, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return _v_P_q(self.alpha, q, u, B_r_CP)
+        A_IB_q = self.A_IB_q(t, q, xi)
+        B_Omega = self.B_Omega(t, q, u, xi)
+        return _v_P_q(A_IB_q, B_Omega, B_r_CP)
 
     def J_P(self, t, q, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return _J_P(self.alpha, q, B_r_CP)
+        A_IB = self.A_IB(t, q, xi)
+        return _J_P(self.alpha, A_IB, B_r_CP)
 
     def J_P_q(self, t, q, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return _J_P_q(self.alpha, q, B_r_CP)
+        A_IB_q = self.A_IB_q(t, q, xi)
+        return _J_P_q(self.alpha, A_IB_q, B_r_CP)
 
     def a_P(self, t, q, u, u_dot, xi, B_r_CP=np.zeros(3, dtype=float)):
         # centerline acceleration
@@ -106,7 +113,6 @@ class Marker:
             A_IB = _A_IB(self.alpha, q)
             self._A_IB_cache[key] = A_IB
         return A_IB
-        return _A_IB(self.alpha, q)
 
     # @cachedmethod(lambda self: self._A_IB_q_cache, key=lambda self, t, q, xi: q.tobytes())
     def A_IB_q(self, t, q, xi):
@@ -116,7 +122,6 @@ class Marker:
             A_IB_q = _A_IB_q(self.alpha, q)
             self._A_IB_q_cache[key] = A_IB_q
         return A_IB_q
-        return _A_IB_q(self.alpha, q)
 
     def B_Omega(self, t, q, u, xi):
         """Since we use Petrov-Galerkin method we only interpolate the nodal
@@ -150,46 +155,41 @@ class Marker:
 
 
 @njit(cache=True)
-def _r_OP(alpha, q, B_r_CP):
+def _r_OP(alpha, q, A_IB, B_r_CP):
     r_OC0, r_OC1 = q[:3], q[7:10]
-
     r_OP = (1 - alpha) * r_OC0 + alpha * r_OC1
-
     if B_r_CP.any():
-        r_OP += _A_IB(alpha, q) @ B_r_CP
+        r_OP += A_IB @ B_r_CP
     return r_OP
 
 
 @njit(cache=True)
-def _r_OP_q(alpha, q, B_r_CP):
+def _r_OP_q(alpha, A_IB_q, B_r_CP):
     r_OP_q = np.zeros((3, 14), dtype=float)
     r_OP_q[0, 0] = r_OP_q[1, 1] = r_OP_q[2, 2] = 1 - alpha
     r_OP_q[0, 7] = r_OP_q[1, 8] = r_OP_q[2, 9] = alpha
     if B_r_CP.any():
-        A_IB_q = _A_IB_q(alpha, q)
         for i in range(3):
             r_OP_q[i] += B_r_CP @ A_IB_q[i]
     return r_OP_q
 
 
 @njit(cache=True)
-def _v_P(alpha, q, u, B_Omega, B_r_CP):
+def _v_P(alpha, A_IB, u, B_Omega, B_r_CP):
     v_C0 = u[:3]
     v_C1 = u[6:9]
     v_C = v_C0 + alpha * (v_C1 - v_C0)
 
     if B_r_CP.any():
-        return v_C + _A_IB(alpha, q) @ cross3(B_Omega, B_r_CP)
+        return v_C + A_IB @ cross3(B_Omega, B_r_CP)
     else:
         return v_C
 
 
 @njit(cache=True)
-def _v_P_q(alpha, q, u, B_r_CP):
+def _v_P_q(A_IB_q, B_Omega, B_r_CP):
     v_P_q = np.zeros((3, 14), dtype=float)
     if B_r_CP.any():
-        A_IB_q = _A_IB_q(alpha, q)
-        B_Omega = _B_Omega(alpha, u)
         cross = cross3(B_Omega, B_r_CP)
         for i in range(3):
             v_P_q[i] = cross @ A_IB_q[i]
@@ -197,25 +197,24 @@ def _v_P_q(alpha, q, u, B_r_CP):
 
 
 @njit(cache=True)
-def _J_P(alpha, q, B_r_CP):
+def _J_P(alpha, A_IB, B_r_CP):
     J_P = np.zeros((3, 12), dtype=float)
     J_P[0, 0] = J_P[1, 1] = J_P[2, 2] = 1 - alpha
     J_P[0, 6] = J_P[1, 7] = J_P[2, 8] = alpha
     if B_r_CP.any():
         B_r_CP_tilde = ax2skew(B_r_CP)
-        r_CP_tilde = _A_IB(alpha, q) @ B_r_CP_tilde
+        r_CP_tilde = A_IB @ B_r_CP_tilde
         J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
         J_P[:, 9:12] = -alpha * r_CP_tilde
     return J_P
 
 
 @njit(cache=True)
-def _J_P_q(alpha, q, B_r_CP):
+def _J_P_q(alpha, A_IB_q, B_r_CP):
     J_P_q = np.zeros((3, 12, 14), dtype=float)
     if B_r_CP.any():
         B_r_CP_tilde = ax2skew(B_r_CP)
         r_CP_tilde_q = np.zeros((3, 3, 14), dtype=float)
-        A_IB_q = _A_IB_q(alpha, q)
         for i in range(3):
             r_CP_tilde_q[i] = B_r_CP_tilde.T @ A_IB_q[i]
         J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
