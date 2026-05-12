@@ -72,111 +72,7 @@ def _combine_indices(rows_list, cols_list):
     return ptr, rows_combined, cols_combined
 
 
-class DiscreteRodExport:
-    def __init__(self, cross_section):
-        nelement_visual = self.nelement_visual = self.nelement
-        self.nnode_visual = self.nnode
-
-        if isinstance(self.cross_section, CircularCrossSection):
-            weights = [
-                1.0,
-                1.0,
-                1.0,
-                0.5,
-                0.5,
-                0.5,
-            ]
-            degrees = [2, 2, 1]
-            ctype = vtk.VTK_BEZIER_WEDGE
-        # elif isinstance(rod.cross_section, RectangularCrossSection):
-        #     npts = 16
-        #     weights = [1] * 16
-        #     degrees = [1, 1, 3]
-        #     ctype = vtk.VTK_BEZIER_HEXAHEDRON
-        else:
-            raise NotImplementedError
-
-        self._ugrid = vtk.vtkUnstructuredGrid()
-
-        # points
-        self.body_points = vtk.vtkPoints()
-        self.body_points.SetNumberOfPoints(6 * (nelement_visual + 1))
-        self._ugrid.SetPoints(self.body_points)
-
-        # cells
-        self._ugrid.Allocate(nelement_visual)
-        for i in range(nelement_visual):
-            self._ugrid.InsertNextCell(
-                ctype,
-                12,
-                list(range(i * 6, i * 6 + 3))
-                + list(range((i + 1) * 6, (i + 1) * 6 + 3))
-                + list(range(i * 6 + 3, (i + 1) * 6))
-                + list(range((i + 1) * 6 + 3, (i + 2) * 6)),
-            )
-
-        # point data
-        self.pdata = self._ugrid.GetPointData()
-        value = weights * (nelement_visual + 1)
-        parray = vtk.vtkDoubleArray()
-        parray.SetName("RationalWeights")
-        parray.SetNumberOfTuples(6)
-        parray.SetNumberOfComponents(1)
-        for i, vi in enumerate(value):
-            parray.InsertTuple(i, [vi])
-        self.pdata.SetRationalWeights(parray)
-
-        # cell data
-        self.cdata = self._ugrid.GetCellData()
-        carray = vtk.vtkIntArray()
-        carray.SetName("HigherOrderDegrees")
-        carray.SetNumberOfTuples(nelement_visual)
-        carray.SetNumberOfComponents(3)
-        for i in range(nelement_visual):
-            carray.InsertTuple(i, degrees)
-        self.cdata.SetHigherOrderDegrees(carray)
-
-        # control points on circle
-        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
-        phis2 = phis + (np.pi / 3.0)
-        control_pts = []
-        for n in range(self.nnode_visual):
-            if cross_section._variable:
-                radius = cross_section.radius(
-                    self.xi_node[n]
-                )  # Assuming a simple case, adjust as needed
-            else:
-                radius = cross_section.radius
-            # control points on circle
-            xys1 = (
-                np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1)
-                * radius
-            )
-            # control points out of circle
-            xys2 = np.stack(
-                [np.zeros_like(phis2), np.cos(phis2), np.sin(phis2)], axis=1
-            ) * (2.0 * radius)
-            control_pts.append(np.concatenate([xys1, xys2], axis=0).T)
-        self.control_pts = np.array(control_pts)
-
-    def export(self, sol_i, **kwargs):
-        q_nodes = self._view_nodal_q(sol_i.q[self.qDOF])
-        r_OC_nodes = q_nodes[:, :3]
-        A_IB_nodes = np.asarray(math_jax.Exp_SO3_quat_batch(q_nodes[:, 3:], True))
-        control_pts = r_OC_nodes[:, None] + (A_IB_nodes @ self.control_pts).swapaxes(
-            1, 2
-        )
-        control_pts = control_pts.reshape((-1, 3))
-
-        body_points = self.body_points
-        set_point = body_points.SetPoint
-        for i, p in enumerate(control_pts):
-            set_point(i, p)
-        body_points.Modified()
-        return self._ugrid
-
-
-class DiscreteRod(DiscreteRodExport):
+class DiscreteRod:
     def __init__(
         self,
         cross_section,
@@ -349,8 +245,6 @@ class DiscreteRod(DiscreteRodExport):
         self._alpha_cache = MyLRUCache(maxsize=self.nnode * 10)
         self._eval_kinematics_cache = MyLRUCache(maxsize=self.nnode * 10)
 
-        DiscreteRodExport.__init__(self, cross_section)
-
     def set_reference_strains(self, Q):
         self.L = np.array(
             [
@@ -462,16 +356,16 @@ class DiscreteRod(DiscreteRodExport):
     @staticmethod
     def pose_configuration(
         nelement,
-        B0_r_C0C,
-        A_B0B,
+        B0_r_C0Ci,
+        A_B0Bi,
         r_OC0=np.zeros(3, dtype=float),
         A_IB0=np.eye(3, dtype=float),
     ):
         """Compute generalized position coordinates for a pre-curved rod with centerline curve r_OP and orientation of A_IB."""
         nnodes_r = nelement + 1
 
-        assert callable(B0_r_C0C), "r_OP must be callable!"
-        assert callable(A_B0B), "A_IB must be callable!"
+        assert callable(B0_r_C0Ci), "r_OP must be callable!"
+        assert callable(A_B0Bi), "A_IB must be callable!"
 
         xis = np.linspace(0, 1, nnodes_r)
 
@@ -480,8 +374,8 @@ class DiscreteRod(DiscreteRodExport):
         p0 = np.zeros((nnodes_r, 4))
 
         for i, xii in enumerate(xis):
-            r0[i] = r_OC0 + A_IB0 @ B0_r_C0C(xii)
-            A_IBi = A_IB0 @ A_B0B(xii)
+            r0[i] = r_OC0 + A_IB0 @ B0_r_C0Ci(xii)
+            A_IBi = A_IB0 @ A_B0Bi(xii)
             p0[i] = Log_SO3_quat(A_IBi)
 
         # check for the right quaternion hemisphere

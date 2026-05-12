@@ -3,10 +3,13 @@ from abc import ABC, abstractmethod
 from time import perf_counter, sleep
 
 import vtk
+from vtk.util.numpy_support import numpy_to_vtk
 from cardillo.interactions.n_point_interaction import nPointInteraction
 
+from cardillo.rods import CircularCrossSection
 from cardillo.rods._base import CosseratRod_PetrovGalerkin
 from cardillo.solver.solution import Solution
+from cardillo import math_jax
 
 
 class _VisualTwinBase(ABC):
@@ -37,22 +40,143 @@ class VisualDiscreteRod(_VisualTwinBase):
         opacity=1,
     ):
         super().__init__(rod)
-        self.rod = rod
+        nelement_visual = rod.nelement
+        cross_section = rod.cross_section
 
+        if isinstance(rod.cross_section, CircularCrossSection):
+            weights = [
+                1.0,
+                1.0,
+                1.0,
+                0.5,
+                0.5,
+                0.5,
+            ]
+            degrees = [2, 2, 1]
+            ctype = vtk.VTK_BEZIER_WEDGE
+        # elif isinstance(rod.cross_section, RectangularCrossSection):
+        #     npts = 16
+        #     weights = [1] * 16
+        #     degrees = [1, 1, 3]
+        #     ctype = vtk.VTK_BEZIER_HEXAHEDRON
+        else:
+            raise NotImplementedError
+
+        ugrid = vtk.vtkUnstructuredGrid()
+
+        # points
+        self.body_points = vtk.vtkPoints()
+        self.body_points.SetNumberOfPoints(6 * (nelement_visual + 1))
+        ugrid.SetPoints(self.body_points)
+
+        # cells
+        ugrid.Allocate(nelement_visual)
+        for i in range(nelement_visual):
+            ugrid.InsertNextCell(
+                ctype,
+                12,
+                list(range(i * 6, i * 6 + 3))
+                + list(range((i + 1) * 6, (i + 1) * 6 + 3))
+                + list(range(i * 6 + 3, (i + 1) * 6))
+                + list(range((i + 1) * 6 + 3, (i + 2) * 6)),
+            )
+
+        # point data
+        pdata = ugrid.GetPointData()
+        value = weights * (nelement_visual + 1)
+        parray = vtk.vtkDoubleArray()
+        parray.SetName("RationalWeights")
+        parray.SetNumberOfComponents(1)
+        parray.SetNumberOfTuples(6)
+        for i, vi in enumerate(value):
+            parray.InsertTuple(i, [vi])
+        pdata.SetRationalWeights(parray)
+
+        # cell data
+        cdata = ugrid.GetCellData()
+        carray = vtk.vtkIntArray()
+        carray.SetName("HigherOrderDegrees")
+        carray.SetNumberOfComponents(3)
+        carray.SetNumberOfTuples(nelement_visual)
+        for i in range(nelement_visual):
+            carray.InsertTuple(i, degrees)
+        cdata.SetHigherOrderDegrees(carray)
+
+        # stress
+        self.strain = np.zeros((nelement_visual, 6), dtype=np.float64)
+        array = numpy_to_vtk(self.strain, deep=False)
+        array.SetName("B_kappa")
+        array.SetNumberOfComponents(6)
+        array.SetNumberOfTuples(nelement_visual)
+        array.SetComponentName(0, "B_gamma_x")
+        array.SetComponentName(1, "B_gamma_y")
+        array.SetComponentName(2, "B_gamma_z")
+        array.SetComponentName(3, "B_kappa_x")
+        array.SetComponentName(4, "B_kappa_y")
+        array.SetComponentName(5, "B_kappa_z")
+        cdata.AddArray(array)
+
+        # filter
         filter = vtk.vtkDataSetSurfaceFilter()
-        filter.SetInputData(rod._ugrid)
+        filter.SetInputData(ugrid)
         filter.SetNonlinearSubdivisionLevel(subdivision)
 
-        self.mapper = vtk.vtkDataSetMapper()
-        self.mapper.SetInputConnection(filter.GetOutputPort())
+        mapper = vtk.vtkDataSetMapper()
+        mapper.SetInputConnection(filter.GetOutputPort())
+
         actor = vtk.vtkActor()
-        actor.SetMapper(self.mapper)
+        actor.SetMapper(mapper)
         actor.GetProperty().SetColor([c / 255 for c in color])
         actor.GetProperty().SetOpacity(opacity)
         self.actors.append(actor)
 
+        # control points on circle
+        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
+        phis2 = phis + (np.pi / 3.0)
+        control_pts = []
+        for n in range(rod.nnode):
+            if cross_section._variable:
+                radius = cross_section.radius(
+                    rod.xi_node[n]
+                )  # Assuming a simple case, adjust as needed
+            else:
+                radius = cross_section.radius
+            # control points on circle
+            xys1 = (
+                np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1)
+                * radius
+            )
+            # control points out of circle
+            xys2 = np.stack(
+                [np.zeros_like(phis2), np.cos(phis2), np.sin(phis2)], axis=1
+            ) * (2.0 * radius)
+            control_pts.append(np.concatenate([xys1, xys2], axis=0).T)
+        self.control_pts = np.array(control_pts)
+
+        #
+        rod.export = lambda sol_i, **kwargs: self.update_visual_state(sol_i) or ugrid
+
     def update_visual_state(self, sol_i):
-        self.rod.export(sol_i)
+        rod = self.contr
+        q_rod = sol_i.q[rod.qDOF]
+        q_nodes = rod._view_nodal_q(q_rod)
+        r_OC_nodes = q_nodes[:, :3]
+        A_IB_nodes = np.asarray(math_jax.Exp_SO3_quat_batch(q_nodes[:, 3:], True))
+        control_pts = r_OC_nodes[:, None] + (A_IB_nodes @ self.control_pts).swapaxes(
+            1, 2
+        )
+        control_pts = control_pts.reshape((-1, 3))
+
+        body_points = self.body_points
+        set_point = body_points.SetPoint
+        for i, p in enumerate(control_pts):
+            set_point(i, p)
+        body_points.Modified()
+
+        # set stress
+        _, B_gamma, B_kappa = rod._eval_els(q_rod)
+        self.strain[:, :3] = B_gamma
+        self.strain[:, 3:] = B_kappa
 
 
 class _VisualvtkSource(_VisualTwinBase):
@@ -313,6 +437,11 @@ class VisualTendon(_VisualTwinBase):
             poly_data.InsertNextCell(
                 vtk.VTK_LINE, npts, list(range(i * npts, (i + 1) * npts))
             )
+
+        tendon.export = (
+            lambda sol_i, **kwargs: self.update_visual_state(sol_i) or poly_data
+        )
+
         filter = vtk.vtkTubeFilter()
         filter.SetRadius(radius)
         filter.SetInputData(poly_data)
@@ -430,8 +559,18 @@ class Plotter:
         plane.SetXResolution(subdivision_x)
         plane.SetYResolution(subdivision_y)
 
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(plane.GetOutputPort())
+        # mapper = vtk.vtkPolyDataMapper()
+        # mapper = vtk.vtkPolyDataMapper()
+        # mapper.SetInputConnection(plane.GetOutputPort())
+
+        converter = vtk.vtkPolyDataToUnstructuredGrid()
+        converter.SetInputConnection(plane.GetOutputPort())
+        converter.Update()
+
+        self.system.origin.export = lambda sol_i, **kwargs: converter.GetOutput()
+
+        mapper = vtk.vtkDataSetMapper()
+        mapper.SetInputConnection(converter.GetOutputPort())
 
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)

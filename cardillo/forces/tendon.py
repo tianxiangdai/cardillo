@@ -8,7 +8,9 @@ class TendonForce(nPointInteraction):
         connectivity,
         xi_list=None,
         B_r_CP_list=None,
+        name="tendon",
     ) -> None:
+        self.name = name
         super().__init__(subsystem_list, connectivity, xi_list, B_r_CP_list)
 
     def h(self, t, q, u):
