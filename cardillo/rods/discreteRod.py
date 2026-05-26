@@ -23,6 +23,8 @@ from cardillo.rods import CrossSectionInertias, CircularCrossSection
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
 from ..utility.cachetools import MyLRUCache
+from ..visualization.vtk_render2 import VisualDiscreteRod
+
 
 from .marker import Marker
 
@@ -703,8 +705,11 @@ class DiscreteRod:
             self._deval_cache[key] = deval_els
         return deval_els
 
-    # def _eval_deval_els(self, q_els):
-    #     return _eval_deval_els(q_els, self.L)
+    def export(self, sol_i, **kwargs):
+        if not hasattr(self, "_visual_twin"):
+            self._visual_twin = VisualDiscreteRod(self)
+        self._visual_twin.update_visual_state(sol_i)
+        return self._visual_twin._ugrid
 
 
 @njit(cache=True)

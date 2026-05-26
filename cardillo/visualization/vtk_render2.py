@@ -62,17 +62,19 @@ class VisualDiscreteRod(_VisualTwinBase):
         else:
             raise NotImplementedError
 
-        ugrid = vtk.vtkUnstructuredGrid()
+        self._ugrid = vtk.vtkUnstructuredGrid()
 
         # points
-        self.body_points = vtk.vtkPoints()
-        self.body_points.SetNumberOfPoints(6 * (nelement_visual + 1))
-        ugrid.SetPoints(self.body_points)
+        self._body_points = np.empty((6 * (nelement_visual + 1), 3), dtype=float)
+        array = numpy_to_vtk(self._body_points, deep=False)
+        vtk_points = vtk.vtkPoints()
+        vtk_points.SetData(array)
+        self._ugrid.SetPoints(vtk_points)
 
         # cells
-        ugrid.Allocate(nelement_visual)
+        self._ugrid.Allocate(nelement_visual)
         for i in range(nelement_visual):
-            ugrid.InsertNextCell(
+            self._ugrid.InsertNextCell(
                 ctype,
                 12,
                 list(range(i * 6, i * 6 + 3))
@@ -81,33 +83,25 @@ class VisualDiscreteRod(_VisualTwinBase):
                 + list(range((i + 1) * 6 + 3, (i + 2) * 6)),
             )
 
-        # point data
-        pdata = ugrid.GetPointData()
-        value = weights * (nelement_visual + 1)
-        parray = vtk.vtkDoubleArray()
-        parray.SetName("RationalWeights")
-        parray.SetNumberOfComponents(1)
-        parray.SetNumberOfTuples(6)
-        for i, vi in enumerate(value):
-            parray.InsertTuple(i, [vi])
-        pdata.SetRationalWeights(parray)
+        # point data: RationalWeights
+        pdata = self._ugrid.GetPointData()
+        array = numpy_to_vtk(np.tile(weights, nelement_visual + 1))
+        pdata.SetRationalWeights(array)
 
-        # cell data
-        cdata = ugrid.GetCellData()
-        carray = vtk.vtkIntArray()
-        carray.SetName("HigherOrderDegrees")
-        carray.SetNumberOfComponents(3)
-        carray.SetNumberOfTuples(nelement_visual)
-        for i in range(nelement_visual):
-            carray.InsertTuple(i, degrees)
-        cdata.SetHigherOrderDegrees(carray)
+        # cell data: HigherOrderDegrees
+        cdata = self._ugrid.GetCellData()
+        array = numpy_to_vtk(np.repeat([degrees], nelement_visual, axis=0))
+        cdata.SetHigherOrderDegrees(array)
 
-        # stress
-        self.strain = np.zeros((nelement_visual, 6), dtype=np.float64)
-        array = numpy_to_vtk(self.strain, deep=False)
-        array.SetName("B_kappa")
-        array.SetNumberOfComponents(6)
-        array.SetNumberOfTuples(nelement_visual)
+        # cell data: Colors
+        array = numpy_to_vtk(np.repeat([color], nelement_visual, axis=0))
+        array.SetName("Colors")
+        cdata.AddArray(array)
+
+        # cell data: Strains
+        self._strain = np.zeros((nelement_visual, 6), dtype=float)
+        array = numpy_to_vtk(self._strain, deep=False)
+        array.SetName("Strains")
         array.SetComponentName(0, "B_gamma_x")
         array.SetComponentName(1, "B_gamma_y")
         array.SetComponentName(2, "B_gamma_z")
@@ -118,7 +112,7 @@ class VisualDiscreteRod(_VisualTwinBase):
 
         # filter
         filter = vtk.vtkDataSetSurfaceFilter()
-        filter.SetInputData(ugrid)
+        filter.SetInputData(self._ugrid)
         filter.SetNonlinearSubdivisionLevel(subdivision)
 
         mapper = vtk.vtkDataSetMapper()
@@ -153,9 +147,6 @@ class VisualDiscreteRod(_VisualTwinBase):
             control_pts.append(np.concatenate([xys1, xys2], axis=0).T)
         self.control_pts = np.array(control_pts)
 
-        #
-        rod.export = lambda sol_i, **kwargs: self.update_visual_state(sol_i) or ugrid
-
     def update_visual_state(self, sol_i):
         rod = self.contr
         q_rod = sol_i.q[rod.qDOF]
@@ -167,16 +158,13 @@ class VisualDiscreteRod(_VisualTwinBase):
         )
         control_pts = control_pts.reshape((-1, 3))
 
-        body_points = self.body_points
-        set_point = body_points.SetPoint
-        for i, p in enumerate(control_pts):
-            set_point(i, p)
-        body_points.Modified()
+        self._body_points[:] = control_pts
+        self._ugrid.Modified()
 
         # set stress
         _, B_gamma, B_kappa = rod._eval_els(q_rod)
-        self.strain[:, :3] = B_gamma
-        self.strain[:, 3:] = B_kappa
+        self._strain[:, :3] = B_gamma
+        self._strain[:, 3:] = B_kappa
 
 
 class _VisualvtkSource(_VisualTwinBase):
