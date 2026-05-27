@@ -139,7 +139,7 @@ def assemble_W_t(system, tendons, t, q):
     return W_t
 
 # ---- parameters ----
-rod_nelement = 1000
+rod_nelement = 1000 # 1000
 rod_l0 = 0.192 # [m] length of rod
 rod_r0_base = 1.4e-2 # [m] radius at bottom of rod
 rod_r0_tip = 8.5e-3 # [m] radius at tip of rod
@@ -223,14 +223,30 @@ for B_r_CP_list in B_r_CP_lists:
     tendons.append(tendon)
 
 # ---- controller ----
-# u_target = np.array([0.05, 0.05, 0.160])
-u_target = np.array([0.15438, 0.04335, 0.03399])
-# In case sudden jumps dont work
-# def u_ref_fn(t):
-#         s = min(t / 0.3, 1.0)
-#         return s * u_target
-lambda_t0 = np.array([0.0, 0.0, 0.0, 0.0])
-controller = TendonControl(rod, tendons, u_target, lambda_t0, lambda_gain=0.2,verbose=True)
+
+# u_target = np.array([0.15438, 0.04335, 0.03399])
+# Table II from Paper
+TABLE_II = {
+    "A": np.array([15.438e-2,  4.335e-2,  3.399e-2]),
+    "B": np.array([15.272e-2, -5.114e-2, -0.463e-2]),
+    "C": np.array([10.888e-2,  9.106e-2, -5.492e-2]),
+    "D": np.array([14.615e-2, -4.486e-2, -6.375e-2]),
+    "E": np.array([13.951e-2,  0.000e-2, -9.842e-2]),
+}
+def paper_to_cardillo(u):
+    X, Y, Z = u
+    return np.array([Y, Z, X])
+TABLE_II = {k: paper_to_cardillo(u) for k, u in TABLE_II.items()}
+SEQUENCE = ["A", "B", "C", "D", "E"]
+hold_t = 10.0
+total_t = hold_t * len(SEQUENCE) # 50 s
+
+def u_ref_fn(t):
+        k = min(int(t/hold_t), len(SEQUENCE))
+        return TABLE_II[SEQUENCE[k]]
+
+lambda_t0 = np.array([1.0, 1.0, 1.0, 1.0])
+controller = TendonControl(rod, tendons, u_ref = u_ref_fn, lambda_t0 = lambda_t0, lambda_gain=0.2,verbose=True)
 
 # ---- add to system ----
 system.add(rod, rc, *tendons,controller)
@@ -281,7 +297,14 @@ plotter.show()
 ## solver ##
 ############
 
-solver = Newton(system, n_load_steps=10, options=SolverOptions(newton_atol = 1e-10, newton_rtol = 1e-6))
+# control_dt = 0.04 #25 Hz
+# n_load_steps = int(total_t / control_dt)
+n_load_steps = 100
+
+solver = Newton(system, n_load_steps=n_load_steps, options=SolverOptions(newton_atol = 1e-10, newton_rtol = 1e-6))
+solver.load_steps = np.linspace(0, total_t, n_load_steps + 1)
+solver.nt = len(solver.load_steps)
+
 controller.attach_solver(solver)
 sol = solver.solve()
 
@@ -290,12 +313,26 @@ sol = solver.solve()
 ########
 from matplotlib import pyplot as plt
 
-t = sol.t
-q_nodes = sol.q[:, rod.qDOF].reshape((-1, rod.nnode, 7))
-plt.plot(q_nodes[:, -1, 0], q_nodes[:, -1, 2])
-plt.xlabel("x [m]")
-plt.ylabel("z [m]")
-plt.grid()
-plt.show(block=False)
+history = controller.history
+t = np.asarray(history["t"])
+u = np.asarray(history["u"]) * 1e2 # cm
+uref = np.asarray(history["u_ref"]) * 1e2 # cm
+
+fig, ax = plt.subplots(3, 1, figsize=(6, 8), sharex=True)
+for i, label in enumerate(["X", "Y", "Z"]):
+    ax[i].plot(t, u[:, i], label="Actual")
+    ax[i].plot(t, uref[:, i], label="Desired", linestyle="--")
+    ax[i].set_ylabel(f"{label} [cm]"); ax[i].grid(True); ax[i].legend()
+ax[2].set_xlabel("Time [s]")
+plt.tight_layout()
+plt.show()
+
+# t = sol.t
+# q_nodes = sol.q[:, rod.qDOF].reshape((-1, rod.nnode, 7))
+# plt.plot(q_nodes[:, -1, 0], q_nodes[:, -1, 2])
+# plt.xlabel("x [m]")
+# plt.ylabel("z [m]")
+# plt.grid()
+# plt.show(block=False)
 
 plotter.render_solution(sol, True, play_speed_up=.1)
