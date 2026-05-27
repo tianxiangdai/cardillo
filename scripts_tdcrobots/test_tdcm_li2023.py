@@ -22,13 +22,14 @@ class TendonControl :
     nu = 0
 
     def __init__(self, rod, tendons, u_ref, lambda_t0,
-                 lambda_gain=0.1, verbose=True):
+                 lambda_gain=0.1, settle_steps=20, verbose=True):
         self.rod = rod
         self.tendons = tendons
         self.u_ref_fn = u_ref if callable(u_ref) else (
             lambda t: np.asarray(u_ref, dtype=float)
         )
         self.lambda_gain = float(lambda_gain)
+        self.settle_steps = int(settle_steps)
         self.verbose = verbose
         self.gamma_0_inv = None
 
@@ -92,26 +93,52 @@ class TendonControl :
         last = self.rod.nnode - 1
         pos_idx = self.rod.qDOF[self.rod.nodalDOF_r[last]]
         r_OP = q[pos_idx].copy()
-        u_r = self.u_ref_fn(t)
-        e = r_OP - u_r
+
+        # time step size
+        ls = solver.load_steps
+        # if i < len(ls) - 1:
+        #     dt = ls[i + 1] - ls[i]
+        # else:
+        #     dt = ls[-1] - ls[-2] if len(ls) > 1 else 0.01
+
+        # Settling phase for initial configuration
+        if i < self.settle_steps:
+            e_E = r_OP - TABLE_II["E"]
+            gamma_now = self.compute_gamma(solver, t, x_curr, q)
+            # settle_gain = 0.2
+            settle_gain = 50.0
+            # gamma_now_inv = pinv(gamma_now)
+            gamma_now_inv = gamma_now.T # pseudo-inverse
+            # self.lambda_t = np.maximum(self.lambda_t - settle_gain * dt * (gamma_now_inv @ e_E), 0.1)
+            self.lambda_t = np.maximum(self.lambda_t - settle_gain * (gamma_now_inv @ e_E), 0.1)
+            print(f" |e_E|={np.linalg.norm(e_E)*1e3:.3f} mm | ")
+            return q_local, u_local
 
         # 3. Compute Γ = ∂r_OP/∂λ_t
-        if self.gamma_0_inv is None:
+        # if self.gamma_0_inv is None:
+        if i == self.settle_steps or self.gamma_0_inv is None:
             gamma_0 = self.compute_gamma(solver, t, x_curr, q)
-            self.gamma_0_inv = pinv(gamma_0)
+            print(f"cond(Γ₀) = {np.linalg.cond(gamma_0):.2e}")
+            # self.gamma_0_inv = pinv(gamma_0)
+            self.gamma_0_inv = gamma_0.T # pseudo-inverse
 
-        # 4. Forward Euler update of λ_t
-        ls = solver.load_steps
-        if i < len(ls) - 1:
-            dt = ls[i + 1] - ls[i]
-        else:
-            dt = ls[-1] - ls[-2] if len(ls) > 1 else 0.01
+        # local time
+        t_local = t - ls[self.settle_steps]
+        u_r = self.u_ref_fn(t_local)
+        e = r_OP - u_r
 
-        self.lambda_t = (self.lambda_t - self.lambda_gain * dt * (self.gamma_0_inv @ e))
+        lambda_min = 0.1 # tendons push only
+        # self.lambda_t = np.maximum(self.lambda_t - self.lambda_gain * dt * (self.gamma_0_inv @ e), lambda_min)
+        self.lambda_t = np.maximum(self.lambda_t - self.lambda_gain * (self.gamma_0_inv @ e), lambda_min)
+
+        delta_bound = 0.5
+        delta = -self.lambda_gain * (self.gamma_0_inv @ e)
+        delta = np.clip(delta, -delta_bound, delta_bound) # limit per-step change
+        self.lambda_t = np.maximum(self.lambda_t + delta, lambda_min)
 
         # 5. Logging
         err_norm = float(np.linalg.norm(e))
-        self.history["t"].append(float(t))
+        self.history["t"].append(float(t_local))
         self.history["lambda_t"].append(self.lambda_t.copy())
         self.history["u"].append(r_OP.copy())
         self.history["u_ref"].append(u_r.copy())
@@ -139,7 +166,7 @@ def assemble_W_t(system, tendons, t, q):
     return W_t
 
 # ---- parameters ----
-rod_nelement = 1000 # 1000
+rod_nelement = 500 # 1000
 rod_l0 = 0.192 # [m] length of rod
 rod_r0_base = 1.4e-2 # [m] radius at bottom of rod
 rod_r0_tip = 8.5e-3 # [m] radius at tip of rod
@@ -237,16 +264,20 @@ def paper_to_cardillo(u):
     X, Y, Z = u
     return np.array([Y, Z, X])
 TABLE_II = {k: paper_to_cardillo(u) for k, u in TABLE_II.items()}
-SEQUENCE = ["A", "B", "C", "D", "E"]
-hold_t = 10.0
-total_t = hold_t * len(SEQUENCE) # 50 s
+SEQUENCE = [ "A", "B", "C", "D", "E"]
+hold_t = 1.0 / (len(SEQUENCE))
+# total_t = hold_t * len(SEQUENCE) # 50 s
 
 def u_ref_fn(t):
-        k = min(int(t/hold_t), len(SEQUENCE))
+        k = min(int(t/hold_t), len(SEQUENCE) - 1)
         return TABLE_II[SEQUENCE[k]]
 
-lambda_t0 = np.array([1.0, 1.0, 1.0, 1.0])
-controller = TendonControl(rod, tendons, u_ref = u_ref_fn, lambda_t0 = lambda_t0, lambda_gain=0.2,verbose=True)
+lambda_t0 = np.array([1.0, 1.0, 1.0, 1.0]) * 0.5 # causes rank deficiency in gamma_0
+# lambda_t0 = np.array([4.0, 1.0, 1.0, 4.0])
+# lambda_gain = 0.2
+lambda_gain = 50.0
+settle_steps = 30
+controller = TendonControl(rod, tendons, u_ref = u_ref_fn, lambda_t0 = lambda_t0, lambda_gain=lambda_gain,settle_steps=settle_steps,verbose=True)
 
 # ---- add to system ----
 system.add(rod, rc, *tendons,controller)
@@ -299,11 +330,14 @@ plotter.show()
 
 # control_dt = 0.04 #25 Hz
 # n_load_steps = int(total_t / control_dt)
-n_load_steps = 100
-
-solver = Newton(system, n_load_steps=n_load_steps, options=SolverOptions(newton_atol = 1e-10, newton_rtol = 1e-6))
-solver.load_steps = np.linspace(0, total_t, n_load_steps + 1)
-solver.nt = len(solver.load_steps)
+# n_load_steps = 100
+controlled_steps = 100
+n_load_steps = settle_steps + controlled_steps
+total_t = 60.0 # s
+time_scale = total_t * n_load_steps / controlled_steps
+solver = Newton(system, n_load_steps=n_load_steps, options=SolverOptions(newton_atol = 1e-10, newton_rtol = 1e-6, newton_max_iter=100))
+# solver.load_steps = np.linspace(0, total_t, n_load_steps + 1)
+# solver.nt = len(solver.load_steps)
 
 controller.attach_solver(solver)
 sol = solver.solve()
@@ -314,7 +348,7 @@ sol = solver.solve()
 from matplotlib import pyplot as plt
 
 history = controller.history
-t = np.asarray(history["t"])
+t = np.asarray(history["t"]) * time_scale # scale back to seconds in real time
 u = np.asarray(history["u"]) * 1e2 # cm
 uref = np.asarray(history["u_ref"]) * 1e2 # cm
 
