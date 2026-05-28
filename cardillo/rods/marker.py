@@ -28,7 +28,7 @@ class Marker:
     # interactions with other bodies and the environment
     ####################################################
 
-    def local_qDOF_P(self, xi):
+    def local_qDOF_P(self, xi=None):
         return self._local_qDOF_P
 
     def local_uDOF_P(self, xi=None):
@@ -38,32 +38,32 @@ class Marker:
     # r_OP / A_IB contribution
     ##########################
 
-    def r_OP(self, t, q, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def r_OP(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         A_IB = self.A_IB(t, q, xi)
         return _r_OP(self.alpha, q, A_IB, B_r_CP)
 
-    def r_OP_q(self, t, q, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def r_OP_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         A_IB_q = self.A_IB_q(t, q, xi)
         return _r_OP_q(self.alpha, A_IB_q, B_r_CP)
 
-    def v_P(self, t, q, u, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def v_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         A_IB = self.A_IB(t, q, xi)
         return _v_P(self.alpha, A_IB, u, self.B_Omega(t, q, u, xi), B_r_CP)
 
-    def v_P_q(self, t, q, u, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def v_P_q(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         A_IB_q = self.A_IB_q(t, q, xi)
         B_Omega = self.B_Omega(t, q, u, xi)
         return _v_P_q(A_IB_q, B_Omega, B_r_CP)
 
-    def J_P(self, t, q, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def J_P(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         A_IB = self.A_IB(t, q, xi)
         return _J_P(self.alpha, A_IB, B_r_CP)
 
-    def J_P_q(self, t, q, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def J_P_q(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         A_IB_q = self.A_IB_q(t, q, xi)
         return _J_P_q(self.alpha, A_IB_q, B_r_CP)
 
-    def a_P(self, t, q, u, u_dot, xi, B_r_CP=np.zeros(3, dtype=float)):
+    def a_P(self, t, q, u, u_dot, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         # centerline acceleration
         a_C0 = u_dot[:3]
         a_C1 = u_dot[6:9]
@@ -79,7 +79,7 @@ class Marker:
         else:
             return a_C
 
-    def a_P_q(self, t, q, u, u_dot, xi, B_r_CP=None):
+    def a_P_q(self, t, q, u, u_dot, xi=None, B_r_CP=None):
         raise
 
     #     B_Omega = self.B_Omega(t, q, u, xi)
@@ -91,7 +91,7 @@ class Marker:
     #     )
     #     return a_P_q
 
-    def a_P_u(self, t, q, u, u_dot, xi, B_r_CP=None):
+    def a_P_u(self, t, q, u, u_dot, xi=None, B_r_CP=None):
         raise
 
     #     B_Omega = self.B_Omega(t, q, u, xi)
@@ -106,7 +106,7 @@ class Marker:
 
     #     return a_P_u
 
-    def A_IB(self, t, q, xi):
+    def A_IB(self, t, q, xi=None):
         key = q.tobytes()
         A_IB = self._A_IB_cache[key]
         if A_IB is None:
@@ -115,7 +115,7 @@ class Marker:
         return A_IB
 
     # @cachedmethod(lambda self: self._A_IB_q_cache, key=lambda self, t, q, xi: q.tobytes())
-    def A_IB_q(self, t, q, xi):
+    def A_IB_q(self, t, q, xi=None):
         key = q.tobytes()
         A_IB_q = self._A_IB_q_cache[key]
         if A_IB_q is None:
@@ -123,22 +123,22 @@ class Marker:
             self._A_IB_q_cache[key] = A_IB_q
         return A_IB_q
 
-    def B_Omega(self, t, q, u, xi):
+    def B_Omega(self, t, q, u, xi=None):
         """Since we use Petrov-Galerkin method we only interpolate the nodal
         angular velocities in the B-frame.
         """
         return _B_Omega(self.alpha, u)
 
-    def B_Omega_q(self, t, q, u, xi):
+    def B_Omega_q(self, t, q, u, xi=None):
         return self._B_Omega_q
 
-    def B_J_R(self, t, q, xi):
+    def B_J_R(self, t, q, xi=None):
         return self._B_J_R
 
-    def B_J_R_q(self, t, q, xi):
+    def B_J_R_q(self, t, q, xi=None):
         return self._B_J_R_q
 
-    def B_Psi(self, t, q, u, u_dot, xi):
+    def B_Psi(self, t, q, u, u_dot, xi=None):
         """Since we use Petrov-Galerkin method we only interpolate the nodal
         time derivative of the angular velocities in the B-frame.
         """
@@ -147,10 +147,10 @@ class Marker:
         B_Psi = B_Psi_1 + self.alpha * (B_Psi_2 - B_Psi_1)
         return B_Psi
 
-    def B_Psi_q(self, t, q, u, u_dot, xi):
+    def B_Psi_q(self, t, q, u, u_dot, xi=None):
         return self._B_Psi_q
 
-    def B_Psi_u(self, t, q, u, u_dot, xi):
+    def B_Psi_u(self, t, q, u, u_dot, xi=None):
         return self._B_Psi_u
 
 

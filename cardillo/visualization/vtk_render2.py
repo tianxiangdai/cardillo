@@ -3,10 +3,13 @@ from abc import ABC, abstractmethod
 from time import perf_counter, sleep
 
 import vtk
+from vtk.util.numpy_support import numpy_to_vtk
 from cardillo.interactions.n_point_interaction import nPointInteraction
 
+from cardillo.rods import CircularCrossSection
 from cardillo.rods._base import CosseratRod_PetrovGalerkin
 from cardillo.solver.solution import Solution
+from cardillo import math_jax
 
 
 class _VisualTwinBase(ABC):
@@ -37,22 +40,131 @@ class VisualDiscreteRod(_VisualTwinBase):
         opacity=1,
     ):
         super().__init__(rod)
-        self.rod = rod
+        nelement_visual = rod.nelement
+        cross_section = rod.cross_section
 
+        if isinstance(rod.cross_section, CircularCrossSection):
+            weights = [
+                1.0,
+                1.0,
+                1.0,
+                0.5,
+                0.5,
+                0.5,
+            ]
+            degrees = [2, 2, 1]
+            ctype = vtk.VTK_BEZIER_WEDGE
+        # elif isinstance(rod.cross_section, RectangularCrossSection):
+        #     npts = 16
+        #     weights = [1] * 16
+        #     degrees = [1, 1, 3]
+        #     ctype = vtk.VTK_BEZIER_HEXAHEDRON
+        else:
+            raise NotImplementedError
+
+        self._ugrid = vtk.vtkUnstructuredGrid()
+
+        # points
+        self._body_points = np.empty((6 * (nelement_visual + 1), 3), dtype=float)
+        array = numpy_to_vtk(self._body_points, deep=False)
+        vtk_points = vtk.vtkPoints()
+        vtk_points.SetData(array)
+        self._ugrid.SetPoints(vtk_points)
+
+        # cells
+        self._ugrid.Allocate(nelement_visual)
+        for i in range(nelement_visual):
+            self._ugrid.InsertNextCell(
+                ctype,
+                12,
+                list(range(i * 6, i * 6 + 3))
+                + list(range((i + 1) * 6, (i + 1) * 6 + 3))
+                + list(range(i * 6 + 3, (i + 1) * 6))
+                + list(range((i + 1) * 6 + 3, (i + 2) * 6)),
+            )
+
+        # point data: RationalWeights
+        pdata = self._ugrid.GetPointData()
+        array = numpy_to_vtk(np.tile(weights, nelement_visual + 1))
+        pdata.SetRationalWeights(array)
+
+        # cell data: HigherOrderDegrees
+        cdata = self._ugrid.GetCellData()
+        array = numpy_to_vtk(np.repeat([degrees], nelement_visual, axis=0))
+        cdata.SetHigherOrderDegrees(array)
+
+        # cell data: Colors
+        array = numpy_to_vtk(np.repeat([color], nelement_visual, axis=0))
+        array.SetName("Colors")
+        cdata.AddArray(array)
+
+        # cell data: Strains
+        self._strain = np.zeros((nelement_visual, 6), dtype=float)
+        array = numpy_to_vtk(self._strain, deep=False)
+        array.SetName("Strains")
+        array.SetComponentName(0, "B_gamma_x")
+        array.SetComponentName(1, "B_gamma_y")
+        array.SetComponentName(2, "B_gamma_z")
+        array.SetComponentName(3, "B_kappa_x")
+        array.SetComponentName(4, "B_kappa_y")
+        array.SetComponentName(5, "B_kappa_z")
+        cdata.AddArray(array)
+
+        # filter
         filter = vtk.vtkDataSetSurfaceFilter()
-        filter.SetInputData(rod._ugrid)
+        filter.SetInputData(self._ugrid)
         filter.SetNonlinearSubdivisionLevel(subdivision)
 
-        self.mapper = vtk.vtkDataSetMapper()
-        self.mapper.SetInputConnection(filter.GetOutputPort())
+        mapper = vtk.vtkDataSetMapper()
+        mapper.SetInputConnection(filter.GetOutputPort())
+
         actor = vtk.vtkActor()
-        actor.SetMapper(self.mapper)
+        actor.SetMapper(mapper)
         actor.GetProperty().SetColor([c / 255 for c in color])
         actor.GetProperty().SetOpacity(opacity)
         self.actors.append(actor)
 
+        # control points on circle
+        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
+        phis2 = phis + (np.pi / 3.0)
+        control_pts = []
+        for n in range(rod.nnode):
+            if cross_section._variable:
+                radius = cross_section.radius(
+                    rod.xi_node[n]
+                )  # Assuming a simple case, adjust as needed
+            else:
+                radius = cross_section.radius
+            # control points on circle
+            xys1 = (
+                np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1)
+                * radius
+            )
+            # control points out of circle
+            xys2 = np.stack(
+                [np.zeros_like(phis2), np.cos(phis2), np.sin(phis2)], axis=1
+            ) * (2.0 * radius)
+            control_pts.append(np.concatenate([xys1, xys2], axis=0).T)
+        self.control_pts = np.array(control_pts)
+
     def update_visual_state(self, sol_i):
-        self.rod.export(sol_i)
+        rod = self.contr
+        q_rod = sol_i.q[rod.qDOF]
+        q_nodes = rod._view_nodal_q(q_rod)
+        r_OC_nodes = q_nodes[:, :3]
+        A_IB_nodes = np.asarray(math_jax.Exp_SO3_quat_batch(q_nodes[:, 3:], True))
+        control_pts = r_OC_nodes[:, None] + (A_IB_nodes @ self.control_pts).swapaxes(
+            1, 2
+        )
+        control_pts = control_pts.reshape((-1, 3))
+
+        self._body_points[:] = control_pts
+        self._ugrid.Modified()
+
+        # set stress
+        _, B_gamma, B_kappa = rod._eval_els(q_rod)
+        self._strain[:, :3] = B_gamma
+        self._strain[:, 3:] = B_kappa
 
 
 class _VisualvtkSource(_VisualTwinBase):
@@ -313,6 +425,11 @@ class VisualTendon(_VisualTwinBase):
             poly_data.InsertNextCell(
                 vtk.VTK_LINE, npts, list(range(i * npts, (i + 1) * npts))
             )
+
+        tendon.export = (
+            lambda sol_i, **kwargs: self.update_visual_state(sol_i) or poly_data
+        )
+
         filter = vtk.vtkTubeFilter()
         filter.SetRadius(radius)
         filter.SetInputData(poly_data)
@@ -388,13 +505,24 @@ class Plotter:
                         for twin in marker.visual_twins:
                             self.__add_visual_twin(twin)
 
-        self.__do_render = False
+        self.__window_open = False
+
+        self._live_nframe = 0
+        self._live_fps = 100
+        self._text_actor = vtk.vtkTextActor()
+        self._text_actor.SetPosition(10, 10)
+        prop = self._text_actor.GetTextProperty()
+        prop.SetFontSize(20)
+        prop.SetColor([i / 255 for i in (34, 136, 50)])
+        self.ren.AddActor(self._text_actor)
 
         def decorate_step_callback(step_callback):
             def __step_callback(t, q, u):
                 r = step_callback(t, q, u)
-                if self.__do_render:
-                    self.step_render(Solution(self.system, t=t, q=q, u=u))
+                if self.__window_open:
+                    if self._live_nframe < t * self._live_fps:
+                        self.step_render(Solution(self.system, t=t, q=q, u=u))
+                        self._live_nframe += 1
                 return r
 
             return __step_callback
@@ -403,7 +531,8 @@ class Plotter:
 
         def cbk(interactor, event):
             if interactor.key_code == "q":
-                self.hide()
+                self.window.SetOffScreenRendering(1)
+                self.__window_open = False
 
         self.window.SetOffScreenRendering(1)
         self.interactor.AddObserver(vtk.vtkCommand.KeyPressEvent, cbk)
@@ -418,8 +547,18 @@ class Plotter:
         plane.SetXResolution(subdivision_x)
         plane.SetYResolution(subdivision_y)
 
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(plane.GetOutputPort())
+        # mapper = vtk.vtkPolyDataMapper()
+        # mapper = vtk.vtkPolyDataMapper()
+        # mapper.SetInputConnection(plane.GetOutputPort())
+
+        converter = vtk.vtkPolyDataToUnstructuredGrid()
+        converter.SetInputConnection(plane.GetOutputPort())
+        converter.Update()
+
+        self.system.origin.export = lambda sol_i, **kwargs: converter.GetOutput()
+
+        mapper = vtk.vtkDataSetMapper()
+        mapper.SetInputConnection(converter.GetOutputPort())
 
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
@@ -428,6 +567,7 @@ class Plotter:
         self.ren.AddActor(actor)
 
     def step_render(self, sol_i):
+        self._text_actor.SetInput(f"t = {sol_i.t:.3f} s")
         for twin in self.__visual_twins:
             twin.update_visual_state(sol_i)
         self.window.Render()
@@ -442,6 +582,8 @@ class Plotter:
             raise Exception("visual twin already added!")
 
     def render_solution(self, solution, repeat=False, play_speed_up=1):
+        self.window.SetOffScreenRendering(0)
+        self.__window_open = True
         while True:
             t0_sim = solution.t[0]
             t0_real = perf_counter()
@@ -455,17 +597,15 @@ class Plotter:
                     else:
                         sleep(-dt)
                 self.step_render(sol_i)
-                if not self.__do_render:
+                if not self.__window_open:
                     return
             if not repeat:
                 break
             else:
                 sleep(solution.t[1] / play_speed_up)
 
-    def show(self):
+    def live_render(self, fps=100):
+        print("maximal frames per simulation time: ", fps)
         self.window.SetOffScreenRendering(0)
-        self.__do_render = True
-
-    def hide(self):
-        self.window.SetOffScreenRendering(1)
-        self.__do_render = False
+        self._live_fps = fps
+        self.__window_open = True

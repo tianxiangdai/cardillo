@@ -223,5 +223,4 @@ if __name__ == "__main__":
     cam.clipping_range = (0.01, 1)
     cam.Zoom(zoom)
 
-    plotter.show()
     plotter.render_solution(sol, True)

@@ -23,6 +23,8 @@ from cardillo.rods import CrossSectionInertias, CircularCrossSection
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
 from ..utility.cachetools import MyLRUCache
+from ..visualization.vtk_render2 import VisualDiscreteRod
+
 
 from .marker import Marker
 
@@ -72,111 +74,7 @@ def _combine_indices(rows_list, cols_list):
     return ptr, rows_combined, cols_combined
 
 
-class DiscreteRodExport:
-    def __init__(self, cross_section):
-        nelement_visual = self.nelement_visual = self.nelement
-        self.nnode_visual = self.nnode
-
-        if isinstance(self.cross_section, CircularCrossSection):
-            weights = [
-                1.0,
-                1.0,
-                1.0,
-                0.5,
-                0.5,
-                0.5,
-            ]
-            degrees = [2, 2, 1]
-            ctype = vtk.VTK_BEZIER_WEDGE
-        # elif isinstance(rod.cross_section, RectangularCrossSection):
-        #     npts = 16
-        #     weights = [1] * 16
-        #     degrees = [1, 1, 3]
-        #     ctype = vtk.VTK_BEZIER_HEXAHEDRON
-        else:
-            raise NotImplementedError
-
-        self._ugrid = vtk.vtkUnstructuredGrid()
-
-        # points
-        self.body_points = vtk.vtkPoints()
-        self.body_points.SetNumberOfPoints(6 * (nelement_visual + 1))
-        self._ugrid.SetPoints(self.body_points)
-
-        # cells
-        self._ugrid.Allocate(nelement_visual)
-        for i in range(nelement_visual):
-            self._ugrid.InsertNextCell(
-                ctype,
-                12,
-                list(range(i * 6, i * 6 + 3))
-                + list(range((i + 1) * 6, (i + 1) * 6 + 3))
-                + list(range(i * 6 + 3, (i + 1) * 6))
-                + list(range((i + 1) * 6 + 3, (i + 2) * 6)),
-            )
-
-        # point data
-        self.pdata = self._ugrid.GetPointData()
-        value = weights * (nelement_visual + 1)
-        parray = vtk.vtkDoubleArray()
-        parray.SetName("RationalWeights")
-        parray.SetNumberOfTuples(6)
-        parray.SetNumberOfComponents(1)
-        for i, vi in enumerate(value):
-            parray.InsertTuple(i, [vi])
-        self.pdata.SetRationalWeights(parray)
-
-        # cell data
-        self.cdata = self._ugrid.GetCellData()
-        carray = vtk.vtkIntArray()
-        carray.SetName("HigherOrderDegrees")
-        carray.SetNumberOfTuples(nelement_visual)
-        carray.SetNumberOfComponents(3)
-        for i in range(nelement_visual):
-            carray.InsertTuple(i, degrees)
-        self.cdata.SetHigherOrderDegrees(carray)
-
-        # control points on circle
-        phis = np.linspace(0.0, 2.0 * np.pi, 3, endpoint=False)
-        phis2 = phis + (np.pi / 3.0)
-        control_pts = []
-        for n in range(self.nnode_visual):
-            if cross_section._variable:
-                radius = cross_section.radius(
-                    self.xi_node[n]
-                )  # Assuming a simple case, adjust as needed
-            else:
-                radius = cross_section.radius
-            # control points on circle
-            xys1 = (
-                np.stack([np.zeros_like(phis), np.cos(phis), np.sin(phis)], axis=1)
-                * radius
-            )
-            # control points out of circle
-            xys2 = np.stack(
-                [np.zeros_like(phis2), np.cos(phis2), np.sin(phis2)], axis=1
-            ) * (2.0 * radius)
-            control_pts.append(np.concatenate([xys1, xys2], axis=0).T)
-        self.control_pts = np.array(control_pts)
-
-    def export(self, sol_i, **kwargs):
-        q_nodes = self._view_nodal_q(sol_i.q[self.qDOF])
-        r_OC_nodes = q_nodes[:, :3]
-        A_IB_nodes = np.asarray(math_jax.Exp_SO3_quat_batch(q_nodes[:, 3:], True))
-        control_pts = r_OC_nodes[:, None] + (A_IB_nodes @ self.control_pts).swapaxes(
-            1, 2
-        )
-        control_pts = control_pts.reshape((-1, 3))
-
-        body_points = self.body_points
-        set_point = body_points.SetPoint
-        for i, p in enumerate(control_pts):
-            set_point(i, p)
-        body_points.Modified()
-        return self._ugrid
-
-
-class DiscreteRod(DiscreteRodExport):
+class DiscreteRod:
     def __init__(
         self,
         cross_section,
@@ -265,11 +163,11 @@ class DiscreteRod(DiscreteRodExport):
         self._B_Theta_C = []
         for n in range(self.nnode):
             if n == 0:
-                w = self.L[0] / 2
+                w = self.L_els[0] / 2
             elif n == self.nnode - 1:
-                w = self.L[n - 1] / 2
+                w = self.L_els[n - 1] / 2
             else:
-                w = (self.L[n] + self.L[n - 1]) / 2
+                w = (self.L_els[n] + self.L_els[n - 1]) / 2
             if cross_section_inertias._variable:
                 xi = self.xi_node[n]
                 mass = cross_section_inertias.A_rho0(xi) * w
@@ -299,7 +197,7 @@ class DiscreteRod(DiscreteRodExport):
             if _nla_c_el == 12:
                 c_la_c[6:9, 6:9] = self.C_n_inv[el]
                 c_la_c[9:, 9:] = self.C_m_inv[el]
-            c_la_c *= self.L[el]
+            c_la_c *= self.L_els[el]
         _c_la_c_coo.data = c_la_c_els.ravel()
         self._c_la_c_coo = _c_la_c_coo.asformat("coo")
         self._c_la_c_coo.eliminate_zeros()
@@ -349,15 +247,14 @@ class DiscreteRod(DiscreteRodExport):
         self._alpha_cache = MyLRUCache(maxsize=self.nnode * 10)
         self._eval_kinematics_cache = MyLRUCache(maxsize=self.nnode * 10)
 
-        DiscreteRodExport.__init__(self, cross_section)
-
     def set_reference_strains(self, Q):
-        self.L = np.array(
+        self.L_els = np.array(
             [
                 norm(Q[self.nodalDOF_r[el + 1]] - Q[self.nodalDOF_r[el]])
                 for el in range(self.nelement)
             ]
         )
+        self.L = np.sum(self.L_els)
         _, self.B_Gamma0, self.B_Kappa0 = self._eval_els(Q)
         self.B_Ga_Ka0 = np.concatenate((self.B_Gamma0, self.B_Kappa0), axis=1)
 
@@ -393,7 +290,7 @@ class DiscreteRod(DiscreteRodExport):
             alpha = self._alpha(xi)
             mk = Marker(xi, alpha)
             self._markers[xi] = mk
-        if not hasattr(mk, "qDOF") and hasattr(self, "qDOF"):
+        if hasattr(self, "qDOF") and not hasattr(mk, "qDOF"):
             num = self.element_number(xi)
             mk.t0 = self.t0
             mk.q0 = self.q0[self.elDOF[num]]
@@ -462,16 +359,16 @@ class DiscreteRod(DiscreteRodExport):
     @staticmethod
     def pose_configuration(
         nelement,
-        B0_r_C0C,
-        A_B0B,
+        B0_r_C0Ci,
+        A_B0Bi,
         r_OC0=np.zeros(3, dtype=float),
         A_IB0=np.eye(3, dtype=float),
     ):
         """Compute generalized position coordinates for a pre-curved rod with centerline curve r_OP and orientation of A_IB."""
         nnodes_r = nelement + 1
 
-        assert callable(B0_r_C0C), "r_OP must be callable!"
-        assert callable(A_B0B), "A_IB must be callable!"
+        assert callable(B0_r_C0Ci), "r_OP must be callable!"
+        assert callable(A_B0Bi), "A_IB must be callable!"
 
         xis = np.linspace(0, 1, nnodes_r)
 
@@ -480,8 +377,8 @@ class DiscreteRod(DiscreteRodExport):
         p0 = np.zeros((nnodes_r, 4))
 
         for i, xii in enumerate(xis):
-            r0[i] = r_OC0 + A_IB0 @ B0_r_C0C(xii)
-            A_IBi = A_IB0 @ A_B0B(xii)
+            r0[i] = r_OC0 + A_IB0 @ B0_r_C0Ci(xii)
+            A_IBi = A_IB0 @ A_B0Bi(xii)
             p0[i] = Log_SO3_quat(A_IBi)
 
         # check for the right quaternion hemisphere
@@ -493,8 +390,8 @@ class DiscreteRod(DiscreteRodExport):
         return np.concatenate([r0, p0], axis=1).flatten()
 
     def assembler_callback(self):
-        for mk in self._markers.values():
-            num = self.element_number(mk.xi)
+        for xi, mk in self._markers.items():
+            num = self.element_number(xi)
             mk.t0 = self.t0
             mk.q0 = self.q0[self.elDOF[num]]
             mk.u0 = self.u0[self.elDOF_u[num]]
@@ -576,7 +473,7 @@ class DiscreteRod(DiscreteRodExport):
         la_c_el = _la_c_els(
             B_Gamma,
             B_Kappa,
-            self.L,
+            self.L_els,
             self.B_Gamma0,
             self.B_Kappa0,
             self.C_n,
@@ -591,7 +488,7 @@ class DiscreteRod(DiscreteRodExport):
                 B_Gamma,
                 B_Kappa,
                 self._view_element_la_c(la_c),
-                self.L,
+                self.L_els,
                 self.B_Gamma0,
                 self.B_Kappa0,
                 self.C_n_inv,
@@ -604,7 +501,7 @@ class DiscreteRod(DiscreteRodExport):
 
     def c_q(self, t, q, u, la_c):
         _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
-        c_q_els = np.asarray(_c_q_els(B_Gamma_qe, B_Kappa_qe, self.L))
+        c_q_els = np.asarray(_c_q_els(B_Gamma_qe, B_Kappa_qe, self.L_els))
         self._c_q_coo.data = c_q_els.ravel()
         # for el in range(self.nelement):
         #     elDOF = self.elDOF[el]
@@ -614,7 +511,7 @@ class DiscreteRod(DiscreteRodExport):
 
     def W_c(self, t, q):
         A_IB, B_Gamma, B_Kappa = self._eval_els(q)
-        W_c_els = np.asarray(_W_c_els(A_IB, B_Gamma, B_Kappa, self.L))
+        W_c_els = np.asarray(_W_c_els(A_IB, B_Gamma, B_Kappa, self.L_els))
         self._W_c_coo.data = W_c_els.ravel()
         # for el in range(self.nelement):
         #     elDOF_u = self.elDOF_u[el]
@@ -626,7 +523,11 @@ class DiscreteRod(DiscreteRodExport):
         A_IB_qe, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
         Wla_c_q_els = np.asarray(
             _Wla_c_q_els(
-                A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c), self.L
+                A_IB_qe,
+                B_Gamma_qe,
+                B_Kappa_qe,
+                self._view_element_la_c(la_c),
+                self.L_els,
             )
         )
         self._Wla_c_q_coo.data = Wla_c_q_els.ravel()
@@ -797,7 +698,7 @@ class DiscreteRod(DiscreteRodExport):
         key = q.tobytes()
         eval_els = self._eval_cache[key]
         if eval_els is None:
-            eval_els = _eval_els(self._view_element_q(q), self.L)
+            eval_els = _eval_els(self._view_element_q(q), self.L_els)
             self._eval_cache[key] = eval_els
         return eval_els
 
@@ -805,12 +706,15 @@ class DiscreteRod(DiscreteRodExport):
         key = q.tobytes()
         deval_els = self._deval_cache[key]
         if deval_els is None:
-            deval_els = _deval_els(self._view_element_q(q), self.L)
+            deval_els = _deval_els(self._view_element_q(q), self.L_els)
             self._deval_cache[key] = deval_els
         return deval_els
 
-    # def _eval_deval_els(self, q_els):
-    #     return _eval_deval_els(q_els, self.L)
+    def export(self, sol_i, **kwargs):
+        if not hasattr(self, "_visual_twin"):
+            self._visual_twin = VisualDiscreteRod(self)
+        self._visual_twin.update_visual_state(sol_i)
+        return self._visual_twin._ugrid
 
 
 @njit(cache=True)

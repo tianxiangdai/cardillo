@@ -412,7 +412,11 @@ class System:
     def h(self, t, q, u):
         h = np.zeros(self.nu, dtype=float)
         for contr in self.__h_contr:
-            h[contr.uDOF] += contr.h(t, q[contr.qDOF], u[contr.uDOF])
+            np.add.at(h, contr.uDOF, contr.h(t, q[contr.qDOF], u[contr.uDOF]))
+            # maybe faster to sum up contributions for the same uDOF first and then add to h
+            # uDOF, inv = np.unique(contr.uDOF, return_inverse=True)
+            # sums = np.bincount(inv, weights=contr.h(t, q[contr.qDOF], u[contr.uDOF]))
+            # h[uDOF] += sums
         return h
 
     def h_q(self, t, q, u, format="coo", coo=None):

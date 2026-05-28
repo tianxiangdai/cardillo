@@ -43,8 +43,8 @@ def make_ugrid(points, cells, point_data, cell_data):
             n, dim = value.shape
             parray = dtype_map(value.dtype)()
             parray.SetName(key)
-            parray.SetNumberOfTuples(n)
             parray.SetNumberOfComponents(dim)
+            parray.SetNumberOfTuples(n)
             for i, vi in enumerate(value):
                 parray.InsertTuple(i, vi)
 
@@ -61,8 +61,8 @@ def make_ugrid(points, cells, point_data, cell_data):
             m, dim = value.shape
             carray = dtype_map(value.dtype)()
             carray.SetName(key)
-            carray.SetNumberOfTuples(m)
             carray.SetNumberOfComponents(dim)
+            carray.SetNumberOfTuples(m)
             for i, vi in enumerate(value):
                 carray.InsertTuple(i, vi)
 
@@ -89,7 +89,6 @@ class Export:
         self.system = solution.system
         self.write_ascii = (write_ascii,)
         self.__prepare_data(solution)
-        self._ugrid_writer = vtk.vtkXMLUnstructuredGridWriter()
 
     # helper functions
     def __vtk_file(self):
@@ -215,23 +214,28 @@ class Export:
             kwargs["contr_list"] = contr
         file_name = self.__unique_file_name(contr_name)
         for i, sol_i in enumerate(self.solution):
-            file_i = self.path / f"{file_name}_{i}.vtu"
-            self.__write_time_step_and_name(sol_i.t, file_i)
-
             ret = export(sol_i, **kwargs)
-            if isinstance(ret, vtk.vtkUnstructuredGrid):
-                ugrid = ret
+            if isinstance(ret, vtk.vtkPolyData):
+                extension = "vtp"
+                writer = vtk.vtkXMLPolyDataWriter()
+            elif isinstance(ret, vtk.vtkUnstructuredGrid):
+                extension = "vtu"
+                writer = vtk.vtkXMLUnstructuredGridWriter()
             else:
+                extension = "vtu"
+                # convert to ugrid
                 points, cells, point_data, cell_data = ret
-                ugrid = make_ugrid(points, cells, point_data, cell_data)
-
+                ret = make_ugrid(points, cells, point_data, cell_data)
+                writer = vtk.vtkXMLUnstructuredGridWriter()
             # write data
-            self._ugrid_writer.SetInputData(ugrid)
-            self._ugrid_writer.SetFileName(file_i)
+            file_i = self.path / f"{file_name}_{i}.{extension}"
+            self.__write_time_step_and_name(sol_i.t, file_i)
+            writer.SetInputData(ret)
+            writer.SetFileName(file_i)
             if self.write_ascii:
-                self._ugrid_writer.SetDataModeToAscii()
+                writer.SetDataModeToAscii()
             else:
-                self._ugrid_writer.SetDataModeToBinary()
-            self._ugrid_writer.Write()
+                writer.SetDataModeToBinary()
+            writer.Write()
 
         self._write_pvd_file(self.path / f"{file_name}.pvd")
