@@ -25,7 +25,9 @@ class Force_line_distributed:
         self.rod = rod
         self._is_discrete_rod = isinstance(rod, DiscreteRod)
         if self._is_discrete_rod:
-            self._h_weights = (np.pad(rod.L, (1, 0)) + np.pad(rod.L, (0, 1))) / 2
+            self._h_weights = (
+                np.pad(rod.L_els, (1, 0)) + np.pad(rod.L_els, (0, 1))
+            ) / 2
             self._h_nodes = _make_h_nodes(_force)
         else:
             self.force = _force

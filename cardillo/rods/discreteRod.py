@@ -163,11 +163,11 @@ class DiscreteRod:
         self._B_Theta_C = []
         for n in range(self.nnode):
             if n == 0:
-                w = self.L[0] / 2
+                w = self.L_els[0] / 2
             elif n == self.nnode - 1:
-                w = self.L[n - 1] / 2
+                w = self.L_els[n - 1] / 2
             else:
-                w = (self.L[n] + self.L[n - 1]) / 2
+                w = (self.L_els[n] + self.L_els[n - 1]) / 2
             if cross_section_inertias._variable:
                 xi = self.xi_node[n]
                 mass = cross_section_inertias.A_rho0(xi) * w
@@ -197,7 +197,7 @@ class DiscreteRod:
             if _nla_c_el == 12:
                 c_la_c[6:9, 6:9] = self.C_n_inv[el]
                 c_la_c[9:, 9:] = self.C_m_inv[el]
-            c_la_c *= self.L[el]
+            c_la_c *= self.L_els[el]
         _c_la_c_coo.data = c_la_c_els.ravel()
         self._c_la_c_coo = _c_la_c_coo.asformat("coo")
         self._c_la_c_coo.eliminate_zeros()
@@ -248,12 +248,13 @@ class DiscreteRod:
         self._eval_kinematics_cache = MyLRUCache(maxsize=self.nnode * 10)
 
     def set_reference_strains(self, Q):
-        self.L = np.array(
+        self.L_els = np.array(
             [
                 norm(Q[self.nodalDOF_r[el + 1]] - Q[self.nodalDOF_r[el]])
                 for el in range(self.nelement)
             ]
         )
+        self.L = np.sum(self.L_els)
         _, self.B_Gamma0, self.B_Kappa0 = self._eval_els(Q)
         self.B_Ga_Ka0 = np.concatenate((self.B_Gamma0, self.B_Kappa0), axis=1)
 
@@ -289,7 +290,7 @@ class DiscreteRod:
             alpha = self._alpha(xi)
             mk = Marker(xi, alpha)
             self._markers[xi] = mk
-        if not hasattr(mk, "qDOF") and hasattr(self, "qDOF"):
+        if hasattr(self, "qDOF") and not hasattr(mk, "qDOF"):
             num = self.element_number(xi)
             mk.t0 = self.t0
             mk.q0 = self.q0[self.elDOF[num]]
@@ -389,8 +390,8 @@ class DiscreteRod:
         return np.concatenate([r0, p0], axis=1).flatten()
 
     def assembler_callback(self):
-        for mk in self._markers.values():
-            num = self.element_number(mk.xi)
+        for xi, mk in self._markers.items():
+            num = self.element_number(xi)
             mk.t0 = self.t0
             mk.q0 = self.q0[self.elDOF[num]]
             mk.u0 = self.u0[self.elDOF_u[num]]
@@ -472,7 +473,7 @@ class DiscreteRod:
         la_c_el = _la_c_els(
             B_Gamma,
             B_Kappa,
-            self.L,
+            self.L_els,
             self.B_Gamma0,
             self.B_Kappa0,
             self.C_n,
@@ -487,7 +488,7 @@ class DiscreteRod:
                 B_Gamma,
                 B_Kappa,
                 self._view_element_la_c(la_c),
-                self.L,
+                self.L_els,
                 self.B_Gamma0,
                 self.B_Kappa0,
                 self.C_n_inv,
@@ -500,7 +501,7 @@ class DiscreteRod:
 
     def c_q(self, t, q, u, la_c):
         _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
-        c_q_els = np.asarray(_c_q_els(B_Gamma_qe, B_Kappa_qe, self.L))
+        c_q_els = np.asarray(_c_q_els(B_Gamma_qe, B_Kappa_qe, self.L_els))
         self._c_q_coo.data = c_q_els.ravel()
         # for el in range(self.nelement):
         #     elDOF = self.elDOF[el]
@@ -510,7 +511,7 @@ class DiscreteRod:
 
     def W_c(self, t, q):
         A_IB, B_Gamma, B_Kappa = self._eval_els(q)
-        W_c_els = np.asarray(_W_c_els(A_IB, B_Gamma, B_Kappa, self.L))
+        W_c_els = np.asarray(_W_c_els(A_IB, B_Gamma, B_Kappa, self.L_els))
         self._W_c_coo.data = W_c_els.ravel()
         # for el in range(self.nelement):
         #     elDOF_u = self.elDOF_u[el]
@@ -522,7 +523,11 @@ class DiscreteRod:
         A_IB_qe, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
         Wla_c_q_els = np.asarray(
             _Wla_c_q_els(
-                A_IB_qe, B_Gamma_qe, B_Kappa_qe, self._view_element_la_c(la_c), self.L
+                A_IB_qe,
+                B_Gamma_qe,
+                B_Kappa_qe,
+                self._view_element_la_c(la_c),
+                self.L_els,
             )
         )
         self._Wla_c_q_coo.data = Wla_c_q_els.ravel()
@@ -693,7 +698,7 @@ class DiscreteRod:
         key = q.tobytes()
         eval_els = self._eval_cache[key]
         if eval_els is None:
-            eval_els = _eval_els(self._view_element_q(q), self.L)
+            eval_els = _eval_els(self._view_element_q(q), self.L_els)
             self._eval_cache[key] = eval_els
         return eval_els
 
@@ -701,7 +706,7 @@ class DiscreteRod:
         key = q.tobytes()
         deval_els = self._deval_cache[key]
         if deval_els is None:
-            deval_els = _deval_els(self._view_element_q(q), self.L)
+            deval_els = _deval_els(self._view_element_q(q), self.L_els)
             self._deval_cache[key] = deval_els
         return deval_els
 
