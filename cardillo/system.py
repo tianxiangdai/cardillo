@@ -1,16 +1,11 @@
 import numpy as np
-import warnings
-from copy import deepcopy
-from scipy.sparse import diags
 
 from cardillo.utility.coo_matrix import CooMatrix
-from cardillo.discrete.frame import Frame
+from cardillo import Frame
 from cardillo.solver import consistent_initial_conditions
 from cardillo.visualization import Export
 
 properties = []
-
-properties.extend(["E_kin", "E_pot"])
 
 properties.extend(["M", "Mu_q"])
 
@@ -18,17 +13,13 @@ properties.extend(["h", "h_q", "h_u"])
 
 properties.extend(["q_dot", "q_dot_q", "q_dot_u"])
 
-properties.extend(["g"])
-properties.extend(["gamma"])
+properties.extend(["g"]) 
 
 properties.extend(["c", "c_q", "c_u"])
+
 properties.extend(["g_S"])
 
-properties.extend(["la_tau"])
-properties.extend(["tau"])
 
-properties.extend(["g_N"])
-properties.extend(["gamma_F", "gamma_F_q"])
 
 properties.extend(["assembler_callback", "step_callback"])
 
@@ -67,13 +58,8 @@ class System:
         self.nq = 0
         self.nu = 0
         self.nla_g = 0
-        self.nla_gamma = 0
         self.nla_c = 0
-        self.nla_tau = 0
-        self.ntau = 0
         self.nla_S = 0
-        self.nla_N = 0
-        self.nla_F = 0
 
         self.contributions = []
         self.contributions_map = {}
@@ -119,20 +105,6 @@ class System:
     def pop(self, index):
         self.contributions.pop(index)
 
-    def extend(self, contr_list):
-        list(map(self.add, contr_list))
-
-    def deepcopy(self):
-        """
-        Create a deepcopy of the system.
-
-        Returns:
-        --------
-        system: cardillo.System
-            deepcopy of the system
-        """
-        return deepcopy(self)
-
     def set_new_initial_state(self, q0, u0, t0=None, **assemble_kwargs):
         """
         Sets the initial state of the system.
@@ -168,14 +140,6 @@ class System:
                 e.export_contr(contr, file_name=contr.name)
         return e
 
-    def get_contribution_list(self, contr):
-        return getattr(self, f"_{self.__class__.__name__}__{contr}_contr")
-
-    def reset(self):
-        for contr in self.contributions:
-            if hasattr(contr, "reset"):
-                contr.reset()
-
     def assemble(self, *args, **kwargs):
         """Assembles the system, i.e., counts degrees of freedom, sets connectivities and assembles global initial state.
 
@@ -189,17 +153,11 @@ class System:
         self.nq = 0
         self.nu = 0
         self.nla_g = 0
-        self.nla_gamma = 0
         self.nla_c = 0
-        self.nla_tau = 0
-        self.ntau = 0
         self.nla_S = 0
-        self.nla_N = 0
-        self.nla_F = 0
+
         q0 = []
         u0 = []
-        e_N = []
-        e_F = []
         self.constant_force_reservoir = False
 
         for p in properties:
@@ -235,50 +193,16 @@ class System:
                 contr.la_cDOF = np.arange(0, contr.nla_c) + self.nla_c
                 self.nla_c += contr.nla_c
 
-            # if contribution of actuator forces
-            if hasattr(contr, "nla_tau"):
-                contr.la_tauDOF = np.arange(0, contr.nla_tau) + self.nla_tau
-                self.nla_tau += contr.nla_tau
-
-            # if contribution of control inputs
-            if hasattr(contr, "ntau"):
-                contr.tauDOF = np.arange(0, contr.ntau) + self.ntau
-                self.ntau += contr.ntau
-
             # if contribution has constraints on position level address constraint coordinates
             if hasattr(contr, "nla_g"):
                 contr.la_gDOF = np.arange(0, contr.nla_g) + self.nla_g
                 self.nla_g += contr.nla_g
-
-            # if contribution has constraints on velocity level address constraint coordinates
-            if hasattr(contr, "nla_gamma"):
-                contr.la_gammaDOF = np.arange(0, contr.nla_gamma) + self.nla_gamma
-                self.nla_gamma += contr.nla_gamma
 
             # if contribution has stabilization conditions for the kinematic equation
             if hasattr(contr, "nla_S"):
                 contr.la_SDOF = np.arange(0, contr.nla_S) + self.nla_S
                 self.nla_S += contr.nla_S
 
-            # if contribution has contact
-            if hasattr(contr, "nla_N"):
-                contr.la_NDOF = np.arange(0, contr.nla_N) + self.nla_N
-                self.nla_N += contr.nla_N
-                e_N.extend(contr.e_N.tolist())
-
-            # if contribution has friction
-            if hasattr(contr, "nla_F"):
-                contr.la_FDOF = np.arange(0, contr.nla_F) + self.nla_F
-                self.nla_F += contr.nla_F
-                e_F.extend(contr.e_F.tolist())
-
-                # identify friction forces with constant force reservoirs
-                for i_N, i_F, force_law in contr.friction_laws:
-                    if len(i_N) == 0:
-                        self.constant_force_reservoir = True
-
-        self.e_N = np.array(e_N)
-        self.e_F = np.array(e_F)
 
         # call assembler callback: call methods that require first an assembly of the system
         self.assembler_callback()
@@ -322,10 +246,7 @@ class System:
             self.q_dot0,
             self.u_dot0,
             self.la_g0,
-            self.la_gamma0,
             self.la_c0,
-            self.la_N0,
-            self.la_F0,
         ) = consistent_initial_conditions(self, *args, **kwargs)
 
     def assembler_callback(self):
@@ -363,21 +284,6 @@ class System:
                 t, q[contr.qDOF], u[contr.uDOF]
             )
         return q, u
-
-    ################
-    # total energies
-    ################
-    def E_pot(self, t, q):
-        E_pot = 0
-        for contr in self.__E_pot_contr:
-            E_pot += contr.E_pot(t, q[contr.qDOF])
-        return E_pot
-
-    def E_kin(self, t, q, u):
-        E_kin = 0
-        for contr in self.__E_kin_contr:
-            E_kin += contr.E_kin(t, q[contr.qDOF], u[contr.uDOF])
-        return E_kin
 
     #####################
     # equations of motion
@@ -480,63 +386,6 @@ class System:
             )
         return coo.asformat(format)
 
-    ###########
-    # actuators
-    ###########
-    def W_tau(self, t, q, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nu, self.nla_tau))
-        for i, contr in enumerate(self.__la_tau_contr):
-            coo[i, contr.uDOF, contr.la_tauDOF] = contr.W_tau(t, q[contr.qDOF])
-        return coo.asformat(format)
-
-    def la_tau(self, t, q, u):
-        la_tau = np.zeros(self.nla_tau, dtype=float)
-        for contr in self.__la_tau_contr:
-            la_tau[contr.la_tauDOF] = contr.la_tau(t, q[contr.qDOF], u[contr.uDOF])
-        return la_tau
-
-    def Wla_tau_q(self, t, q, u, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nu, self.nq))
-        for i, contr in enumerate(self.__la_tau_contr):
-            coo[i, contr.uDOF, contr.qDOF] = contr.Wla_tau_q(
-                t, q[contr.qDOF], u[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    def Wla_tau_u(self, t, q, u, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nu, self.nu))
-        for i, contr in enumerate(self.__la_tau_contr):
-            coo[i, contr.uDOF, contr.uDOF] = contr.Wla_tau_u(
-                t, q[contr.qDOF], u[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    def tau(self, t):
-        tau = np.zeros(self.ntau)
-        for contr in self.__tau_contr:
-            tau[contr.tauDOF] = contr.tau(t)
-        return tau
-
-    def set_tau(self, tau):
-        if callable(tau):
-            for contr in self.__tau_contr:
-                contr.tau = lambda t: tau(t)[contr.tauDOF]
-        else:
-            for contr in self.__tau_contr:
-                contr.tau = lambda t: tau[contr.tauDOF]
-
-    def set_tau_from_dict(self, tau_dict):
-        raise NotImplementedError
-        # this is not tested!
-        for name, tau in tau_dict.items():
-            contr = self.contributions_map[name]
-            if callable(tau):
-                contr.tau = lambda t: tau(t)[contr.tauDOF]
-            else:
-                contr.tau = lambda t: tau[contr.tauDOF]
 
     #########################################
     # bilateral constraints on position level
@@ -552,15 +401,6 @@ class System:
             coo = CooMatrix((self.nla_g, self.nq))
         for i, contr in enumerate(self.__g_contr):
             coo[i, contr.la_gDOF, contr.qDOF] = contr.g_q(t, q[contr.qDOF])
-        return coo.asformat(format)
-
-    def g_q_T_mu_q(self, t, q, mu_g, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nq, self.nq))
-        for i, contr in enumerate(self.__g_contr):
-            coo[i, contr.qDOF, contr.qDOF] = contr.g_q_T_mu_q(
-                t, q[contr.qDOF], mu_g[contr.la_gDOF]
-            )
         return coo.asformat(format)
 
     def W_g(self, t, q, format="coo", coo=None):
@@ -584,10 +424,6 @@ class System:
         for contr in self.__g_contr:
             g_dot[contr.la_gDOF] = contr.g_dot(t, q[contr.qDOF], u[contr.uDOF])
         return g_dot
-
-    # TODO: Assemble chi_g for efficiency
-    def chi_g(self, t, q):
-        return self.g_dot(t, q, np.zeros(self.nu))
 
     def g_dot_u(self, t, q, format="coo", coo=None):
         if coo is None:
@@ -617,81 +453,6 @@ class System:
     def zeta_g(self, t, q, u):
         return self.g_ddot(t, q, u, np.zeros(self.nu))
 
-    #########################################
-    # bilateral constraints on velocity level
-    #########################################
-    def gamma(self, t, q, u):
-        gamma = np.zeros(self.nla_gamma, dtype=float)
-        for contr in self.__gamma_contr:
-            gamma[contr.la_gammaDOF] = contr.gamma(t, q[contr.qDOF], u[contr.uDOF])
-        return gamma
-
-    # TODO: Assemble chi_gamma for efficency
-    def chi_gamma(self, t, q):
-        return self.gamma(t, q, np.zeros(self.nu))
-
-    def gamma_q(self, t, q, u, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_gamma, self.nq))
-        for i, contr in enumerate(self.__gamma_contr):
-            coo[i, contr.la_gammaDOF, contr.qDOF] = contr.gamma_q(
-                t, q[contr.qDOF], u[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    def gamma_u(self, t, q, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_gamma, self.nu))
-        for i, contr in enumerate(self.__gamma_contr):
-            coo[i, contr.la_gammaDOF, contr.uDOF] = contr.gamma_u(t, q[contr.qDOF])
-        return coo.asformat(format)
-
-    def gamma_dot(self, t, q, u, u_dot):
-        gamma_dot = np.zeros(self.nla_gamma, dtype=float)
-        for contr in self.__gamma_contr:
-            gamma_dot[contr.la_gammaDOF] = contr.gamma_dot(
-                t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
-            )
-        return gamma_dot
-
-    def gamma_dot_q(self, t, q, u, u_dot, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_gamma, self.nq))
-        for i, contr in enumerate(self.__gamma_contr):
-            coo[i, contr.la_gammaDOF, contr.qDOF] = contr.gamma_dot_q(
-                t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    def gamma_dot_u(self, t, q, u, u_dot, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_gamma, self.nu))
-        for i, contr in enumerate(self.__gamma_contr):
-            coo[i, contr.la_gammaDOF, contr.uDOF] = contr.gamma_dot_u(
-                t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    # TODO: Assemble zeta_gamma for efficency
-    def zeta_gamma(self, t, q, u):
-        return self.gamma_dot(t, q, u, np.zeros(self.nu))
-
-    def W_gamma(self, t, q, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nu, self.nla_gamma))
-        for i, contr in enumerate(self.__gamma_contr):
-            coo[i, contr.uDOF, contr.la_gammaDOF] = contr.W_gamma(t, q[contr.qDOF])
-        return coo.asformat(format)
-
-    def Wla_gamma_q(self, t, q, la_gamma, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nu, self.nq))
-        for i, contr in enumerate(self.__gamma_contr):
-            coo[i, contr.uDOF, contr.qDOF] = contr.Wla_gamma_q(
-                t, q[contr.qDOF], la_gamma[contr.la_gammaDOF]
-            )
-        return coo.asformat(format)
-
     #####################################################
     # stabilization conditions for the kinematic equation
     #####################################################
@@ -708,166 +469,4 @@ class System:
             coo[i, contr.la_SDOF, contr.qDOF] = contr.g_S_q(t, q[contr.qDOF])
         return coo.asformat(format)
 
-    #################
-    # normal contacts
-    #################
-    def g_N(self, t, q):
-        g_N = np.zeros(self.nla_N, dtype=q.dtype)
-        for contr in self.__g_N_contr:
-            g_N[contr.la_NDOF] = contr.g_N(t, q[contr.qDOF])
-        return g_N
-
-    def g_N_q(self, t, q, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_N, self.nq))
-        for i, contr in enumerate(self.__g_N_contr):
-            coo[i, contr.la_NDOF, contr.qDOF] = contr.g_N_q(t, q[contr.qDOF])
-        return coo.asformat(format)
-
-    def W_N(self, t, q, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nu, self.nla_N))
-        for i, contr in enumerate(self.__g_N_contr):
-            coo[i, contr.uDOF, contr.la_NDOF] = contr.W_N(t, q[contr.qDOF])
-        return coo.asformat(format)
-
-    def g_N_dot(self, t, q, u):
-        g_N_dot = np.zeros(self.nla_N, dtype=float)
-        for contr in self.__g_N_contr:
-            g_N_dot[contr.la_NDOF] = contr.g_N_dot(t, q[contr.qDOF], u[contr.uDOF])
-        return g_N_dot
-
-    def g_N_ddot(self, t, q, u, u_dot):
-        g_N_ddot = np.zeros(self.nla_N, dtype=float)
-        for contr in self.__g_N_contr:
-            g_N_ddot[contr.la_NDOF] = contr.g_N_ddot(
-                t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
-            )
-        return g_N_ddot
-
-    def xi_N(self, t_pre, t_post, q_pre, q_post, u_pre, u_post):
-        xi_N = np.zeros(self.nla_N, dtype=float)
-        for contr in self.__g_N_contr:
-            xi_N[contr.la_NDOF] = contr.g_N_dot(
-                t_post, q_post[contr.qDOF], u_post[contr.uDOF]
-            ) + contr.e_N * contr.g_N_dot(t_pre, q_pre[contr.qDOF], u_pre[contr.uDOF])
-        return xi_N
-
-    def xi_N_q(self, t_post, q_post, u_post, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_N, self.nq))
-        for i, contr in enumerate(self.__g_N_contr):
-            coo[i, contr.la_NDOF, contr.qDOF] = contr.g_N_dot_q(
-                t_post, q_post[contr.qDOF], u_post[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    # TODO: Assemble chi_N for efficency
-    def chi_N(self, t, q):
-        return self.g_N_dot(t, q, np.zeros(self.nu), dtype=q.dtype)
-
-    def g_N_dot_u(self, t, q, format="coo", coo=None):
-        warnings.warn(
-            "We assume g_N_dot_u(t, q) == W_N(t, q).T. This function will be deleted soon!"
-        )
-        if coo is None:
-            coo = CooMatrix((self.nla_N, self.nu))
-        for i, contr in enumerate(self.__g_N_contr):
-            coo[i, contr.la_NDOF, contr.uDOF] = contr.g_N_dot_u(t, q[contr.qDOF])
-        return coo.asformat(format)
-
-    def Wla_N_q(self, t, q, la_N, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nu, self.nq))
-        for i, contr in enumerate(self.__g_N_contr):
-            coo[i, contr.uDOF, contr.qDOF] = contr.Wla_N_q(
-                t, q[contr.qDOF], la_N[contr.la_NDOF]
-            )
-        return coo.asformat(format)
-
-    #################
-    # friction
-    #################
-    def gamma_F(self, t, q, u):
-        gamma_F = np.zeros(self.nla_F, dtype=float)
-        for contr in self.__gamma_F_contr:
-            gamma_F[contr.la_FDOF] = contr.gamma_F(t, q[contr.qDOF], u[contr.uDOF])
-        return gamma_F
-
-    def gamma_F_dot(self, t, q, u, u_dot):
-        gamma_F_dot = np.zeros(self.nla_F, dtype=float)
-        for contr in self.__gamma_F_contr:
-            gamma_F_dot[contr.la_FDOF] = contr.gamma_F_dot(
-                t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
-            )
-        return gamma_F_dot
-
-    def xi_F(self, t_pre, t_post, q_pre, q_post, u_pre, u_post):
-        xi_F = np.zeros(self.nla_F, dtype=float)
-        for contr in self.__gamma_F_contr:
-            xi_F[contr.la_FDOF] = contr.gamma_F(
-                t_post, q_post[contr.qDOF], u_post[contr.uDOF]
-            ) + contr.e_F * contr.gamma_F(t_pre, q_pre[contr.qDOF], u_pre[contr.uDOF])
-        return xi_F
-
-    def xi_F_q(self, t_post, q_post, u_post, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_F, self.nq))
-        for i, contr in enumerate(self.__gamma_F_contr):
-            coo[i, contr.la_FDOF, contr.qDOF] = contr.gamma_F_q(
-                t_post, q_post[contr.qDOF], u_post[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    def gamma_F_q(self, t, q, u, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_F, self.nq))
-        for i, contr in enumerate(self.__gamma_F_q_contr):
-            coo[i, contr.la_FDOF, contr.qDOF] = contr.gamma_F_q(
-                t, q[contr.qDOF], u[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    def gamma_F_u(self, t, q, format="coo", coo=None):
-        warnings.warn(
-            "We assume gamma_F_u(t, q) == W_F(t, q).T. This function will be deleted soon!"
-        )
-        if coo is None:
-            coo = CooMatrix((self.nla_F, self.nu))
-        for i, contr in enumerate(self.__gamma_F_contr):
-            coo[i, contr.la_FDOF, contr.uDOF] = contr.gamma_F_u(t, q[contr.qDOF])
-        return coo.asformat(format)
-
-    def gamma_F_dot_q(self, t, q, u, u_dot, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_F, self.nq))
-        for i, contr in enumerate(self.__gamma_F_contr):
-            coo[i, contr.la_FDOF, contr.qDOF] = contr.gamma_F_dot_q(
-                t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    def gamma_F_dot_u(self, t, q, u, u_dot, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nla_F, self.nu))
-        for i, contr in enumerate(self.__gamma_F_contr):
-            coo[i, contr.la_FDOF, contr.uDOF] = contr.gamma_F_dot_u(
-                t, q[contr.qDOF], u[contr.uDOF], u_dot[contr.uDOF]
-            )
-        return coo.asformat(format)
-
-    def W_F(self, t, q, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nu, self.nla_F))
-        for i, contr in enumerate(self.__gamma_F_contr):
-            coo[i, contr.uDOF, contr.la_FDOF] = contr.W_F(t, q[contr.qDOF])
-        return coo.asformat(format)
-
-    def Wla_F_q(self, t, q, la_F, format="coo", coo=None):
-        if coo is None:
-            coo = CooMatrix((self.nu, self.nq))
-        for i, contr in enumerate(self.__gamma_F_contr):
-            coo[i, contr.uDOF, contr.qDOF] = contr.Wla_F_q(
-                t, q[contr.qDOF], la_F[contr.la_FDOF]
-            )
-        return coo.asformat(format)
+  

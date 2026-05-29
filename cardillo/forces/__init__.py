@@ -1,3 +1,3 @@
-from .force import Force, B_Force
-from .moment import Moment, B_Moment
+from .force import Force
+from .moment import B_Moment
 from .tendon import TendonForce

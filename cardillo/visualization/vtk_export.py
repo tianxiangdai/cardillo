@@ -130,7 +130,6 @@ class Export:
 
         frames = target_frames
         keys = [*solution.__dict__.keys()]
-        keys.remove("solver_summary")
         keys.remove("system")
 
         new_solution = {}
@@ -141,7 +140,6 @@ class Export:
                 new_solution[key] = None
         self.solution = Solution(
             system=solution.system,
-            solver_summary=solution.solver_summary,
             **new_solution,
         )
 

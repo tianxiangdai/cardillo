@@ -25,10 +25,7 @@ class Solution:
         u=None,
         u_dot=None,
         la_g=None,
-        la_gamma=None,
         la_c=None,
-        la_N=None,
-        la_F=None,
         **kwargs,
     ):
         self.system = system
@@ -37,53 +34,24 @@ class Solution:
         self.u = u
         self.u_dot = u_dot
         self.la_g = la_g
-        self.la_gamma = la_gamma
         self.la_c = la_c
-        self.la_N = la_N
-        self.la_F = la_F
-        self.solver_summary = None
 
         self.__dict__.update(**kwargs)
 
     def save(self, filename):
         save_solution(self, filename)
 
+    def _get_value(self, key, idx):
+        r = self.__dict__[key]
+        if r is None:
+            return None
+        else:
+            return r[idx]
+        
+
     def __iter__(self):
-        return self.SolutionIterator(self)
+        keys = [k for k in self.__dict__ if k not in ["system"]]
+        Result = namedtuple("Result", keys)
 
-    class SolutionIterator:
-        def __init__(self, solution) -> None:
-            self._solution = solution
-            self.keys = [*self._solution.__dict__.keys()]
-            # remove non-iterable keys
-            self.keys.remove("solver_summary")
-            self.keys.remove("system")
-
-            self._index = 0
-            self._retVal = namedtuple("Result", self.keys)
-
-        def __next__(self):
-            if self._index < len(self._solution.t):
-                try:
-                    result = self._retVal(
-                        *(
-                            (
-                                None
-                                if self._solution.__getattribute__(key) is None
-                                else (
-                                    self._solution.__getattribute__(key)[:, self._index]
-                                    if self._solution.__getattribute__(key).shape[0]
-                                    == 0
-                                    else self._solution.__getattribute__(key)[
-                                        self._index
-                                    ]
-                                )
-                            )
-                            for key in self.keys
-                        )
-                    )
-                except:
-                    RuntimeWarning("Solution iterator failed.")
-                self._index += 1
-                return result
-            raise StopIteration
+        for idx in range(len(self.t)):
+            yield Result(*(self._get_value(k, idx) for k in keys))

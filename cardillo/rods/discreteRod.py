@@ -8,7 +8,7 @@ from numba import njit
 
 import vtk
 
-from cardillo.math_numba import (
+from cardillo.math import (
     norm,
     cross3,
     ax2skew,
@@ -23,7 +23,7 @@ from cardillo.rods import CrossSectionInertias, CircularCrossSection
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
 from ..utility.cachetools import MyLRUCache
-from ..visualization.vtk_render2 import VisualDiscreteRod
+from ..visualization.vtk_render import VisualDiscreteRod
 
 
 from .marker import Marker

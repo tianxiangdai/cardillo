@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 
-from cardillo.math_numba import cross3, ax2skew, Exp_SO3_quat, Exp_SO3_quat_P
+from cardillo.math import cross3, ax2skew, Exp_SO3_quat, Exp_SO3_quat_P
 from ..utility.cachetools import MyLRUCache
 
 
