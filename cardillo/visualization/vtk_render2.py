@@ -7,7 +7,6 @@ from vtk.util.numpy_support import numpy_to_vtk
 from cardillo.interactions.n_point_interaction import nPointInteraction
 
 from cardillo.rods import CircularCrossSection
-from cardillo.rods._base import CosseratRod_PetrovGalerkin
 from cardillo.solver.solution import Solution
 from cardillo import math_jax
 

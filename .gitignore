@@ -55,3 +55,5 @@ myvenv
 
 # profiling results
 *.prof
+
+.venv/

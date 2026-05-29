@@ -5,7 +5,6 @@ from scipy.sparse import diags
 
 from cardillo.utility.coo_matrix import CooMatrix
 from cardillo.discrete.frame import Frame
-from cardillo.discrete.meshed import Axis
 from cardillo.solver import consistent_initial_conditions
 from cardillo.visualization import Export
 
@@ -42,9 +41,6 @@ class System:
     ----------
     t0 : float
         Initial time of the initial state of the system.
-    origin_size: float
-        Origin size for trimesh visualization.
-        If origin_size>0, the origin of the system is added as trimesh.axis with the specified origin size. Otherwise the system origin is just a cardillo Frame.
 
     Notes
     -----
@@ -66,7 +62,7 @@ class System:
 
     """
 
-    def __init__(self, t0=0.0, origin_size=0):
+    def __init__(self, t0=0.0):
         self.t0 = t0
         self.nq = 0
         self.nu = 0
@@ -83,10 +79,7 @@ class System:
         self.contributions_map = {}
         self.ncontr = 0
 
-        if origin_size > 0:
-            self.origin = Axis(Frame)(origin_size=origin_size)
-        else:
-            self.origin = Frame()
+        self.origin = Frame()
 
         self.origin.name = "cardillo_origin"
         self.add(self.origin)
