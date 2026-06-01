@@ -13,8 +13,6 @@ from cardillo.solver import Newton, SolverOptions
 from cardillo.rods import CircularCrossSection
 from cardillo.rods.discreteRod import DiscreteRod
 
-
-
 if __name__ == "__main__":
     nelements = 600
     slenderness = 1e2
@@ -26,7 +24,7 @@ if __name__ == "__main__":
 
     list_nnodes = []
     list_diff_r_OC = []
-    for nnodes in 10**np.arange(2,4):
+    for nnodes in 10 ** np.arange(2, 4):
         nelements = nnodes - 1
         list_nnodes.append(nelements)
         # handle name
@@ -81,7 +79,8 @@ if __name__ == "__main__":
         # create rod
         rod = DiscreteRod(
             cross_section,
-            E, G,
+            E,
+            G,
             nelements,
             Q=q0,
             q0=q0,
@@ -98,7 +97,7 @@ if __name__ == "__main__":
         # applied moment
         ################
         Fi = np.array([G, E, E]) * cross_section.second_moment(0).diagonal()
-        M = lambda t: (c * e1 * Fi[0] + e3 * Fi[2]) / (R0*(1+c**2)) * t
+        M = lambda t: (c * e1 * Fi[0] + e3 * Fi[2]) / (R0 * (1 + c**2)) * t
         moment = B_Moment(M, rod.get_marker(1), 1)
         system.add(moment)
 
@@ -109,6 +108,7 @@ if __name__ == "__main__":
         solver = Newton(
             system,
             n_load_steps=n_load_steps,
+            options=SolverOptions(newton_atol=1e-10, newton_rtol=1e-6),
         )
 
         # warm up
@@ -129,6 +129,7 @@ if __name__ == "__main__":
         dir_name = Path(sys.argv[0]).parent
         if VTK_export:
             from cardillo.visualization import VisualDiscreteRod
+
             VisualDiscreteRod(rod)
             system.export(dir_name, f"vtk/variable_cross_section", sol)
         la_c = sol.la_c
@@ -136,34 +137,47 @@ if __name__ == "__main__":
 
         print(f"time jax      : {t_sim:.2f} s")
 
-
         r_OCs = q[-1, rod.qDOF].reshape((-1, 7), order="C")[:, :3]
 
-
         from mpl_toolkits.mplot3d import Axes3D
-        
+
         def r_OC_ref(xi):
-            if xi <= 2/3:
-                r = R0 * np.array([-np.sin(alpha(xi)), np.cos(alpha(xi)), c * alpha(xi)])
+            if xi <= 2 / 3:
+                r = R0 * np.array(
+                    [-np.sin(alpha(xi)), np.cos(alpha(xi)), c * alpha(xi)]
+                )
             else:
-                beta = alpha(2*(xi-2/3))
-                r = np.array([0, R0/2, h]) + R0/2 * np.array([-np.sin(beta), np.cos(beta), c * beta])
+                beta = alpha(2 * (xi - 2 / 3))
+                r = np.array([0, R0 / 2, h]) + R0 / 2 * np.array(
+                    [-np.sin(beta), np.cos(beta), c * beta]
+                )
             return r
+
         r_OC_refs = np.array([r_OC_ref(xi) for xi in rod.xi_node])
-        
+
         diff_r_OC = r_OC_refs - r_OCs
-        assert nelements*2%3 == 0
-        list_diff_r_OC.append(diff_r_OC[[nelements*2//3, nelements]])
+        assert nelements * 2 % 3 == 0
+        list_diff_r_OC.append(diff_r_OC[[nelements * 2 // 3, nelements]])
     list_diff_r_OC = np.array(list_diff_r_OC)
     ######
     # plot
     ######
     plt.figure()
-    plt.plot(list_nnodes, np.linalg.norm(list_diff_r_OC[:, 0], axis=1), "-bx", label="mid")
-    plt.plot(list_nnodes, np.linalg.norm(list_diff_r_OC[:, 1], axis=1), "-rx", label="end")
+    plt.plot(
+        list_nnodes, np.linalg.norm(list_diff_r_OC[:, 0], axis=1), "-bx", label="mid"
+    )
+    plt.plot(
+        list_nnodes, np.linalg.norm(list_diff_r_OC[:, 1], axis=1), "-rx", label="end"
+    )
     plt.xscale("log")
     plt.yscale("log")
-    data = np.column_stack([list_nnodes, np.linalg.norm(list_diff_r_OC[:, 0], axis=1), np.linalg.norm(list_diff_r_OC[:, 1], axis=1)])
+    data = np.column_stack(
+        [
+            list_nnodes,
+            np.linalg.norm(list_diff_r_OC[:, 0], axis=1),
+            np.linalg.norm(list_diff_r_OC[:, 1], axis=1),
+        ]
+    )
     dir_name = Path(sys.argv[0]).parent
     # np.savetxt(
     #     dir_name / ".." / "latex src" / "figures" / "data_double_helix.csv",
@@ -190,13 +204,11 @@ if __name__ == "__main__":
     # ax1.set_box_aspect([1, 1, 1])
     ax1.axis("equal")
 
-
     la_c = rod._view_element_la_c(sol.la_c[-1])
-
 
     # Export for pgfplots
     n = la_c.shape[0]
-    indices = np.arange(1, n+1)
+    indices = np.arange(1, n + 1)
     data = np.column_stack([indices, la_c[:, 3], la_c[:, 5]])
     dir_name = Path(sys.argv[0]).parent
     # np.savetxt(

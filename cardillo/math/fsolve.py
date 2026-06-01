@@ -1,13 +1,10 @@
 import numpy as np
 from scipy.linalg import qr, solve_triangular, svd
-from scipy.sparse import csc_array
-from scipy.sparse.linalg import spsolve, splu
-from scipy.sparse.linalg._dsolve._superlu import SuperLU
+from scipy.sparse.linalg import spsolve
 from scipy.optimize import OptimizeResult
 from warnings import warn
 
 from cardillo.math import norm
-from cardillo.math.approx_fprime import approx_fprime
 from cardillo.solver import SolverOptions
 
 
@@ -195,38 +192,11 @@ def fsolve(
         nfev += 1
         return np.atleast_1d(f(x, *fun_args))
 
-    # compute Jacobian matrix using finite differences
-    if jac is None or options.numerical_jacobian_method:
-
-        def jacobian(x, *args):
-            nonlocal njev
-            njev += 1
-            return csc_array(
-                approx_fprime(
-                    x,
-                    lambda y: fun(y, *args),
-                    method=options.numerical_jacobian_method,
-                    eps=options.numerical_jacobian_eps,
-                )
-            )
-
-    else:
-        # do inexact newton with given LU-decomposition
-        if isinstance(jac, SuperLU):
-            inexact = True
-            lu = jac
-        else:
-            assert callable(jac), "user-defined jacobian must be callable"
-
-            # wrap jacobian
-            def jacobian(x, *args):
-                nonlocal njev
-                njev += 1
-                return jac(x, *args)
-
-            if inexact:
-                lu = splu(jacobian(x0, *jac_args))
-                njev += 1
+    # wrap jacobian
+    def jacobian(x, *args):
+        nonlocal njev
+        njev += 1
+        return jac(x, *args)
 
     # tolerences
     tol_abs = options.newton_atol
@@ -244,10 +214,7 @@ def fsolve(
     if not converged:
         for i in range(options.newton_max_iter):
             # Newton step
-            if inexact:
-                dx = lu.solve(-f)
-            else:
-                dx = options.linear_solver(jacobian(x, *jac_args), -f)
+            dx = options.linear_solver(jacobian(x, *jac_args), -f)
             x += dx
 
             # new function value, error

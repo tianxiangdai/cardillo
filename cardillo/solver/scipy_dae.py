@@ -85,14 +85,12 @@ class ScipyDAE:
 
         # data allocation
         self.F = np.zeros(self.ny, dtype=float)
-        self.g_q1 = self.g_q1_T = self.W_g1 = self.W_gamma1 = (
-            self.W_c1
-        ) = None
+        self.g_q1 = self.g_q1_T = self.W_g1 = self.W_gamma1 = self.W_c1 = None
         self.q_dot_q = self.q_dot_u = None
 
-        self.Mu_q = self.h_q = self.h_u = (
-            self.Wla_g_q
-        ) = self.Wla_gamma_q = self.Wla_c_q = None
+        self.Mu_q = self.h_q = self.h_u = self.Wla_g_q = self.Wla_gamma_q = (
+            self.Wla_c_q
+        ) = None
         self.g_dot_q = self.g_dot_u = self.gamma_q = self.gamma_u = self.c_q = (
             self.c_u
         ) = None
@@ -139,7 +137,7 @@ class ScipyDAE:
             g_q = self.g_q1 = self.system.g_q(t, q, format="Coo", coo=self.g_q1)
             g_q_T = self.g_q1_T = g_q.transpose(copy=False, coo=self.g_q1_T)
             F0 -= g_q_T.asformat("coo") @ mu_g
-        F[: s0] = F0
+        F[:s0] = F0
         ####################
         # equations of motion
         ####################
@@ -153,20 +151,20 @@ class ScipyDAE:
         if sys.nla_c:
             W_c = self.W_c1 = self.system.W_c(t, q, format="Coo", coo=self.W_c1)
             F1 -= W_c.asformat("coo") @ la_c
-        F[s0 : s1] = F1
+        F[s0:s1] = F1
 
         #######################
         # bilateral constraints
         #######################
         if sys.nla_g:
-            F[s1 : s2] = self.system.g(t, q)
-            F[s2 : s3] = self.system.g_dot(t, q, u)
+            F[s1:s2] = self.system.g(t, q)
+            F[s2:s3] = self.system.g_dot(t, q, u)
 
         ############
         # compliance
         ############
         if sys.nla_c:
-            F[s3 :] = self.system.c(t, q, u, la_c)
+            F[s3:] = self.system.c(t, q, u, la_c)
 
         return F
 
@@ -200,7 +198,6 @@ class ScipyDAE:
         Jy["Mu_q", s0:s1, :s0] = Mu_q
         Jy["h_q", s0:s1, :s0] = -h_q
         Jy["h_u", s0:s1, s0:s1] = -h_u
-
 
         if sys.nla_g:
             Wla_g_q = self.Wla_g_q = self.system.Wla_g_q(

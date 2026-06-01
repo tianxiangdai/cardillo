@@ -3,7 +3,6 @@ import warnings
 import numpy as np
 
 from cardillo.math import ax2skew, cross3
-from cardillo.math.approx_fprime import approx_fprime
 from .rods.discreteRod import DiscreteRod
 
 
@@ -52,7 +51,6 @@ def concatenate_uDOF(object):
     return local_uDOF1, local_uDOF2
 
 
-
 class RigidConnection:
     def __init__(
         self,
@@ -66,8 +64,7 @@ class RigidConnection:
         **kwargs,
     ):
         self.name = name
-        projection_pairs_rotation=[(1, 2), (2, 0), (0, 1)]
-
+        projection_pairs_rotation = [(1, 2), (2, 0), (0, 1)]
 
         if isinstance(subsystem1, DiscreteRod):
             subsystem1 = subsystem1.get_marker(xi1)
@@ -143,7 +140,6 @@ class RigidConnection:
             self.B2_r_P2J0 = np.zeros(3)
             self.A_K2J0 = None  # unused
             assert self.nla_g_rot == 0  # Spherical case
-
 
     # auxiliary functions
     def r_OJ1(self, t, q):
@@ -559,5 +555,3 @@ class RigidConnection:
                 )
 
         return Wla_g_q
-
-

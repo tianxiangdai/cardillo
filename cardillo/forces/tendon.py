@@ -20,7 +20,7 @@ class TendonForce:
             self.n_subsystems * [np.zeros(3)] if B_r_CP_list is None else B_r_CP_list
         )
         self.name = name
-        
+
         self.n_subsystems = len(subsystem_list)
 
         self.r_OPk_cache = MyLRUCache(maxsize=self.n_subsystems * 5)

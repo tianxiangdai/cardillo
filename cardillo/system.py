@@ -15,7 +15,7 @@ properties.extend(["h", "h_q", "h_u"])
 
 properties.extend(["q_dot", "q_dot_q", "q_dot_u"])
 
-properties.extend(["g"]) 
+properties.extend(["g"])
 
 properties.extend(["c", "c_q", "c_u"])
 
@@ -25,6 +25,7 @@ properties.extend(["assembler_callback", "step_callback"])
 
 
 IS_CLOSE_ATOL = 1e-8
+
 
 def consistent_initial_conditions(
     system,
@@ -72,7 +73,6 @@ def consistent_initial_conditions(
     W_c = system.W_c(t0, q0)
     la_c0 = system.la_c(t0, q0, u0)
 
-
     split_x = np.cumsum(
         [
             system.nu,
@@ -99,12 +99,10 @@ def consistent_initial_conditions(
         ]
     )
 
-
     x0 = np.zeros(system.nu + system.nla_g)
 
     # compute accelerations and constraints without contacts
     x0 = lu.solve(b0)
-
 
     u_dot0, la_g0 = np.array_split(x0, split_x)
 
@@ -310,7 +308,6 @@ class System:
                 contr.la_SDOF = np.arange(0, contr.nla_S) + self.nla_S
                 self.nla_S += contr.nla_S
 
-
         # call assembler callback: call methods that require first an assembly of the system
         self.assembler_callback()
 
@@ -493,7 +490,6 @@ class System:
             )
         return coo.asformat(format)
 
-
     #########################################
     # bilateral constraints on position level
     #########################################
@@ -575,5 +571,3 @@ class System:
         for i, contr in enumerate(self.__g_S_contr):
             coo[i, contr.la_SDOF, contr.qDOF] = contr.g_S_q(t, q[contr.qDOF])
         return coo.asformat(format)
-
-  

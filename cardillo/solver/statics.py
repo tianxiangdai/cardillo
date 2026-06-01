@@ -58,9 +58,9 @@ class Newton:
         # memory allocation
         self.x = np.zeros((self.nt, self.nx), dtype=float)
         self.x[0] = x0
-        self._W_g_coo = self._W_c_coo = self._h_q_coo = (
-            self._Wla_g_q_coo
-        ) = self._Wla_c_q_coo = self._c_q_coo = self._g_q_coo = self._g_S_q_coo = None
+        self._W_g_coo = self._W_c_coo = self._h_q_coo = self._Wla_g_q_coo = (
+            self._Wla_c_q_coo
+        ) = self._c_q_coo = self._g_q_coo = self._g_S_q_coo = None
         self._jac_coo = CooMatrix((self.nx, self.nx))
 
     def fun(self, x, t):
@@ -80,11 +80,7 @@ class Newton:
 
         # static equilibrium
         F = np.zeros_like(x)
-        F[:r0] = (
-            self.system.h(t, q, self.u0)
-            + self.W_g @ la_g
-            + self.W_c @ la_c
-        )
+        F[:r0] = self.system.h(t, q, self.u0) + self.W_g @ la_g + self.W_c @ la_c
         F[r0:r1] = self.system.g(t, q)
         F[r1:r2] = self.system.c(t, q, self.u0, la_c)
         F[r2:r3] = self.system.g_S(t, q)
@@ -118,7 +114,6 @@ class Newton:
         jac["h_q", :r0, :c0] = self._h_q_coo
         jac["Wla_g_q", :r0, :c0] = self._Wla_g_q_coo
         jac["Wla_c_q", :r0, :c0] = self._Wla_c_q_coo
-
 
         jac["W_g", :r0, c0:c1] = self.W_g
         jac["W_c", :r0, c1:c2] = self.W_c

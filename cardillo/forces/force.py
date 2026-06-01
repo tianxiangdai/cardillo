@@ -40,4 +40,3 @@ class Force:
 
     def h_q(self, t, q, u):
         return einsum("i,ijk->jk", self.force(t), self.J_P_q(t, q))
-

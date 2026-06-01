@@ -47,7 +47,6 @@ class Solution:
             return None
         else:
             return r[idx]
-        
 
     def __iter__(self):
         keys = [k for k in self.__dict__ if k not in ["system"]]

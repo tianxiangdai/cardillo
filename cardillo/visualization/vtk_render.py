@@ -400,9 +400,7 @@ class VisualCoordSystem(_VisualvtkSource):
 
 
 class VisualTendon(_VisualTwinBase):
-    def __init__(
-        self, tendon, radius=1e-3, color=(255, 255, 255), opacity=1
-    ):
+    def __init__(self, tendon, radius=1e-3, color=(255, 255, 255), opacity=1):
         super().__init__(tendon)
         poly_data = vtk.vtkPolyData()
         # points

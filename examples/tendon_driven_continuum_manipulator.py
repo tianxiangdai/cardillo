@@ -12,7 +12,7 @@ from cardillo.solver import Newton, SolverOptions
 from cardillo.system import System
 
 if __name__ == "__main__":
-    rod_nelement = 100 # number of elements for the rod discretization
+    rod_nelement = 100  # number of elements for the rod discretization
     VTK_export = False
     csv_export = False
     # ---- parameters ----
@@ -20,7 +20,7 @@ if __name__ == "__main__":
     rod_l0 = 95e-3  # [m] length of the rod
     # rod_m = 0.433 * 2  # [kg] mass of the rod
     # density = rod_m / (
-        # np.pi * rod_r0**2 * rod_l0
+    # np.pi * rod_r0**2 * rod_l0
     # )  # [kg/m^3] density of the rod material
     rod_r_ratio = (
         0.4  # radius ratio of the rod along its length (tip radius / base radius)
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     ##################
     ## build system ##
     ##################
-    
+
     # ---- system ----
     system = System()
 
@@ -59,7 +59,8 @@ if __name__ == "__main__":
 
     rod = Rod(
         cross_section,
-        E, G,
+        E,
+        G,
         rod_nelement,
         Q=Q,
         q0=q0,
@@ -79,7 +80,9 @@ if __name__ == "__main__":
                     0,
                 ]
             )
-            for xi in np.linspace(0, 1, rod_nelement + 1) # TODO: check why not converge without //2
+            for xi in np.linspace(
+                0, 1, rod_nelement + 1
+            )  # TODO: check why not converge without //2
         ]
         for phi in np.linspace(0, 2 * np.pi, 1, endpoint=False)
     ]
@@ -104,17 +107,19 @@ if __name__ == "__main__":
     system.add(rc)
     system.assemble()
 
-    
     ############
     ## solver ##
     ############
     F0 = 4
     tendons[0].la = lambda t: F0 * t
-    solver = Newton(system, n_load_steps=8, options=SolverOptions(newton_atol = 1e-10, newton_rtol = 1e-6))
+    solver = Newton(
+        system,
+        n_load_steps=8,
+        options=SolverOptions(newton_atol=1e-10, newton_rtol=1e-6),
+    )
 
     sol = solver.solve()
 
-    
     ############
     # VTK export
     ############
@@ -125,7 +130,6 @@ if __name__ == "__main__":
         system.export(dir_name, f"vtk/tendon_robot_{rod_nelement}", sol, fps=50)
         print("finished")
 
-        
     #################
     # visualization #
     #################
@@ -206,5 +210,5 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show(block=True)
-    
-    plotter.render_solution(sol, True, play_speed_up=.1)
+
+    plotter.render_solution(sol, True, play_speed_up=0.1)

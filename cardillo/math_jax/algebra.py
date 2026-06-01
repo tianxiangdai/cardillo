@@ -1,14 +1,5 @@
-import jax
 import jax.numpy as jnp
 from jax import jit, vmap
-
-jax.config.update("jax_enable_x64", True)
-
-
-@jit
-def norm(a: jnp.ndarray) -> float:
-    """Euclidean norm of an array of arbitrary length."""
-    return jnp.linalg.norm(a)
 
 
 @jit
@@ -35,49 +26,3 @@ def ax2skew_squared(a: jnp.ndarray) -> jnp.ndarray:
         [             a3 * a1,              a3 * a2, -a1**2 - a2**2],
     ], dtype=jnp.float64)
     # fmt: on
-
-
-@jit
-def skew2ax(A: jnp.ndarray) -> jnp.ndarray:
-    """Computes the axial vector from a skew symmetric 3x3 matrix."""
-    # fmt: off
-    return 0.5 * jnp.array([A[2, 1] - A[1, 2], 
-                            A[0, 2] - A[2, 0], 
-                            A[1, 0] - A[0, 1]], dtype=jnp.float64)
-    # fmt: on
-
-
-@jit
-def ax2skew_a() -> jnp.ndarray:
-    """
-    Partial derivative of the `ax2skew` function with respect to its argument.
-
-    Note:
-    -----
-    This is a constant 3x3x3 ndarray."""
-    return jnp.array(
-        [
-            [[0.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]],
-            [[0.0, 0.0, 1.0], [0.0, 0.0, 0.0], [-1.0, 0.0, 0.0]],
-            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
-        ],
-        dtype=jnp.float64,
-    )
-
-
-@jit
-def skew2ax_A() -> jnp.ndarray:
-    """
-    Partial derivative of the `skew2ax` function with respect to its argument.
-
-    Note:
-    -----
-    This is a constant 3x3x3 ndarray."""
-    return jnp.array(
-        [
-            [[0.0, 0.0, 0.0], [0.0, 0.0, -0.5], [0.0, 0.5, 0.0]],
-            [[0.0, 0.0, 0.5], [0.0, 0.0, 0.0], [-0.5, 0.0, 0.0]],
-            [[0.0, -0.5, 0.0], [0.5, 0.0, 0.0], [0.0, 0.0, 0.0]],
-        ],
-        dtype=jnp.float64,
-    )

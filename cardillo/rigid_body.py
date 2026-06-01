@@ -166,15 +166,12 @@ class RigidBody:
     def local_uDOF_P(self, xi=None):
         return np.arange(self.nu)
 
-
     def A_IB(self, t, q, xi=None):
         return Exp_SO3_quat(q[3:])
-
 
     def A_IB_q(self, t, q, xi=None):
         self._A_IB_q[:, :, 3:] = Exp_SO3_quat_P(q[3:])
         return self._A_IB_q
-
 
     def r_OP(self, t, q, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         return q[:3] + self.A_IB(t, q) @ B_r_CP if B_r_CP.any() else q[:3]
@@ -185,7 +182,6 @@ class RigidBody:
         if B_r_CP.any():
             self._r_OP_q += B_r_CP @ self.A_IB_q(t, q)
         return self._r_OP_q
-
 
     def v_P(self, t, q, u, xi=None, B_r_CP=np.zeros(3, dtype=float)):
         return (

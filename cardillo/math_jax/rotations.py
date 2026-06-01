@@ -1,11 +1,7 @@
-import numpy as np
-import jax
 import jax.numpy as jnp
 from jax import jit, jacfwd, vmap
 
 from .algebra import ax2skew, ax2skew_squared
-
-jax.config.update("jax_enable_x64", True)
 
 eye3 = jnp.eye(3, dtype=jnp.float64)
 
@@ -34,7 +30,6 @@ def Exp_SO3_quat(P, normalize: bool = True):
 Exp_SO3_quat_batch = jit(vmap(Exp_SO3_quat, in_axes=(0, None)))
 
 Exp_SO3_quat_P = jit(jacfwd(Exp_SO3_quat, argnums=0))
-Exp_SO3_quat_P_batch = jit(vmap(jacfwd(Exp_SO3_quat, argnums=0), in_axes=(0, None)))
 
 
 @jit
@@ -54,10 +49,7 @@ def T_SO3_quat(P, normalize=True):
     )
 
 
-T_SO3_quat_batch = jit(vmap(T_SO3_quat, in_axes=(0, None)))
-
 T_SO3_quat_P = jit(jacfwd(T_SO3_quat, argnums=0))
-T_SO3_quat_P_batch = jit(vmap(jacfwd(T_SO3_quat, argnums=0), in_axes=(0, None)))
 
 
 @jit
@@ -83,4 +75,3 @@ def T_SO3_inv_quat(P, normalize=True):
 T_SO3_inv_quat_batch = jit(vmap(T_SO3_inv_quat, in_axes=(0, None)))
 
 T_SO3_inv_quat_P = jit(jacfwd(T_SO3_inv_quat, argnums=0))
-T_SO3_inv_quat_P_batch = jit(vmap(jacfwd(T_SO3_inv_quat, argnums=0), in_axes=(0, None)))

@@ -74,7 +74,8 @@ class DiscreteRod:
     def __init__(
         self,
         cross_section,
-        E, G,
+        E,
+        G,
         nelement,
         Q,
         *,
@@ -95,7 +96,6 @@ class DiscreteRod:
         # centerline parameter of nodes
         self.xi_node = np.linspace(0, 1, self.nnode)
 
-
         Ei = lambda xi: np.array([E, G, G]) * cross_section.area(xi)
         Fi = lambda xi: np.array([G, E, E]) * cross_section.second_moment(xi).diagonal()
 
@@ -108,8 +108,8 @@ class DiscreteRod:
             xi = 0.5 * (self.xi_node[el] + self.xi_node[el + 1])
             K_ga_els.append(np.diag(Ei(xi)))
             K_ka_els.append(np.diag(Fi(xi)))
-            C_n_els.append(np.diag(1/Ei(xi)))
-            C_m_els.append(np.diag(1/Fi(xi)))
+            C_n_els.append(np.diag(1 / Ei(xi)))
+            C_m_els.append(np.diag(1 / Fi(xi)))
         self.K_ga_els = np.array(K_ga_els)
         self.K_ka_els = np.array(K_ka_els)
         self.C_n_els = np.array(C_n_els)

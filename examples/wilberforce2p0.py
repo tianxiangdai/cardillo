@@ -8,10 +8,9 @@ from cardillo import System
 from cardillo import RigidConnection
 from cardillo import RigidBody
 from cardillo.forces import Force
-from cardillo.math import e1, e2, e3, ax2skew
+from cardillo.math import e3
 from cardillo.rods import (
     CircularCrossSection,
-    CrossSectionInertias,
 )
 from cardillo.rods.force_line_distributed import Force_line_distributed
 from cardillo.solver import (
@@ -19,7 +18,6 @@ from cardillo.solver import (
     ScipyDAE,
 )
 from cardillo.rods.discreteRod import DiscreteRod
-
 
 if __name__ == "__main__":
     dir_name = Path(sys.argv[0]).parent
@@ -65,7 +63,6 @@ if __name__ == "__main__":
 
     A_rho0 = rho * cross_section.area(0)
 
-
     # helix and derivatives
     def r(xi, phi0=0):
         alpha = 2 * np.pi * nturns * xi
@@ -102,14 +99,14 @@ if __name__ == "__main__":
         dcurve,
         ddcurve,
         xi1=1,
-        # polynomial_degree=polynomial_degree,
         r_OP0=np.zeros(3, dtype=float),
         A_IB0=np.eye(3, dtype=float),
     )
 
     rod = DiscreteRod(
         cross_section,
-        E, G,
+        E,
+        G,
         nelements,
         Q=q0,
         q0=q0,
@@ -173,10 +170,10 @@ if __name__ == "__main__":
     )
     system.assemble()
 
-
     load_sol = False
     if load_sol:
         from cardillo.solver.solution import load_solution
+
         sol = load_solution(dir_name / "wilberforce2p0_sol.npy")
         sol.system = system
     else:
@@ -208,6 +205,7 @@ if __name__ == "__main__":
         sol = solver.solve()
         sol.system = None
         from cardillo.solver.solution import save_solution
+
         save_solution(sol, dir_name / "wilberforce2p0_sol.npy")
     # exit()
     q = sol.q
@@ -228,9 +226,8 @@ if __name__ == "__main__":
     )
     angles = np.unwrap(angles, axis=0)
 
-    
     # Export for pgfplots
-    data = np.column_stack([t[::10], r_OS[::10, 2],  np.rad2deg(angles[::10, 0])])
+    data = np.column_stack([t[::10], r_OS[::10, 2], np.rad2deg(angles[::10, 0])])
     dir_name = Path(sys.argv[0]).parent
     # np.savetxt(
     #     dir_name / ".." / "latex src" / "figures" / "data_wilberforce2p0.csv",
