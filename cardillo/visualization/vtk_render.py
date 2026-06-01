@@ -52,11 +52,6 @@ class VisualDiscreteRod(_VisualTwinBase):
             ]
             degrees = [2, 2, 1]
             ctype = vtk.VTK_BEZIER_WEDGE
-        # elif isinstance(rod.cross_section, RectangularCrossSection):
-        #     npts = 16
-        #     weights = [1] * 16
-        #     degrees = [1, 1, 3]
-        #     ctype = vtk.VTK_BEZIER_HEXAHEDRON
         else:
             raise NotImplementedError
 

@@ -37,14 +37,3 @@ class B_Moment:
 
     def h_q(self, t, q, u):
         return einsum("i,ijk->jk", self.moment(t), self.B_J_R_q(t, q))
-
-    def export(self, sol_i, **kwargs):
-        r_OP = self.subsystem.r_OP(sol_i.t, sol_i.q[self.qDOF], xi=self.xi)
-        A_IB = self.subsystem.A_IB(sol_i.t, sol_i.q[self.qDOF], xi=self.xi)
-        I_M = A_IB @ self.moment(sol_i.t)
-
-        points = [r_OP]
-        cells = [(VTK_VERTEX, [0])]
-        cell_data = dict(M=[I_M])
-        return points, cells, None, cell_data
-

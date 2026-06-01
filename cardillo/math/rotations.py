@@ -489,7 +489,7 @@ class A_IB_basic:
 
 
 @njit(cache=True)
-def Spurrier(R: np.ndarray) -> np.ndarray:
+def Log_SO3_quat(R: np.ndarray) -> np.ndarray:
     """
     Spurrier's algorithm to extract the unit quaternion from a given rotation
     matrix, see Spurrier19978, Simo1986 Table 12 and Crisfield1997 Section 16.10.
@@ -652,9 +652,6 @@ def Exp_SO3_quat_P(P, normalize=True):
         A_P[2, :, 3] += 2 * p
 
     return A_P
-
-
-Log_SO3_quat = Spurrier
 
 
 @njit(cache=True)

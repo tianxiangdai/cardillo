@@ -9,7 +9,7 @@ from cardillo.math import (
     Exp_SO3_quat_P,
     T_SO3_inv_quat,
     T_SO3_inv_quat_P,
-    Spurrier,
+    Log_SO3_quat,
 )
 
 eye3 = np.eye(3, dtype=float)
@@ -100,7 +100,7 @@ class RigidBody:
     #####################
     @staticmethod
     def pose2q(r_OC, A_IB):
-        return np.concatenate([r_OC, Spurrier(A_IB)])
+        return np.concatenate([r_OC, Log_SO3_quat(A_IB)])
 
     #####################
     # kinematic equations

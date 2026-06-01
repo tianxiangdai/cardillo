@@ -79,33 +79,6 @@ class Marker:
         else:
             return a_C
 
-    def a_P_q(self, t, q, u, u_dot, xi=None, B_r_CP=None):
-        raise
-
-    #     B_Omega = self.B_Omega(t, q, u, xi)
-    #     B_Psi = self.B_Psi(t, q, u, u_dot, xi)
-    #     a_P_q = np.einsum(
-    #         "ijk,j->ik",
-    #         self.A_IB_q(t, q, xi),
-    #         cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP)),
-    #     )
-    #     return a_P_q
-
-    def a_P_u(self, t, q, u, u_dot, xi=None, B_r_CP=None):
-        raise
-
-    #     B_Omega = self.B_Omega(t, q, u, xi)
-    #     local = -self.A_IB(t, q, xi) @ (
-    #         ax2skew(cross3(B_Omega, B_r_CP)) + ax2skew(B_Omega) @ ax2skew(B_r_CP)
-    #     )
-
-    #     N, _ = self.basis_functions_r(xi)
-    #     a_P_u = np.zeros((3, self.nu_element), dtype=float)
-    #     for node in range(self.nnodes_element_r):
-    #         a_P_u[:, self.nodalDOF_element_p_u[node]] += N[node] * local
-
-    #     return a_P_u
-
     def A_IB(self, t, q, xi=None):
         key = q.tobytes()
         A_IB = self._A_IB_cache[key]

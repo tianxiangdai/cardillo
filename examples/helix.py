@@ -8,7 +8,7 @@ from cardillo import System
 from cardillo import RigidConnection
 from cardillo.forces import B_Moment
 from cardillo.math import e1, e3
-from cardillo.rods import CircularCrossSection, Simo1986
+from cardillo.rods import CircularCrossSection
 from cardillo.solver import Newton, SolverOptions
 from cardillo.rods import CircularCrossSection
 from cardillo.rods.discreteRod import DiscreteRod
@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     list_nnodes = []
     list_diff_r_OC = []
-    for nnodes in 10**np.arange(3,4):
+    for nnodes in 10**np.arange(2,4):
         nelements = nnodes - 1
         list_nnodes.append(nelements)
         # handle name
@@ -49,14 +49,9 @@ if __name__ == "__main__":
         radius = lambda xi: width * (xi <= 2 / 3) + width * (0.5) ** 0.25 * (xi > 2 / 3)
         cross_section = CircularCrossSection(radius=radius)
 
-        # _cross_section = CircularCrossSection(radius=width * 0.5)
-
         # material model
         E = 1.0  # Young's modulus
         G = 0.5  # shear modulus
-        Ei = lambda xi: np.array([E, G, G]) * cross_section.area(xi)
-        Fi = lambda xi: np.array([G, E, E]) * cross_section.second_moment(xi).diagonal()
-        material_model = Simo1986(Ei, Fi)
 
         # initialize system
         system = System()
@@ -86,7 +81,7 @@ if __name__ == "__main__":
         # create rod
         rod = DiscreteRod(
             cross_section,
-            material_model,
+            E, G,
             nelements,
             Q=q0,
             q0=q0,
@@ -102,7 +97,7 @@ if __name__ == "__main__":
         ################
         # applied moment
         ################
-        Fi = material_model.Fi(0)
+        Fi = np.array([G, E, E]) * cross_section.second_moment(0).diagonal()
         M = lambda t: (c * e1 * Fi[0] + e3 * Fi[2]) / (R0*(1+c**2)) * t
         moment = B_Moment(M, rod.get_marker(1), 1)
         system.add(moment)
@@ -110,15 +105,10 @@ if __name__ == "__main__":
         # assemble system
         system.assemble()
 
-        # add Newton solver
-        atols_dict = {1e1: 1e-8, 1e2: 1e-10, 1e3: 1e-12, 1e4: 1e-14}
-        atol = atols_dict[slenderness]
-
         # create solver
         solver = Newton(
             system,
             n_load_steps=n_load_steps,
-            options=SolverOptions(newton_max_iter=30, newton_atol=atol),  # rtol=0
         )
 
         # warm up

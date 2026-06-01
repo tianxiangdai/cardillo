@@ -17,15 +17,12 @@ class Force_line_distributed:
             Cosserat rod from Cardillo.
 
         """
-        if not callable(force):
-            _force = lambda t, xi: force
-        else:
-            _force = force
         self.rod = rod
         self._h_weights = (
             np.pad(rod.L_els, (1, 0)) + np.pad(rod.L_els, (0, 1))
         ) / 2
 
+        _force = force if callable(force) else lambda t, xi: force
         def h_node(t, xi, weight):
             return jnp.pad(_force(t, xi), (0, 3)) * weight
 

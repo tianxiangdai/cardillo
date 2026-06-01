@@ -6,8 +6,6 @@ from jax import vmap, jit
 from jax import numpy as jnp
 from numba import njit
 
-import vtk
-
 from cardillo.math import (
     norm,
     cross3,
@@ -18,13 +16,11 @@ from cardillo.math import (
 )
 from cardillo import math_jax
 from cardillo.utility.coo_matrix import CooMatrix
-from cardillo.rods import CrossSectionInertias, CircularCrossSection
 
 from cardillo.math import A_IB_basic
 from cardillo.utility.check_time_derivatives import check_time_derivatives
 from ..utility.cachetools import MyLRUCache
 from ..visualization.vtk_render import VisualDiscreteRod
-
 
 from .marker import Marker
 
@@ -78,23 +74,20 @@ class DiscreteRod:
     def __init__(
         self,
         cross_section,
-        material_model,
+        E, G,
         nelement,
         Q,
         *,
         q0=None,
         u0=None,
-        cross_section_inertias=CrossSectionInertias(),
+        density=None,
         name="discrete_rod",
     ):
-        # manual caches
-        # self._eval_cache = self._deval_cache = np.empty(0).tobytes()
+        # caches
         self._eval_cache = MyLRUCache(maxsize=10)
         self._deval_cache = MyLRUCache(maxsize=10)
 
         self.cross_section = cross_section
-        # super().__init__(cross_section)
-        self.material_model = material_model
         self.nelement = nelement
         self.nnode = nelement + 1
         self.name = name
@@ -102,30 +95,25 @@ class DiscreteRod:
         # centerline parameter of nodes
         self.xi_node = np.linspace(0, 1, self.nnode)
 
-        #
-        assert (
-            cross_section._variable == material_model._variable
-        ), "cross_section and material_model must both be variable or both be constant!"
-        if material_model._variable:
-            C_n = []
-            C_m = []
-            C_n_inv = []
-            C_m_inv = []
-            for el in range(nelement):
-                xi = 0.5 * (self.xi_node[el] + self.xi_node[el + 1])
-                C_n.append(material_model.C_n(xi))
-                C_m.append(material_model.C_m(xi))
-                C_n_inv.append(material_model.C_n_inv(xi))
-                C_m_inv.append(material_model.C_m_inv(xi))
-        else:
-            C_n = [material_model.C_n] * nelement
-            C_m = [material_model.C_m] * nelement
-            C_n_inv = [material_model.C_n_inv] * nelement
-            C_m_inv = [material_model.C_m_inv] * nelement
-        self.C_n = np.array(C_n)
-        self.C_m = np.array(C_m)
-        self.C_n_inv = np.array(C_n_inv)
-        self.C_m_inv = np.array(C_m_inv)
+
+        Ei = lambda xi: np.array([E, G, G]) * cross_section.area(xi)
+        Fi = lambda xi: np.array([G, E, E]) * cross_section.second_moment(xi).diagonal()
+
+        # element stiffness
+        K_ga_els = []
+        K_ka_els = []
+        C_n_els = []
+        C_m_els = []
+        for el in range(nelement):
+            xi = 0.5 * (self.xi_node[el] + self.xi_node[el + 1])
+            K_ga_els.append(np.diag(Ei(xi)))
+            K_ka_els.append(np.diag(Fi(xi)))
+            C_n_els.append(np.diag(1/Ei(xi)))
+            C_m_els.append(np.diag(1/Fi(xi)))
+        self.K_ga_els = np.array(K_ga_els)
+        self.K_ka_els = np.array(K_ka_els)
+        self.C_n_els = np.array(C_n_els)
+        self.C_m_els = np.array(C_m_els)
 
         # total DOFs
         self.nq = 7 * self.nnode
@@ -153,6 +141,8 @@ class DiscreteRod:
         self.set_reference_strains(Q)
 
         # M
+        if density is None:
+            density = 1
         self.constant_mass_matrix = True
         _M_coo = CooMatrix((self.nu, self.nu))
         row1 = col1 = np.array(_slice_to_array(self.nodalDOF_r_u)).flatten()
@@ -168,13 +158,9 @@ class DiscreteRod:
                 w = self.L_els[n - 1] / 2
             else:
                 w = (self.L_els[n] + self.L_els[n - 1]) / 2
-            if cross_section_inertias._variable:
-                xi = self.xi_node[n]
-                mass = cross_section_inertias.A_rho0(xi) * w
-                B_Theta_C = cross_section_inertias.B_I_rho0(xi) * w
-            else:
-                mass = cross_section_inertias.A_rho0 * w
-                B_Theta_C = cross_section_inertias.B_I_rho0 * w
+            xi = self.xi_node[n]
+            mass = density * cross_section.area(xi) * w
+            B_Theta_C = density * cross_section.second_moment(xi) * w
             self._B_Theta_C.append(B_Theta_C)
             _M_coo.data[3 * n : 3 * (n + 1)] = mass
             _M_coo.data[self.nnode * 3 + ptr[n] : self.nnode * 3 + ptr[n + 1]] = (
@@ -192,11 +178,11 @@ class DiscreteRod:
         c_la_c_els = np.zeros((self.nelement, _nla_c_el, _nla_c_el), dtype=float)
         for el in range(self.nelement):
             c_la_c = c_la_c_els[el]
-            c_la_c[:3, :3] = self.C_n_inv[el]
-            c_la_c[3:6, 3:6] = self.C_m_inv[el]
+            c_la_c[:3, :3] = self.C_n_els[el]
+            c_la_c[3:6, 3:6] = self.C_m_els[el]
             if _nla_c_el == 12:
-                c_la_c[6:9, 6:9] = self.C_n_inv[el]
-                c_la_c[9:, 9:] = self.C_m_inv[el]
+                c_la_c[6:9, 6:9] = self.C_n_els[el]
+                c_la_c[9:, 9:] = self.C_m_els[el]
             c_la_c *= self.L_els[el]
         _c_la_c_coo.data = c_la_c_els.ravel()
         self._c_la_c_coo = _c_la_c_coo.asformat("coo")
@@ -255,8 +241,8 @@ class DiscreteRod:
             ]
         )
         self.L = np.sum(self.L_els)
-        _, self.B_Gamma0, self.B_Kappa0 = self._eval_els(Q)
-        self.B_Ga_Ka0 = np.concatenate((self.B_Gamma0, self.B_Kappa0), axis=1)
+        _, self.B_gamma0, self.B_kappa0 = self._eval_els(Q)
+        self.B_Ga_Ka0 = np.concatenate((self.B_gamma0, self.B_kappa0), axis=1)
 
     def element_number(self, xi):
         num = int(xi * self.nelement)
@@ -469,30 +455,30 @@ class DiscreteRod:
     # compliance
     ############
     def la_c(self, t, q, u):
-        _, B_Gamma, B_Kappa = self._eval_els(q)
+        _, B_gamma, B_kappa = self._eval_els(q)
         la_c_el = _la_c_els(
-            B_Gamma,
-            B_Kappa,
+            B_gamma,
+            B_kappa,
             self.L_els,
-            self.B_Gamma0,
-            self.B_Kappa0,
-            self.C_n,
-            self.C_m,
+            self.B_gamma0,
+            self.B_kappa0,
+            self.K_ga_els,
+            self.K_ka_els,
         )
         return np.asarray(la_c_el).ravel()
 
     def c(self, t, q, u, la_c):
-        _, B_Gamma, B_Kappa = self._eval_els(q)
+        _, B_gamma, B_kappa = self._eval_els(q)
         return np.asarray(
             _c_els(
-                B_Gamma,
-                B_Kappa,
+                B_gamma,
+                B_kappa,
                 self._view_element_la_c(la_c),
                 self.L_els,
-                self.B_Gamma0,
-                self.B_Kappa0,
-                self.C_n_inv,
-                self.C_m_inv,
+                self.B_gamma0,
+                self.B_kappa0,
+                self.C_n_els,
+                self.C_m_els,
             )
         ).ravel()
 
@@ -500,8 +486,8 @@ class DiscreteRod:
         return self._c_la_c_coo
 
     def c_q(self, t, q, u, la_c):
-        _, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
-        c_q_els = np.asarray(_c_q_els(B_Gamma_qe, B_Kappa_qe, self.L_els))
+        _, B_gamma_qe, B_kappa_qe = self._deval_els(q)
+        c_q_els = np.asarray(_c_q_els(B_gamma_qe, B_kappa_qe, self.L_els))
         self._c_q_coo.data = c_q_els.ravel()
         # for el in range(self.nelement):
         #     elDOF = self.elDOF[el]
@@ -510,8 +496,8 @@ class DiscreteRod:
         return self._c_q_coo
 
     def W_c(self, t, q):
-        A_IB, B_Gamma, B_Kappa = self._eval_els(q)
-        W_c_els = np.asarray(_W_c_els(A_IB, B_Gamma, B_Kappa, self.L_els))
+        A_IB, B_gamma, B_kappa = self._eval_els(q)
+        W_c_els = np.asarray(_W_c_els(A_IB, B_gamma, B_kappa, self.L_els))
         self._W_c_coo.data = W_c_els.ravel()
         # for el in range(self.nelement):
         #     elDOF_u = self.elDOF_u[el]
@@ -520,12 +506,12 @@ class DiscreteRod:
         return self._W_c_coo
 
     def Wla_c_q(self, t, q, la_c):
-        A_IB_qe, B_Gamma_qe, B_Kappa_qe = self._deval_els(q)
+        A_IB_qe, B_gamma_qe, B_kappa_qe = self._deval_els(q)
         Wla_c_q_els = np.asarray(
             _Wla_c_q_els(
                 A_IB_qe,
-                B_Gamma_qe,
-                B_Kappa_qe,
+                B_gamma_qe,
+                B_kappa_qe,
                 self._view_element_la_c(la_c),
                 self.L_els,
             )
@@ -622,33 +608,6 @@ class DiscreteRod:
             )
         else:
             return a_C
-
-    def a_P_q(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
-        raise
-
-    #     B_Omega = self.B_Omega(t, qe, ue, xi)
-    #     B_Psi = self.B_Psi(t, qe, ue, ue_dot, xi)
-    #     a_P_q = np.einsum(
-    #         "ijk,j->ik",
-    #         self.A_IB_q(t, qe, xi),
-    #         cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP)),
-    #     )
-    #     return a_P_q
-
-    def a_P_u(self, t, qe, ue, ue_dot, xi, B_r_CP=None):
-        raise
-
-    #     B_Omega = self.B_Omega(t, qe, ue, xi)
-    #     local = -self.A_IB(t, qe, xi) @ (
-    #         ax2skew(cross3(B_Omega, B_r_CP)) + ax2skew(B_Omega) @ ax2skew(B_r_CP)
-    #     )
-
-    #     N, _ = self.basis_functions_r(xi)
-    #     a_P_u = np.zeros((3, self.nu_element), dtype=float)
-    #     for node in range(self.nnodes_element_r):
-    #         a_P_u[:, self.nodalDOF_element_p_u[node]] += N[node] * local
-
-    #     return a_P_u
 
     def A_IB(self, t, qe, xi):
         return self._element_kinematics(qe, xi)[2]
@@ -798,10 +757,10 @@ def _p_dot_p_node(q, u):
 _p_dot_p_nodes = jit(vmap(_p_dot_p_node))
 
 
-def _la_c_el(B_Gamma, B_Kappa, Le, B_Gamma0, B_Kappa0, C_n, C_m):
+def _la_c_el(B_gamma, B_kappa, Le, B_gamma0, B_kappa0, K_ga, K_ka):
     # TODO: add damping
-    B_n = C_n @ (B_Gamma - B_Gamma0) * Le
-    B_m = C_m @ (B_Kappa - B_Kappa0) * Le
+    B_n = K_ga @ (B_gamma - B_gamma0) * Le
+    B_m = K_ka @ (B_kappa - B_kappa0) * Le
 
     # TODO:add damping
     return jnp.concatenate([B_n, B_m])
@@ -810,10 +769,10 @@ def _la_c_el(B_Gamma, B_Kappa, Le, B_Gamma0, B_Kappa0, C_n, C_m):
 _la_c_els = jit(vmap(_la_c_el))
 
 
-def _W_c_el(A_IB, B_Gamma, B_Kappa, Le):
-    # A_IB, B_Gamma, B_Kappa = _eval(qe, Le)
-    s1 = 0.5 * Le * math_jax.ax2skew(B_Gamma)
-    s2 = 0.5 * Le * math_jax.ax2skew(B_Kappa)
+def _W_c_el(A_IB, B_gamma, B_kappa, Le):
+    # A_IB, B_gamma, B_kappa = _eval(qe, Le)
+    s1 = 0.5 * Le * math_jax.ax2skew(B_gamma)
+    s2 = 0.5 * Le * math_jax.ax2skew(B_kappa)
 
     # TODO:add damping
     row1 = jnp.concatenate([A_IB, zeros3], axis=1)
@@ -827,7 +786,7 @@ def _W_c_el(A_IB, B_Gamma, B_Kappa, Le):
 _W_c_els = jit(vmap(_W_c_el))
 
 
-def _Wla_c_q_el(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c, Le):
+def _Wla_c_q_el(A_IB_qe, B_gamma_qe, B_kappa_qe, la_c, Le):
     B_n = la_c[:3]
     B_m = la_c[3:]
 
@@ -837,8 +796,8 @@ def _Wla_c_q_el(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c, Le):
         -0.5
         * Le
         * (
-            jnp.cross(B_n[:, None], B_Gamma_qe, axis=0)
-            + jnp.cross(B_m[:, None], B_Kappa_qe, axis=0)
+            jnp.cross(B_n[:, None], B_gamma_qe, axis=0)
+            + jnp.cross(B_m[:, None], B_kappa_qe, axis=0)
         )
     )
 
@@ -848,11 +807,11 @@ def _Wla_c_q_el(A_IB_qe, B_Gamma_qe, B_Kappa_qe, la_c, Le):
 _Wla_c_q_els = jit(vmap(_Wla_c_q_el))
 
 
-def _c_el(B_Gamma, B_Kappa, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
+def _c_el(B_gamma, B_kappa, la_c, Le, B_gamma0, B_kappa0, C_n, C_m):
     B_n, B_m = la_c[:3], la_c[3:]
 
-    c_n = (C_n_inv @ B_n - (B_Gamma - B_Gamma0)) * Le
-    c_m = (C_m_inv @ B_m - (B_Kappa - B_Kappa0)) * Le
+    c_n = (C_n @ B_n - (B_gamma - B_gamma0)) * Le
+    c_m = (C_m @ B_m - (B_kappa - B_kappa0)) * Le
 
     # TODO:add damping
     return jnp.concatenate([c_n, c_m])
@@ -861,9 +820,9 @@ def _c_el(B_Gamma, B_Kappa, la_c, Le, B_Gamma0, B_Kappa0, C_n_inv, C_m_inv):
 _c_els = jit(vmap(_c_el))
 
 
-def _c_q_el(B_Gamma_qe, B_Kappa_qe, Le):
-    c_n_qe = -B_Gamma_qe * Le
-    c_m_qe = -B_Kappa_qe * Le
+def _c_q_el(B_gamma_qe, B_kappa_qe, Le):
+    c_n_qe = -B_gamma_qe * Le
+    c_m_qe = -B_kappa_qe * Le
     return jnp.concatenate([c_n_qe, c_m_qe])
 
 
@@ -886,10 +845,10 @@ def _eval(qe, Le):
     A_IB = math_jax.Exp_SO3_quat(P, normalize=True)
     #
     T = math_jax.T_SO3_quat(P, normalize=True)
-    B_Gamma = A_IB.T @ r_OC_s
+    B_gamma = A_IB.T @ r_OC_s
 
-    B_Kappa = T @ P_s
-    return A_IB, B_Gamma, B_Kappa
+    B_kappa = T @ P_s
+    return A_IB, B_gamma, B_kappa
 
 
 _eval_els = jit(vmap(_eval))
@@ -918,21 +877,21 @@ def _deval(qe, Le):
     T = math_jax.T_SO3_quat(P, normalize=True)
     T_P = math_jax.T_SO3_quat_P(P, normalize=True)
 
-    # B_Gamma = A_IB.T @ r_OC_s
+    # B_gamma = A_IB.T @ r_OC_s
     term2 = (
         jnp.concatenate([-A_IB_T, jnp.zeros((3, 4)), A_IB_T, jnp.zeros((3, 4))], axis=1)
         * inv_Le
     )
 
-    B_Gamma_qe = jnp.einsum("k,kij", r_OC_s, A_IB_qe) + term2
+    B_gamma_qe = jnp.einsum("k,kij", r_OC_s, A_IB_qe) + term2
 
-    # B_Kappa = T @ P_s
+    # B_kappa = T @ P_s
     term2 = (
         jnp.concatenate([jnp.zeros((3, 3)), -T, jnp.zeros((3, 3)), T], axis=1) * inv_Le
     )
-    B_Kappa_qe = P_s @ T_P @ P_qe + term2
+    B_kappa_qe = P_s @ T_P @ P_qe + term2
 
-    return A_IB_qe, B_Gamma_qe, B_Kappa_qe
+    return A_IB_qe, B_gamma_qe, B_kappa_qe
 
 
 _deval_els = jit(vmap(_deval))

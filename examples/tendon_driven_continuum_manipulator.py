@@ -5,7 +5,7 @@ from pathlib import Path
 from cardillo import RigidConnection
 from cardillo.forces import TendonForce
 
-from cardillo.rods import CircularCrossSection, CrossSectionInertias, Simo1986
+from cardillo.rods import CircularCrossSection
 from cardillo.rods.discreteRod import DiscreteRod
 
 from cardillo.solver import Newton, SolverOptions
@@ -41,14 +41,6 @@ if __name__ == "__main__":
     radius = lambda xi: rod_r_new * (1 - xi * (1 - rod_r_ratio))
     cross_section = CircularCrossSection(radius=radius)
     E, G = 7e5, 2e5
-    EA = lambda xi: E * cross_section.area(xi)
-    EI = lambda xi: E * cross_section.second_moment(xi)[1, 1]
-    GA = lambda xi: G * cross_section.area(xi)
-    GJ = lambda xi: G * cross_section.second_moment(xi)[0, 0]
-    material_model = Simo1986(
-        lambda xi: np.array([EA(xi), GA(xi), GA(xi)]),
-        lambda xi: np.array([GJ(xi), EI(xi), EI(xi)]),
-    )
 
     # generate initial configuration
     Rod = DiscreteRod
@@ -67,11 +59,10 @@ if __name__ == "__main__":
 
     rod = Rod(
         cross_section,
-        material_model,
+        E, G,
         rod_nelement,
         Q=Q,
         q0=q0,
-        # cross_section_inertias=CrossSectionInertias(density, cross_section),
     )
 
     # ---- rigid connections ----
@@ -187,39 +178,27 @@ if __name__ == "__main__":
     plt.ylabel("z [m]")
     plt.grid()
 
-    ####################################################
-    _, B_Gamma, B_Kappa = rod._eval_els(sol.q[-1, rod.qDOF])
-    # Export for pgfplots 
+    _, B_gamma, B_kappa = rod._eval_els(sol.q[-1, rod.qDOF])
     element_indices = np.arange(1, rod_nelement + 1)
-    if csv_export:
-        data = np.column_stack([element_indices, B_Gamma[:, :2], B_Kappa[:, 2]])
-        np.savetxt(
-            dir_name / ".." / "latex src" / "figures" / "data_tendon_robot.csv",
-            data,
-            delimiter=",",
-            header="element,gammaX,gammaY,kappaZ",
-            comments="",
-        )
-
 
     fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
     # axial strain gamma_1
-    axes[0].plot(element_indices, B_Gamma[:, 0])
+    axes[0].plot(element_indices, B_gamma[:, 0])
     axes[0].set_xlabel("Element index $i$")
     axes[0].set_ylabel(r"$\gamma_{1}$")
     axes[0].set_title("Axial strain")
     axes[0].grid()
 
     # shear strain gamma_2
-    axes[1].plot(element_indices, B_Gamma[:, 1])
+    axes[1].plot(element_indices, B_gamma[:, 1])
     axes[1].set_xlabel("Element index $i$")
     axes[1].set_ylabel(r"$\gamma_{2}$")
     axes[1].set_title("Shear strain")
     axes[1].grid()
 
     # bending curvature kappa_3
-    axes[2].plot(element_indices, B_Kappa[:, 2])
+    axes[2].plot(element_indices, B_kappa[:, 2])
     axes[2].set_xlabel("Element index $i$")
     axes[2].set_ylabel(r"$\kappa_{3}$  [1/m]")
     axes[2].set_title("Bending curvature")

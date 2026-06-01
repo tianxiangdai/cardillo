@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 from jax import jit, jacfwd, vmap
 
-from .algebra import norm, ax2skew, ax2skew_a, ax2skew_squared
+from .algebra import ax2skew, ax2skew_squared
 
 jax.config.update("jax_enable_x64", True)
 

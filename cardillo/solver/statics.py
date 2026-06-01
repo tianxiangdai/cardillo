@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.sparse import lil_array, bmat
 from tqdm import tqdm
 
 from cardillo.utility.coo_matrix import CooMatrix

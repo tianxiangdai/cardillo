@@ -12,7 +12,6 @@ from cardillo.math import e1, e2, e3, ax2skew
 from cardillo.rods import (
     CircularCrossSection,
     CrossSectionInertias,
-    Simo1986,
 )
 from cardillo.rods.force_line_distributed import Force_line_distributed
 from cardillo.solver import (
@@ -63,18 +62,9 @@ if __name__ == "__main__":
 
     # rod cross-section
     cross_section = CircularCrossSection(wire_radius)
-    cross_section_inertias = CrossSectionInertias(rho, cross_section)
 
-    A_rho0 = rho * cross_section.area
-    K_S_rho0 = rho * cross_section.first_moment
-    K_I_rho0 = rho * cross_section.second_moment
-    A = cross_section.area
-    Ip, I2, I3 = np.diag(cross_section.second_moment)
-    Ei = np.array([E * A, G * A, G * A])
-    Fi = np.array([G * Ip, E * I2, E * I3])
-    material_model = Simo1986(Ei, Fi)
-    print(f"Ei: {Ei}")
-    print(f"Fi: {Fi}")
+    A_rho0 = rho * cross_section.area(0)
+
 
     # helix and derivatives
     def r(xi, phi0=0):
@@ -119,12 +109,12 @@ if __name__ == "__main__":
 
     rod = DiscreteRod(
         cross_section,
-        material_model,
+        E, G,
         nelements,
         Q=q0,
         q0=q0,
         # polynomial_degree=polynomial_degree,
-        cross_section_inertias=cross_section_inertias,
+        density=rho,
     )
 
     ##############
