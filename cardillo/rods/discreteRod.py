@@ -22,8 +22,6 @@ from cardillo.utility.check_time_derivatives import check_time_derivatives
 from ..utility.cachetools import MyLRUCache
 from ..visualization.vtk_render import VisualDiscreteRod
 
-from .marker import Marker
-
 jax.config.update("jax_enable_x64", True)
 
 eye3 = jnp.eye(3, dtype=jnp.float64)
@@ -69,6 +67,211 @@ def _combine_indices(rows_list, cols_list):
         cols_combined[ptr[i] : ptr[i + 1]] = np.tile(cols, len(rows))
     return ptr, rows_combined, cols_combined
 
+
+
+class ElementKinematics:
+    def __init__(self, xi, alpha):
+        self.xi = xi
+        self.alpha = alpha
+        self._local_qDOF_P = slice(0, 14)
+        self._local_uDOF_P = slice(0, 12)
+
+        # allocate memery
+        self._B_Omega_q = np.zeros((3, 14), dtype=float)
+        self._B_J_R = np.zeros((3, 12), dtype=float)
+        self._B_J_R[0, 3] = self._B_J_R[1, 4] = self._B_J_R[2, 5] = 1 - alpha
+        self._B_J_R[0, 9] = self._B_J_R[1, 10] = self._B_J_R[2, 11] = alpha
+        self._B_J_R_q = np.zeros((3, 12, 14), dtype=float)
+        self._B_Psi_q = np.zeros((3, 14), dtype=float)
+        self._B_Psi_u = np.zeros((3, 12), dtype=float)
+
+        self._A_IB_cache = MyLRUCache(maxsize=5)
+        self._A_IB_q_cache = MyLRUCache(maxsize=5)
+
+    ##########################
+    # r_OP / A_IB contribution
+    ##########################
+
+    def r_OP(self, t, q, B_r_CP=np.zeros(3, dtype=float)):
+        A_IB = self.A_IB(t, q)
+        return _r_OP(self.alpha, q, A_IB, B_r_CP)
+
+    def r_OP_q(self, t, q, B_r_CP=np.zeros(3, dtype=float)):
+        A_IB_q = self.A_IB_q(t, q)
+        return _r_OP_q(self.alpha, A_IB_q, B_r_CP)
+
+    def v_P(self, t, q, u, B_r_CP=np.zeros(3, dtype=float)):
+        A_IB = self.A_IB(t, q)
+        return _v_P(self.alpha, A_IB, u, self.B_Omega(t, q, u), B_r_CP)
+
+    def v_P_q(self, t, q, u, B_r_CP=np.zeros(3, dtype=float)):
+        A_IB_q = self.A_IB_q(t, q)
+        B_Omega = self.B_Omega(t, q, u)
+        return _v_P_q(A_IB_q, B_Omega, B_r_CP)
+
+    def J_P(self, t, q, B_r_CP=np.zeros(3, dtype=float)):
+        A_IB = self.A_IB(t, q)
+        return _J_P(self.alpha, A_IB, B_r_CP)
+
+    def J_P_q(self, t, q, B_r_CP=np.zeros(3, dtype=float)):
+        A_IB_q = self.A_IB_q(t, q)
+        return _J_P_q(self.alpha, A_IB_q, B_r_CP)
+
+    def a_P(self, t, q, u, u_dot, B_r_CP=np.zeros(3, dtype=float)):
+        # centerline acceleration
+        a_C0 = u_dot[:3]
+        a_C1 = u_dot[6:9]
+        a_C = a_C0 + self.alpha * (a_C1 - a_C0)
+        if B_r_CP.any():
+            A_IB = self.A_IB(t, q)
+            B_Omega = self.B_Omega(t, q, u)
+            B_Psi = self.B_Psi(t, q, u, u_dot)
+            # rigid body formular
+            return a_C + A_IB @ (
+                cross3(B_Psi, B_r_CP) + cross3(B_Omega, cross3(B_Omega, B_r_CP))
+            )
+        else:
+            return a_C
+
+    def A_IB(self, t, q):
+        key = q.tobytes()
+        A_IB = self._A_IB_cache[key]
+        if A_IB is None:
+            A_IB = _A_IB(self.alpha, q)
+            self._A_IB_cache[key] = A_IB
+        return A_IB
+
+    # @cachedmethod(lambda self: self._A_IB_q_cache, key=lambda self, t, q, xi: q.tobytes())
+    def A_IB_q(self, t, q):
+        key = q.tobytes()
+        A_IB_q = self._A_IB_q_cache[key]
+        if A_IB_q is None:
+            A_IB_q = _A_IB_q(self.alpha, q)
+            self._A_IB_q_cache[key] = A_IB_q
+        return A_IB_q
+
+    def B_Omega(self, t, q, u):
+        return _B_Omega(self.alpha, u)
+
+    def B_Omega_q(self, t, q, u):
+        return self._B_Omega_q
+
+    def B_J_R(self, t, q):
+        return self._B_J_R
+
+    def B_J_R_q(self, t, q):
+        return self._B_J_R_q
+
+    def B_Psi(self, t, q, u, u_dot):
+        B_Psi_1 = u_dot[3:6]
+        B_Psi_2 = u_dot[9:12]
+        B_Psi = B_Psi_1 + self.alpha * (B_Psi_2 - B_Psi_1)
+        return B_Psi
+
+    def B_Psi_q(self, t, q, u, u_dot):
+        return self._B_Psi_q
+
+    def B_Psi_u(self, t, q, u, u_dot):
+        return self._B_Psi_u
+
+
+@njit(cache=True)
+def _r_OP(alpha, q, A_IB, B_r_CP):
+    r_OC0, r_OC1 = q[:3], q[7:10]
+    r_OP = (1 - alpha) * r_OC0 + alpha * r_OC1
+    if B_r_CP.any():
+        r_OP += A_IB @ B_r_CP
+    return r_OP
+
+
+@njit(cache=True)
+def _r_OP_q(alpha, A_IB_q, B_r_CP):
+    r_OP_q = np.zeros((3, 14), dtype=float)
+    r_OP_q[0, 0] = r_OP_q[1, 1] = r_OP_q[2, 2] = 1 - alpha
+    r_OP_q[0, 7] = r_OP_q[1, 8] = r_OP_q[2, 9] = alpha
+    if B_r_CP.any():
+        for i in range(3):
+            r_OP_q[i] += B_r_CP @ A_IB_q[i]
+    return r_OP_q
+
+
+@njit(cache=True)
+def _v_P(alpha, A_IB, u, B_Omega, B_r_CP):
+    v_C0 = u[:3]
+    v_C1 = u[6:9]
+    v_C = v_C0 + alpha * (v_C1 - v_C0)
+
+    if B_r_CP.any():
+        return v_C + A_IB @ cross3(B_Omega, B_r_CP)
+    else:
+        return v_C
+
+
+@njit(cache=True)
+def _v_P_q(A_IB_q, B_Omega, B_r_CP):
+    v_P_q = np.zeros((3, 14), dtype=float)
+    if B_r_CP.any():
+        cross = cross3(B_Omega, B_r_CP)
+        for i in range(3):
+            v_P_q[i] = cross @ A_IB_q[i]
+    return v_P_q
+
+
+@njit(cache=True)
+def _J_P(alpha, A_IB, B_r_CP):
+    J_P = np.zeros((3, 12), dtype=float)
+    J_P[0, 0] = J_P[1, 1] = J_P[2, 2] = 1 - alpha
+    J_P[0, 6] = J_P[1, 7] = J_P[2, 8] = alpha
+    if B_r_CP.any():
+        B_r_CP_tilde = ax2skew(B_r_CP)
+        r_CP_tilde = A_IB @ B_r_CP_tilde
+        J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
+        J_P[:, 9:12] = -alpha * r_CP_tilde
+    return J_P
+
+
+@njit(cache=True)
+def _J_P_q(alpha, A_IB_q, B_r_CP):
+    J_P_q = np.zeros((3, 12, 14), dtype=float)
+    if B_r_CP.any():
+        B_r_CP_tilde = ax2skew(B_r_CP)
+        r_CP_tilde_q = np.zeros((3, 3, 14), dtype=float)
+        for i in range(3):
+            r_CP_tilde_q[i] = B_r_CP_tilde.T @ A_IB_q[i]
+        J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
+        J_P_q[:, 9:12] = -alpha * r_CP_tilde_q
+    return J_P_q
+
+
+@njit(cache=True)
+def _A_IB(alpha, q):
+    P0, P1 = q[3:7], q[10:]
+    P = (1 - alpha) * P0 + alpha * P1
+    return Exp_SO3_quat(P, normalize=True)
+
+
+@njit(cache=True)
+def _A_IB_q(alpha, q):
+    P0, P1 = q[3:7], q[10:]
+    P = (1 - alpha) * P0 + alpha * P1
+
+    P_q = np.zeros((4, 14), dtype=float)
+
+    P_q[0, 3] = P_q[1, 4] = P_q[2, 5] = P_q[3, 6] = 1 - alpha
+    P_q[0, 10] = P_q[1, 11] = P_q[2, 12] = P_q[3, 13] = alpha
+
+    A_P = Exp_SO3_quat_P(P, normalize=True)
+    A_IB_q = np.empty((3, 3, 14))
+    for i in range(3):
+        A_IB_q[i] = A_P[i] @ P_q
+    return A_IB_q
+
+
+@njit(cache=True)
+def _B_Omega(alpha, u):
+    B_Omega_1 = u[3:6]
+    B_Omega_2 = u[9:12]
+    return B_Omega_1 + alpha * (B_Omega_2 - B_Omega_1)
 
 class DiscreteRod:
     def __init__(
@@ -270,11 +473,11 @@ class DiscreteRod:
         return np.array([q_body[nodalDOF] for nodalDOF in self.nodalDOF_r]).T
 
     def get_marker(self, xi):
-        if xi in self._markers.keys():
+        try:
             mk = self._markers[xi]
-        else:
+        except KeyError:
             alpha = self._alpha(xi)
-            mk = Marker(xi, alpha)
+            mk = ElementKinematics(xi, alpha)
             self._markers[xi] = mk
         if hasattr(self, "qDOF") and not hasattr(mk, "qDOF"):
             num = self.element_number(xi)
@@ -531,66 +734,40 @@ class DiscreteRod:
     ####################################################
     # interactions with other bodies and the environment
     ####################################################
-    def elDOF_P(self, xi):
+    def local_qDOF_P(self, xi):
         el = self.element_number(xi)
         return self.elDOF[el]
 
-    def elDOF_P_u(self, xi):
+    def local_uDOF_P(self, xi):
         el = self.element_number(xi)
         return self.elDOF_u[el]
-
-    def local_qDOF_P(self, xi):
-        return self.elDOF_P(xi)
-
-    def local_uDOF_P(self, xi=None):
-        return self.elDOF_P_u(xi)
 
     ##########################
     # r_OP / A_IB contribution
     ##########################
-    def _element_kinematics(self, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        key = (xi, qe.tobytes(), B_r_CP.tobytes())
-        ret = self._eval_kinematics_cache[key]
-        if ret is None:
-            alpha = self._alpha(xi)
-            ret = _eval_kinematics(alpha, qe, B_r_CP)
-            self._eval_kinematics_cache[key] = ret
-        return ret
-
     def r_OP(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return self._element_kinematics(qe, xi, B_r_CP)[0]
+        mk = self.get_marker(xi)
+        return mk.r_OP(t, qe, B_r_CP)
 
     def r_OP_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return self._element_kinematics(qe, xi, B_r_CP)[1]
+        mk = self.get_marker(xi)
+        return mk.r_OP_q(t, qe, B_r_CP)
 
     def v_P(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
-        alpha = self._alpha(xi)
-
-        # centerline velocity
-        v_C0 = ue[:3]
-        v_C1 = ue[6:9]
-        v_C = v_C0 + alpha * (v_C1 - v_C0)
-
-        if B_r_CP.any():
-            A_IB = self.A_IB(t, qe, xi)
-            B_Omega = self.B_Omega(t, qe, ue, xi)
-            return v_C + A_IB @ cross3(B_Omega, B_r_CP)
-        else:
-            return v_C
+        mk = self.get_marker(xi)
+        return mk.v_P(t, qe, ue, B_r_CP)
 
     def v_P_q(self, t, qe, ue, xi, B_r_CP=np.zeros(3, dtype=float)):
-        if B_r_CP.any():
-            A_IB_q = self.A_IB_q(t, qe, xi)
-            B_Omega = self.B_Omega(t, qe, ue, xi)
-            return cross3(B_Omega, B_r_CP) @ A_IB_q
-        else:
-            return np.zeros((3, 14), dtype=float)
+        mk = self.get_marker(xi)
+        return mk.v_P_q(t, qe, ue, B_r_CP)
 
     def J_P(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return self._element_kinematics(qe, xi, B_r_CP)[4]
+        mk = self.get_marker(xi)
+        return mk.J_P(t, qe, B_r_CP)
 
     def J_P_q(self, t, qe, xi, B_r_CP=np.zeros(3, dtype=float)):
-        return self._element_kinematics(qe, xi, B_r_CP)[5]
+        mk = self.get_marker(xi)
+        return mk.J_P_q(t, qe, B_r_CP)
 
     def a_P(self, t, qe, ue, ue_dot, xi, B_r_CP=np.zeros(3, dtype=float)):
         alpha = self._alpha(xi)
@@ -610,48 +787,40 @@ class DiscreteRod:
             return a_C
 
     def A_IB(self, t, qe, xi):
-        return self._element_kinematics(qe, xi)[2]
+        mk = self.get_marker(xi)
+        return mk.A_IB(t, qe)
 
     def A_IB_q(self, t, qe, xi):
-        return self._element_kinematics(qe, xi)[3]
+        mk = self.get_marker(xi)
+        return mk.A_IB_q(t, qe)
 
     def B_Omega(self, t, qe, ue, xi):
-        """Since we use Petrov-Galerkin method we only interpolate the nodal
-        angular velocities in the B-frame.
-        """
-        alpha = self._alpha(xi)
-        B_Omega_1 = ue[3:6]
-        B_Omega_2 = ue[9:12]
-        B_Omega = B_Omega_1 + alpha * (B_Omega_2 - B_Omega_1)
-        return B_Omega
+        mk = self.get_marker(xi)
+        return mk.B_Omega(t, qe, ue)
 
     def B_Omega_q(self, t, qe, ue, xi):
-        return self._B_Omega_q
+        mk = self.get_marker(xi)
+        return mk.B_Omega_q(t, qe, ue)
 
     def B_J_R(self, t, qe, xi):
-        alpha = self._alpha(xi)
-        np.fill_diagonal(self._B_J_R[:, 3:6], 1 - alpha)
-        np.fill_diagonal(self._B_J_R[:, 9:12], alpha)
-        return self._B_J_R
+        mk = self.get_marker(xi)
+        return mk.B_J_R(t, qe)
 
     def B_J_R_q(self, t, qe, xi):
-        return self._B_J_R_q
+        mk = self.get_marker(xi)
+        return mk.B_J_R_q(t, qe)
 
     def B_Psi(self, t, qe, ue, ue_dot, xi):
-        """Since we use Petrov-Galerkin method we only interpolate the nodal
-        time derivative of the angular velocities in the B-frame.
-        """
-        alpha = self._alpha(xi)
-        B_Psi_1 = ue_dot[3:6]
-        B_Psi_2 = ue_dot[9:12]
-        B_Psi = B_Psi_1 + alpha * (B_Psi_2 - B_Psi_1)
-        return B_Psi
+        mk = self.get_marker(xi)
+        return mk.B_Psi(t, qe, ue, ue_dot)
 
     def B_Psi_q(self, t, qe, ue, ue_dot, xi):
-        return self._B_Psi_q
+        mk = self.get_marker(xi)
+        return mk.B_Psi_q(t, qe, ue, ue_dot)
 
     def B_Psi_u(self, t, qe, ue, ue_dot, xi):
-        return self._B_Psi_u
+        mk = self.get_marker(xi)
+        return mk.B_Psi_u(t, qe, ue, ue_dot)
 
     def _eval_els(self, q):
         key = q.tobytes()
@@ -670,56 +839,10 @@ class DiscreteRod:
         return deval_els
 
     def export(self, sol_i, **kwargs):
-        if not hasattr(self, "_visual_twin"):
-            self._visual_twin = VisualDiscreteRod(self)
-        self._visual_twin.update_visual_state(sol_i)
-        return self._visual_twin._ugrid
-
-
-@njit(cache=True)
-def _eval_kinematics(alpha, qe, B_r_CP):
-    r_OC0, P0, r_OC1, P1 = np.split(qe, [3, 7, 10])
-
-    r_OP = (1 - alpha) * r_OC0 + alpha * r_OC1
-    P = (1 - alpha) * P0 + alpha * P1
-
-    P_qe = np.zeros((4, 14), dtype=float)
-    np.fill_diagonal(P_qe[:, 3:7], 1 - alpha)
-    np.fill_diagonal(P_qe[:, 10:], alpha)
-
-    A_IB = Exp_SO3_quat(P, normalize=True)
-    A_P = Exp_SO3_quat_P(P, normalize=True)
-    A_IB_qe = np.empty((3, 3, 14))
-    for i in range(3):
-        A_IB_qe[i] = A_P[i] @ P_qe
-
-    #
-    r_OP_qe = np.zeros((3, 14), dtype=float)
-    np.fill_diagonal(r_OP_qe[:, :3], 1 - alpha)
-    np.fill_diagonal(r_OP_qe[:, 7:10], alpha)
-
-    J_P = np.zeros((3, 12), dtype=float)
-    J_P_q = np.zeros((3, 12, 14), dtype=float)
-    np.fill_diagonal(J_P[:, :3], 1 - alpha)
-    np.fill_diagonal(J_P[:, 6:9], alpha)
-    if B_r_CP.any():
-        # r_OP
-        r_OP += A_IB @ B_r_CP
-        # r_OP_qe
-        for i in range(3):
-            r_OP_qe[i] += B_r_CP @ A_IB_qe[i]
-        # J_P
-        B_r_CP_tilde = ax2skew(B_r_CP)
-        r_CP_tilde = A_IB @ B_r_CP_tilde
-        J_P[:, 3:6] = -(1 - alpha) * r_CP_tilde
-        J_P[:, 9:12] = -alpha * r_CP_tilde
-        # J_P_q
-        r_CP_tilde_q = np.zeros((3, 3, 14), dtype=float)
-        for i in range(3):
-            r_CP_tilde_q[i] = B_r_CP_tilde.T @ A_IB_qe[i]
-        J_P_q[:, 3:6] = -(1 - alpha) * r_CP_tilde_q
-        J_P_q[:, 9:12] = -alpha * r_CP_tilde_q
-    return r_OP, r_OP_qe, A_IB, A_IB_qe, J_P, J_P_q
+        if not hasattr(self, "visual_twin"):
+            self.visual_twin = VisualDiscreteRod(self)
+        self.visual_twin.update_visual_state(sol_i)
+        return self.visual_twin._ugrid
 
 
 def _h_node(u, B_Theta_C):
@@ -758,11 +881,9 @@ _p_dot_p_nodes = jit(vmap(_p_dot_p_node))
 
 
 def _la_c_el(B_gamma, B_kappa, Le, B_gamma0, B_kappa0, K_ga, K_ka):
-    # TODO: add damping
     B_n = K_ga @ (B_gamma - B_gamma0) * Le
     B_m = K_ka @ (B_kappa - B_kappa0) * Le
 
-    # TODO:add damping
     return jnp.concatenate([B_n, B_m])
 
 
@@ -774,7 +895,6 @@ def _W_c_el(A_IB, B_gamma, B_kappa, Le):
     s1 = 0.5 * Le * math_jax.ax2skew(B_gamma)
     s2 = 0.5 * Le * math_jax.ax2skew(B_kappa)
 
-    # TODO:add damping
     row1 = jnp.concatenate([A_IB, zeros3], axis=1)
     row2 = jnp.concatenate([s1, eye3 + s2], axis=1)
     row3 = jnp.concatenate([-A_IB, zeros3], axis=1)
@@ -813,7 +933,6 @@ def _c_el(B_gamma, B_kappa, la_c, Le, B_gamma0, B_kappa0, C_n, C_m):
     c_n = (C_n @ B_n - (B_gamma - B_gamma0)) * Le
     c_m = (C_m @ B_m - (B_kappa - B_kappa0)) * Le
 
-    # TODO:add damping
     return jnp.concatenate([c_n, c_m])
 
 

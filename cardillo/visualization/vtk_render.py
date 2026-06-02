@@ -1,5 +1,4 @@
 import numpy as np
-from abc import ABC, abstractmethod
 from time import perf_counter, sleep
 
 import vtk
@@ -10,26 +9,8 @@ from cardillo.solver.solution import Solution
 from cardillo import math_jax
 
 
-class _VisualTwinBase(ABC):
-    def __init__(self, contr, xi=None):
-        self.xi = xi
-        if hasattr(contr, "get_marker") and xi is not None:
-            mk = contr.get_marker(xi)
-            self.contr = mk
-        else:
-            self.contr = contr
-        self.actors = []
-        if not hasattr(contr, "visual_twins"):
-            contr.visual_twins = [self]
-        else:
-            contr.visual_twins.append(self)
 
-    @abstractmethod
-    def update_visual_state(self, sol_i):
-        pass
-
-
-class VisualDiscreteRod(_VisualTwinBase):
+class VisualDiscreteRod:
     def __init__(
         self,
         rod,
@@ -37,7 +18,10 @@ class VisualDiscreteRod(_VisualTwinBase):
         color=(82, 108, 164),
         opacity=1,
     ):
-        super().__init__(rod)
+        self.rod = rod
+        rod.visual_twin = self
+        self.actors = []
+
         nelement_visual = rod.nelement
         cross_section = rod.cross_section
 
@@ -141,7 +125,7 @@ class VisualDiscreteRod(_VisualTwinBase):
         self.control_pts = np.array(control_pts)
 
     def update_visual_state(self, sol_i):
-        rod = self.contr
+        rod = self.rod
         q_rod = sol_i.q[rod.qDOF]
         q_nodes = rod._view_nodal_q(q_rod)
         r_OC_nodes = q_nodes[:, :3]
@@ -160,276 +144,34 @@ class VisualDiscreteRod(_VisualTwinBase):
         self._strain[:, 3:] = B_kappa
 
 
-class _VisualvtkSource(_VisualTwinBase):
-    def __init__(
-        self,
-        contr,
-        xi,
-    ):
-        super().__init__(contr, xi)
-        self.H_IB = vtk.vtkMatrix4x4()
-        self.H_IB.Identity()
-        if isinstance(self.contr, CosseratRod_PetrovGalerkin):
-            self.N, self.N_xi = self.contr.basis_functions_r(xi)
+class VisualTendon:
+    def __init__(self, tendon, radius=1e-3, color=(0, 200, 50), opacity=1):
+        self.tendon = tendon
+        tendon.visual_twin = self
+        self.actors = []
 
-    def add_vtk_source(
-        self,
-        source,
-        A_BM=np.eye(3),
-        B_r_CP=np.zeros(3),
-        color=(255, 255, 255),
-        opacity=1,
-    ):
-
-        H_BM = np.block(
-            [
-                [A_BM, B_r_CP[:, None]],
-                [0, 0, 0, 1],
-            ]
-        )
-        _H_IB = vtk.vtkMatrixToLinearTransform()
-        _H_IB.SetInput(self.H_IB)
-        _H_IM = vtk.vtkTransform()
-        _H_IM.PostMultiply()
-        _H_IM.SetMatrix(H_BM.flatten())
-        _H_IM.Concatenate(_H_IB)
-        tf_filter = vtk.vtkTransformPolyDataFilter()
-        tf_filter.SetInputConnection(source.GetOutputPort())
-        tf_filter.SetTransform(_H_IM)
-
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(tf_filter.GetOutputPort())
-        actor = vtk.vtkActor()
-        actor.SetMapper(mapper)
-        actor.GetProperty().SetColor([c / 255 for c in color])
-        actor.GetProperty().SetOpacity(opacity)
-        self.actors.append(actor)
-
-    def update_visual_state(self, sol_i):
-        t, q = sol_i.t, sol_i.q[self.contr.qDOF]
-        xi = self.xi
-        if isinstance(self.contr, CosseratRod_PetrovGalerkin):
-            qe = q[self.contr.local_qDOF_P(xi)]
-            r_OP, A_IB, _, _ = self.contr._eval(qe, xi, self.N, self.N_xi)
-        else:
-            A_IB = self.contr.A_IB(t, q, xi)
-            r_OP = self.contr.r_OP(t, q, xi)
-        for i in range(3):
-            for j in range(3):
-                self.H_IB.SetElement(i, j, A_IB[i, j])
-            self.H_IB.SetElement(i, 3, r_OP[i])
-
-
-class VisualArUco(_VisualTwinBase):
-    def __init__(
-        self,
-        contr,
-        xi=None,
-        mk_size=0.04,
-        mk_dis=0.045,
-        A_BM=np.eye(3),
-        B_r_CP=np.zeros(3),
-        opacity=1,
-    ):
-        super().__init__(contr, xi)
-        if isinstance(self.contr, CosseratRod_PetrovGalerkin):
-            self.N, self.N_xi = self.contr.basis_functions_r(xi)
-        from cv2 import aruco
-
-        n_row = 2
-        n_col = 2
-        x0 = -mk_size / 2 - mk_dis / 2
-        y0 = -x0
-        h0 = 1e-4
-        aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_6X6_250)
-        quads_black = vtk.vtkCellArray()
-        quads_white = vtk.vtkCellArray()
-        points = vtk.vtkPoints()
-        for row in range(n_row):
-            for col in range(n_col):
-                id = row * n_col + col
-                qrcode = aruco_dict.generateImageMarker(id, aruco_dict.markerSize + 2)
-                bit_size = mk_size / (aruco_dict.markerSize + 2)
-
-                # Create a triangle
-                n_bits = qrcode.shape[0]
-                for i in range(n_bits + 1):
-                    for j in range(n_bits + 1):
-                        points.InsertNextPoint(
-                            x0 + col * mk_dis + j * bit_size,
-                            y0 - row * mk_dis - i * bit_size,
-                            h0,
-                        )
-
-                for i in range(n_bits):
-                    for j in range(n_bits):
-                        quad = vtk.vtkQuad()
-                        quad.GetPointIds().SetId(
-                            0, id * (n_bits + 1) ** 2 + i * (n_bits + 1) + j
-                        )
-                        quad.GetPointIds().SetId(
-                            1, id * (n_bits + 1) ** 2 + (i + 1) * (n_bits + 1) + j
-                        )
-                        quad.GetPointIds().SetId(
-                            2, id * (n_bits + 1) ** 2 + (i + 1) * (n_bits + 1) + j + 1
-                        )
-                        quad.GetPointIds().SetId(
-                            3, id * (n_bits + 1) ** 2 + i * (n_bits + 1) + j + 1
-                        )
-                        if qrcode[i, j] == 0:
-                            quads_black.InsertNextCell(quad)
-                        else:
-                            quads_white.InsertNextCell(quad)
-
-        self.H_IB = vtk.vtkMatrix4x4()
-        self.H_IB.Identity()
-        H_BM = np.block(
-            [
-                [A_BM, B_r_CP[:, None]],
-                [0, 0, 0, 1],
-            ]
-        )
-        _H_IB = vtk.vtkMatrixToLinearTransform()
-        _H_IB.SetInput(self.H_IB)
-        _H_IM = vtk.vtkTransform()
-        _H_IM.PostMultiply()
-        _H_IM.SetMatrix(H_BM.flatten())
-        _H_IM.Concatenate(_H_IB)
-
-        # qrcode
-        for triangles, color in zip(
-            [quads_black, quads_white], [(0, 0, 0), (255, 255, 255)]
-        ):
-            polydata = vtk.vtkPolyData()
-            polydata.SetPoints(points)
-            polydata.SetPolys(triangles)
-
-            filter = vtk.vtkTransformPolyDataFilter()
-            filter.SetInputData(polydata)
-            filter.SetTransform(_H_IM)
-            mapper = vtk.vtkPolyDataMapper()
-            mapper.SetInputConnection(filter.GetOutputPort())
-            actor = vtk.vtkActor()
-            actor.GetProperty().SetColor([c / 255 for c in color])
-            actor.GetProperty().SetOpacity(opacity)
-            actor.SetMapper(mapper)
-            self.actors.append(actor)
-            # subsystem.appendfilter.AddInputConnection(filter.GetOutputPort())
-
-    def update_visual_state(self, sol_i):
-        t, q = sol_i.t, sol_i.q[self.contr.qDOF]
-        xi = self.xi
-        if isinstance(self.contr, CosseratRod_PetrovGalerkin):
-            qe = q[self.contr.local_qDOF_P(xi)]
-            r_OP, A_IB, _, _ = self.contr._eval(qe, xi, self.N, self.N_xi)
-        else:
-            A_IB = self.contr.A_IB(t, q, xi)
-            r_OP = self.contr.r_OP(t, q, xi)
-        for i in range(3):
-            for j in range(3):
-                self.H_IB.SetElement(i, j, A_IB[i, j])
-            self.H_IB.SetElement(i, 3, r_OP[i])
-
-
-class VisualCylinder(_VisualvtkSource):
-    def __init__(
-        self,
-        contr,
-        radius,
-        height,
-        xi=None,
-        resolution=30,
-        A_BM=np.eye(3),
-        B_r_CP=np.zeros(3),
-        color=(255, 255, 255),
-        opacity=1,
-    ):
-        super().__init__(contr, xi)
-        source = vtk.vtkCylinderSource()
-        source.SetRadius(radius)
-        source.SetHeight(height)
-        source.SetResolution(resolution)
-        A_BM = A_BM @ np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]]).T
-        self.add_vtk_source(source, A_BM, B_r_CP, color, opacity)
-
-
-class VisualSTL(_VisualvtkSource):
-    def __init__(
-        self,
-        contr,
-        stl_file,
-        xi=None,
-        scale=1e-3,
-        A_BM=np.eye(3),
-        B_r_CP=np.zeros(3),
-        color=(255, 255, 255),
-        opacity=1,
-    ):
-        super().__init__(contr, xi)
-        source = vtk.vtkSTLReader()
-        source.SetFileName(stl_file)
-        source.Update()
-        self.add_vtk_source(source, A_BM * scale, B_r_CP, color, opacity)
-
-
-class VisualCoordSystem(_VisualvtkSource):
-    def __init__(
-        self,
-        contr,
-        length,
-        xi=None,
-        resolution=30,
-        A_BM=np.eye(3),
-        B_r_CP=np.zeros(3),
-        opacity=1,
-    ):
-        super().__init__(contr, xi)
-        source = vtk.vtkArrowSource()
-        source.SetTipResolution(resolution)
-        source.SetShaftResolution(resolution)
-        for i in range(3):
-            if i == 0:
-                color = (255, 0, 0)
-            elif i == 1:
-                A_BM = A_BM @ np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
-                color = (0, 255, 0)
-            elif i == 2:
-                A_BM = A_BM @ np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]])
-                color = (0, 0, 255)
-            self.add_vtk_source(source, A_BM * length, B_r_CP, color, opacity)
-
-
-class VisualTendon(_VisualTwinBase):
-    def __init__(self, tendon, radius=1e-3, color=(255, 255, 255), opacity=1):
-        super().__init__(tendon)
-        poly_data = vtk.vtkPolyData()
+        self._poly_data = vtk.vtkPolyData()
         # points
         npts = 2
-        ncon = len(self.contr.connectivity)
+        ncon = len(self.tendon.connectivity)
         self.vtkpoints = vtk.vtkPoints()
         self.vtkpoints.SetNumberOfPoints(npts * ncon)
-        poly_data.SetPoints(self.vtkpoints)
+        self._poly_data.SetPoints(self.vtkpoints)
 
         # cells
-        poly_data.Allocate(ncon)
+        self._poly_data.Allocate(ncon)
         for i in range(ncon):
-            poly_data.InsertNextCell(
+            self._poly_data.InsertNextCell(
                 vtk.VTK_LINE, npts, list(range(i * npts, (i + 1) * npts))
             )
 
-        tendon.export = (
-            lambda sol_i, **kwargs: self.update_visual_state(sol_i) or poly_data
-        )
-
         filter = vtk.vtkTubeFilter()
         filter.SetRadius(radius)
-        filter.SetInputData(poly_data)
+        filter.SetInputData(self._poly_data)
         filter.SetNumberOfSides(16)
 
         mapper = vtk.vtkDataSetMapper()
         mapper.SetInputConnection(filter.GetOutputPort())
-        # mapper = vtk.vtkPolyDataMapper()
-        # mapper.SetInputData(poly_data)
 
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
@@ -438,11 +180,11 @@ class VisualTendon(_VisualTwinBase):
         self.actors.append(actor)
 
     def update_visual_state(self, sol_i):
-        t, q = sol_i.t, sol_i.q[self.contr.qDOF]
+        t, q = sol_i.t, sol_i.q[self.tendon.qDOF]
         points = []
-        for j, k in self.contr.connectivity:
-            points.append(self.contr.r_OPk(t, q, j))
-            points.append(self.contr.r_OPk(t, q, k))
+        for j, k in self.tendon.connectivity:
+            points.append(self.tendon.r_OPk(t, q, j))
+            points.append(self.tendon.r_OPk(t, q, k))
         for i, p in enumerate(points):
             self.vtkpoints.SetPoint(i, p)
         self.vtkpoints.Modified()
@@ -458,24 +200,6 @@ class Plotter:
         self.interactor = vtk.vtkRenderWindowInteractor()
         self.window.SetInteractor(self.interactor)
 
-        # ground
-        # grid_size = 0.2
-        # plane = vtk.vtkPlaneSource()
-        # plane.SetOrigin(0, -grid_size, -grid_size)
-        # plane.SetPoint1(0, -grid_size, grid_size,)
-        # plane.SetPoint2(0, grid_size, -grid_size,)
-        # plane.SetXResolution(10)
-        # plane.SetYResolution(10)
-
-        # mapper = vtk.vtkPolyDataMapper()
-        # mapper.SetInputConnection(plane.GetOutputPort())
-
-        # actor = vtk.vtkActor()
-        # actor.SetMapper(mapper)
-        # actor.GetProperty().SetRepresentationToWireframe()
-        # actor.GetProperty().SetColor(0.6, 0.6, 0.6)
-        # self.ren.AddActor(actor)
-
         # camera
         self.cam_widget = vtk.vtkCameraOrientationWidget()
         self.cam_widget.SetParentRenderer(self.ren)
@@ -487,14 +211,8 @@ class Plotter:
         self.__visual_twins = []
         self.system = system
         for contr in system.contributions:
-            if hasattr(contr, "visual_twins"):
-                for twin in contr.visual_twins:
-                    self.__add_visual_twin(twin)
-            if hasattr(contr, "_markers"):
-                for marker in contr._markers.values():
-                    if hasattr(marker, "visual_twins"):
-                        for twin in marker.visual_twins:
-                            self.__add_visual_twin(twin)
+            if hasattr(contr, "visual_twin"):
+                self.__add_visual_twin(contr.visual_twin)
 
         self.__window_open = False
 
@@ -564,7 +282,7 @@ class Plotter:
         self.window.Render()
         self.interactor.ProcessEvents()
 
-    def __add_visual_twin(self, visual_twin: _VisualTwinBase):
+    def __add_visual_twin(self, visual_twin):
         if visual_twin not in self.__visual_twins:
             self.__visual_twins.append(visual_twin)
             for actor in visual_twin.actors:

@@ -12,9 +12,6 @@ def ax2skew(a: jnp.ndarray) -> jnp.ndarray:
     # fmt: on
 
 
-ax2skew_batch = jit(vmap(ax2skew))
-
-
 @jit
 def ax2skew_squared(a: jnp.ndarray) -> jnp.ndarray:
     """Computes the product of a skew-symmetric matrix with itself from a given axial vector."""

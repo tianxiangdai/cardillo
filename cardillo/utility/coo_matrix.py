@@ -4,7 +4,6 @@ from scipy.sparse._sputils import isshape, check_shape
 from scipy.sparse import spmatrix, sparray
 import numpy as np
 from numpy import tile, atleast_1d, arange, ndarray
-from array import array
 
 
 class CooMatrix:
@@ -52,10 +51,6 @@ class CooMatrix:
         self._data_index = {}
         self._value_type = {}
         self._scipy_coo = None
-
-    @property
-    def not_empty(self):
-        return self.data.shape[0] > 0
 
     def __setitem__(self, key, value):
         # None is returned by every function that does not return. Hence, we
@@ -107,10 +102,6 @@ class CooMatrix:
                 if not pre_allocate:
                     new_rows = rows[value.row]
                     new_cols = cols[value.col]
-                # TODO: benchmark
-                # self.data.fromlist(value.data.tolist())
-                # self.row.fromlist(rows[value.row].tolist())
-                # self.col.fromlist(cols[value.col].tolist())
             elif value_type == "sparse":
                 # assert value.shape == (len(rows), len(cols)), "inconsistent assignment"
 
@@ -121,10 +112,6 @@ class CooMatrix:
                 if not pre_allocate:
                     new_rows = rows[coo.row]
                     new_cols = cols[coo.col]
-                # TODO: benchmark
-                # self.data.fromlist(coo.data.tolist())
-                # self.row.fromlist(rows[coo.row].tolist())
-                # self.col.fromlist(cols[coo.col].tolist())
             elif value_type == "ndarray":
                 # convert to 2D numpy arrays
                 # value = atleast_2d(value)
@@ -154,14 +141,6 @@ class CooMatrix:
                         len(self.data) - len(new_data),
                         len(self.data),
                     )
-
-    def extend(self, matrix, DOF):
-        warnings.warn(
-            "Usage of `CooMatrix.extend` is deprecated. "
-            "You can simply index the object, e.g., coo[rows, cols] = value",
-            category=DeprecationWarning,
-        )
-        self[DOF[0], DOF[1]] = matrix
 
     def asformat(self, format, copy=False):
         """Return this matrix in the passed format.
@@ -262,71 +241,3 @@ class CooMatrix:
 
     def __rmul__(self, other):
         return self.__mul__(other)
-
-
-if __name__ == "__main__":
-    from profilehooks import profile
-    import numpy as np
-    from scipy.sparse import random
-
-    entries = 1
-    density = 1
-    local_size = 10
-    nlocal = 100
-
-    @profile(entries=entries)
-    def run_dense_matrix():
-        global_size = nlocal * local_size
-        coo = CooMatrix((global_size, global_size))
-
-        for i in range(nlocal):
-            dense = np.random.rand(local_size, local_size)
-            idx = np.arange(i * local_size, (i + 1) * local_size)
-            coo[idx, idx] = dense
-
-        return coo.tocsr()
-
-    @profile(entries=entries)
-    def run_dense_vector():
-        global_size = nlocal * local_size
-        coo = CooMatrix((global_size, global_size))
-
-        for i in range(nlocal):
-            dense = np.random.rand(local_size)
-            idx = np.arange(i * local_size, (i + 1) * local_size)
-            coo[idx, idx] = dense
-
-        return coo.tocsr()
-
-    @profile(entries=entries)
-    def run_scipy_sparse():
-        global_size = nlocal * local_size
-        coo = CooMatrix((global_size, global_size))
-
-        for i in range(nlocal):
-            dense = random(local_size, local_size, density=density)
-            idx = np.arange(i * local_size, (i + 1) * local_size)
-            coo[idx, idx] = dense
-
-        return coo.tocsr()
-
-    @profile(entries=entries)
-    def run_coo_sparse():
-        global_size = nlocal * local_size
-        coo = CooMatrix((global_size, global_size))
-
-        for i in range(nlocal):
-            dense = random(local_size, local_size, density=density)
-            dense_coo = CooMatrix((local_size, local_size))
-            dense_coo.data = array("d", dense.data)
-            dense_coo.row = array("I", dense.row)
-            dense_coo.col = array("I", dense.col)
-            idx = np.arange(i * local_size, (i + 1) * local_size)
-            coo[idx, idx] = dense_coo
-
-        return coo.tocsr()
-
-    run_dense_matrix()
-    run_dense_vector()
-    run_scipy_sparse()
-    run_coo_sparse()

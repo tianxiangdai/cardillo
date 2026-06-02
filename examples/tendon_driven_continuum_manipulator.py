@@ -70,33 +70,28 @@ if __name__ == "__main__":
     rc = RigidConnection(rod, system.origin, xi1=0)
 
     # ---- tendons ----
-    B_r_CP_lists = [
-        [
+    B_r_CP_list = [
             rod_A_IB0.T
             @ np.array(
                 [
-                    radius(xi) * np.cos(phi),
-                    radius(xi) * np.sin(phi),
+                    radius(xi) * np.cos(0),
+                    radius(xi) * np.sin(0),
                     0,
                 ]
             )
             for xi in np.linspace(
                 0, 1, rod_nelement + 1
-            )  # TODO: check why not converge without //2
+            )
         ]
-        for phi in np.linspace(0, 2 * np.pi, 1, endpoint=False)
-    ]
     tendons = []
-    for B_r_CP_list in B_r_CP_lists:
-        n = len(B_r_CP_list)
-        markers = [rod.get_marker(i / (n - 1)) for i in range(n)]
-        tendon = TendonForce(
-            subsystem_list=markers,
-            connectivity=[(i, i + 1) for i in range(n - 1)],
-            xi_list=[mk.xi for mk in markers],
-            B_r_CP_list=B_r_CP_list,
-        )
-        tendons.append(tendon)
+    n = len(B_r_CP_list)
+    tendon = TendonForce(
+        subsystem_list=[rod for _ in range(n)],
+        connectivity=[(i, i + 1) for i in range(n - 1)],
+        xi_list=[i/(n - 1) for i in range(n)],
+        B_r_CP_list=B_r_CP_list,
+    )
+    tendons.append(tendon)
 
     # tendons[1].la = lambda t: 50 * (1 + np.sin(2 * np.pi * t / T + np.pi)) / 2
     # tendons[1].la = lambda t: t * 1.5

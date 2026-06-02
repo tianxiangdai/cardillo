@@ -14,10 +14,9 @@ from cardillo.rods import CircularCrossSection
 from cardillo.rods.discreteRod import DiscreteRod
 
 if __name__ == "__main__":
-    nelements = 600
     slenderness = 1e2
     n_load_steps = 10
-    VTK_export = False
+    VTK_eqxport = False
 
     name = "helix"
     n_coil = 2
@@ -98,7 +97,7 @@ if __name__ == "__main__":
         ################
         Fi = np.array([G, E, E]) * cross_section.second_moment(0).diagonal()
         M = lambda t: (c * e1 * Fi[0] + e3 * Fi[2]) / (R0 * (1 + c**2)) * t
-        moment = B_Moment(M, rod.get_marker(1), 1)
+        moment = B_Moment(M, rod, 1)
         system.add(moment)
 
         # assemble system
@@ -139,8 +138,6 @@ if __name__ == "__main__":
 
         r_OCs = q[-1, rod.qDOF].reshape((-1, 7), order="C")[:, :3]
 
-        from mpl_toolkits.mplot3d import Axes3D
-
         def r_OC_ref(xi):
             if xi <= 2 / 3:
                 r = R0 * np.array(
@@ -178,18 +175,7 @@ if __name__ == "__main__":
             np.linalg.norm(list_diff_r_OC[:, 1], axis=1),
         ]
     )
-    dir_name = Path(sys.argv[0]).parent
-    # np.savetxt(
-    #     dir_name / ".." / "latex src" / "figures" / "data_double_helix.csv",
-    #     data,
-    #     delimiter=",",
-    #     header="nnodes,err_pos_mid,err_pos_tip",
-    #     comments="",
-    # )
-    # plt.show()
-    # exit()
-    # plt.plot(rod.xi_node[[nelements*2//3, nelements]], np.linalg.norm(diff_r_OC[[nelements*2//3, nelements], :2], axis=1),"xr")
-    # plt.legend([1,2,3])
+
 
     fig = plt.figure()
     ax1 = fig.add_subplot(1, 1, 1, projection="3d")
@@ -209,15 +195,6 @@ if __name__ == "__main__":
     # Export for pgfplots
     n = la_c.shape[0]
     indices = np.arange(1, n + 1)
-    data = np.column_stack([indices, la_c[:, 3], la_c[:, 5]])
-    dir_name = Path(sys.argv[0]).parent
-    # np.savetxt(
-    #     dir_name / ".." / "latex src" / "figures" / "data_double_helix.csv",
-    #     data,
-    #     delimiter=",",
-    #     header="index,m1,m3",
-    #     comments="",
-    # )
 
     fig = plt.figure()
     axes = fig.subplots(2, 1, sharex=True)

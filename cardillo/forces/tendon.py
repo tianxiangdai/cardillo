@@ -3,6 +3,8 @@ from ..math import norm, outer3
 from ..utility.coo_matrix import CooMatrix
 from ..utility.cachetools import MyLRUCache
 
+from ..visualization import VisualTendon
+
 
 class TendonForce:
     def __init__(
@@ -206,3 +208,9 @@ class TendonForce:
 
     def set_force(self, force):
         self.la = force if callable(force) else lambda t: force
+
+    def export(self, sol_i, **kwargs):
+        if not hasattr(self, "visual_twin"):
+            self.visual_twin = VisualTendon(self, radius=1e-3, color=(0, 200, 50))
+        self.visual_twin.update_visual_state(sol_i)
+        return self.visual_twin._poly_data
